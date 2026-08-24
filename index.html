@@ -41,8 +41,16 @@
   <section class="panel" data-tab="chart">
     <div class="meta-bar" id="metaBar"></div>
     <div class="legend" id="legend"></div>
-    <div class="chart-wrap">
+    <div class="chart-wrap" id="chartWrap" tabindex="0" aria-label="Sankey 圖檢視區：滾輪縮放、拖曳平移">
       <div id="chart" class="chart"></div>
+      <div class="zoom-ctl" id="zoomCtl" hidden>
+        <button class="btn zbtn" id="zoomOut" title="縮小（−）" aria-label="縮小">−</button>
+        <button class="btn zbtn zpct" id="zoomPct" title="回到原始大小 1:1" aria-label="目前縮放比例">100%</button>
+        <button class="btn zbtn" id="zoomIn" title="放大（＋）" aria-label="放大">＋</button>
+        <button class="btn" id="zoomFit" title="符合視窗（0）">符合視窗</button>
+        <button class="btn" id="zoomOne" title="原始大小（1）">1:1</button>
+        <button class="btn" id="chartFocus" title="專注模式（F；Esc 離開）">專注</button>
+      </div>
     </div>
     <div id="hopSummary" class="summary"></div>
   </section>
@@ -142,13 +150,14 @@ python3 tools/trace_sankey.py trace.json --plotly out.html</pre>
 <div id="dropHint" class="drop-hint" hidden><div class="drop-box">把追查 JSON 放開，就畫這一份</div></div>
 
 <footer class="foot">
-  <span>不登入、不進資料庫、不抓 counter、不掃網。檔案只在瀏覽器裡讀。分頁與範例狀態都在 query string：<code>?sample=&amp;tab=</code></span>
+  <span>不登入、不進資料庫、不抓 counter、不掃網。檔案只在瀏覽器裡讀。分頁與範例狀態都在 query string：<code>?sample=&amp;tab=</code>。圖可以滾輪縮放、拖曳平移（縮放不進網址）。</span>
   <noscript class="noscript">JS 沒載入時，範例與分頁還是能切（都是真的連結）；開檔、拖放、JSON 編輯器需要 JS。</noscript>
 </footer>
 
 <script src="assets/js/samples.js"></script>
 <script src="assets/js/model.js"></script>
 <script src="assets/js/render.js"></script>
+<script src="assets/js/zoom.js"></script>
 <script src="assets/js/exports.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
