@@ -1,35 +1,216 @@
 # Interface Increment 追查 Sankey
 
-追一台 switch 的 interface increment：一跳可能有多條 uplink，所以下游看到的 out 增加
+讀入一份規範格式的追查 JSON，畫成守恆的 Sankey。
+
+追一台 switch 的 interface increment 時，一跳可能有多條 uplink，所以下游看到的 out 增加
 可以大於你剛追進來的那一條 in（A→B 10G，B→C 20G）。這個工具把那個現象畫出來，
 但不會暗示流量是這台 switch 憑空生出來的——多出來的量一律用「其他輸入／其他輸出」補齊，
 讓圖在視覺上守恆。
 
-不做的事：不自動偵測 switch／counter、不掃網、沒有帳號與資料庫、不把追來源畫成整張圖左右鏡射。
+只有一種讀圖方式：**平衡 Sankey**。圖上的帶寬一律是實際 increment，
+「有多少能歸因到追查起點」是圖外數字（hop 摘要表格的「可歸因」欄、帶子的 tooltip），
+不另外做一張只畫貢獻的圖。
 
-## 跑起來
+不做的事：不自動偵測 switch／counter、不掃網、沒有帳號與資料庫、不上傳你的 JSON、
+不把追來源畫成整張圖左右鏡射。
 
-純靜態，沒有 build step。
+## 快速開始
+
+純靜態，沒有 build step，只需要 `python3`。
 
 ```bash
-cd sankey-trace
-python3 -m http.server 8765
-# http://127.0.0.1:8765/index.html
+git clone <repo> && cd sankey-trace
+
+make serve                    # http://127.0.0.1:8765/index.html
+make open                     # 順便開瀏覽器
+make demo                     # 不開 server，直接 file:// 開，離線可用
+make draw FILE=my-trace.json  # 不開瀏覽器，CLI 文字報告
+make help                     # 所有 target
 ```
 
-直接用瀏覽器開 `index.html`（file://）也可以：全部是傳統 `<script>`，沒有 module、沒有 fetch。
+沒有 `make` 也行：
 
-狀態都在 query string，控制項是真的 `<a href>`，前端 JS 沒載入也能靠連結切換：
+```bash
+python3 -m http.server 8765 --bind 127.0.0.1
+# 或直接用瀏覽器開 index.html（file://）
+```
+
+`file://` 也能用：全部是傳統 `<script>`，沒有 module、沒有 `fetch`。
+
+### 三條載入路徑
+
+| 方式 | 怎麼做 |
+| --- | --- |
+| 開檔 | 按「開啟 JSON 檔…」，選一份 `.json` |
+| 拖放 | 把 `.json` 拖進頁面，放開就畫 |
+| 範例 | 點「範例展示」的 chip，看內建示範資料 |
+
+載入的檔案只在瀏覽器裡讀（`FileReader`），不會送到任何地方。內容存在 `localStorage`，
+重新整理還在；按 JSON 分頁的「還原範例」就清掉。
+
+分頁與範例狀態在 query string，控制項是真的 `<a href>`：
 
 ```
-index.html?sample=campus&mode=balanced&tab=chart
+index.html?sample=campus&tab=chart
 ```
 
 | 參數 | 值 |
 | --- | --- |
-| `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s`（`custom` = 編輯器套用的） |
-| `mode` | `balanced`（預設）`contribution` `raw` |
+| `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s`（`custom` = 你載入的那份） |
 | `tab` | `chart` `json` `mermaid-sankey` `mermaid-flow` `notes` |
+
+## 輸入 JSON 規格
+
+單位一律是 **bps**（10 Gbps 寫成 `10000000000`）。網頁與 CLI 吃同一份契約。
+
+### 頂層
+
+| 欄位 | 型別 | 必填 | 說明 |
+| --- | --- | --- | --- |
+| `investigation` | object | ✔ | 你看到增加的那個 counter |
+| `hops` | array | ✔ | 非空。每一跳一筆；同一台 switch 可以出現多次 |
+| `kind` | `"destination"` \| `"source"` | | 追查方向。沒給就看 `investigation.direction`，再沒給就當 `destination` |
+| `pruning` | object | | 只是註記你當初怎麼截斷的，會顯示在圖上方；工具本身不會幫你截斷 |
+
+### `investigation`
+
+| 欄位 | 型別 | 必填 | 說明 |
+| --- | --- | --- | --- |
+| `switchId` | string | ✔ | 必須在 `hops` 裡找得到同一個 `switchId` |
+| `iface` | string | ✔ | 你看到增加的那條 interface |
+| `deltaBps` | number > 0 | ✔ | increment，bps |
+| `direction` | `"in"` \| `"out"` | | `in` = 追終點，`out` = 追來源。`kind` 優先 |
+| `note` | string | | 一句話備註，顯示在 CLI 報告 |
+
+### `pruning`
+
+| 欄位 | 型別 | 說明 |
+| --- | --- | --- |
+| `topN` | number | 你每層只跟了前幾名 |
+| `minShare` | number 0–1 | 你每層的佔比門檻，`0.1` = 10% |
+
+### `hops[]`
+
+| 欄位 | 型別 | 必填 | 說明 |
+| --- | --- | --- | --- |
+| `switchId` | string | ✔ | 合併鍵。同一個 id 出現多次會**合併成一個盒子**，不畫成兩台 |
+| `label` | string | | 顯示名稱，沒給就用 `switchId` |
+| `role` | `"switch"` \| `"node"` \| `"pod"` | | `node` 畫成虛線盒（k8s node），預設 `switch` |
+| `inputIface` | string | 追終點 | 流量從哪條進這台 |
+| `outputs` | array of port | 追終點 | 跟下去的出口 |
+| `outputIface` | string | 追來源 | 流量從哪條出這台 |
+| `inputs` | array of port | 追來源 | 往回追的入口 |
+| `otherInBps` | number | | 顯式的其他輸入。不給就由平衡式補 |
+| `otherOutBps` | number | | 顯式的其他輸出。不給就由平衡式補 |
+
+### port（`outputs[]` / `inputs[]` 的元素）
+
+| 欄位 | 型別 | 必填 | 說明 |
+| --- | --- | --- | --- |
+| `iface` | string | ✔ | 本機這一側的 interface |
+| `deltaBps` | number ≥ 0 | ✔ | 這條的 increment，bps |
+| `peerSwitchId` | string | | 對端 switch／node 的 id |
+| `peerId` | string | | 對端不是 switch 時用（host / router / pod） |
+| `peerIface` | string | | 對端那一側的 interface |
+| `peerKind` | string | | `switch` / `node` / `pod` / `host` / `router`；`pod` 會畫成 pod 葉節點 |
+| `namespace` | string | | `peerKind: "pod"` 時顯示 `ns/<namespace>` |
+
+對端接不接下去，看的是 `peerSwitchId`（沒有就看 `peerId`）**在 `hops` 裡有沒有同 id 的那一跳**：
+有就接成下一台，沒有就畫成灰色「追查終止」小卡。
+
+### 追終點（destination）
+
+```json
+{
+  "kind": "destination",
+  "investigation": {
+    "switchId": "sw-edge-a", "iface": "xe-0/0/1",
+    "direction": "in", "deltaBps": 10000000000
+  },
+  "pruning": { "topN": 3, "minShare": 0.1 },
+  "hops": [
+    {
+      "switchId": "sw-edge-a", "label": "Edge A", "role": "switch",
+      "inputIface": "xe-0/0/1",
+      "outputs": [
+        { "iface": "et-0/0/48", "deltaBps": 20000000000,
+          "peerKind": "switch", "peerSwitchId": "sw-core-1", "peerIface": "et-1/0/1" }
+      ]
+    },
+    {
+      "switchId": "sw-core-1", "label": "Core 1", "role": "switch",
+      "inputIface": "et-1/0/1",
+      "outputs": [
+        { "iface": "et-1/0/9", "deltaBps": 20000000000,
+          "peerKind": "host", "peerId": "srv-db-07", "peerIface": "eno1" }
+      ]
+    }
+  ]
+}
+```
+
+Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「其他輸入」。
+
+### 追來源（source）
+
+```json
+{
+  "kind": "source",
+  "investigation": {
+    "switchId": "sw-core-1", "iface": "et-1/0/9",
+    "direction": "out", "deltaBps": 20000000000
+  },
+  "hops": [
+    {
+      "switchId": "sw-core-1", "label": "Core 1", "outputIface": "et-1/0/9",
+      "inputs": [
+        { "iface": "et-1/0/1", "deltaBps": 12000000000,
+          "peerKind": "switch", "peerSwitchId": "sw-edge-a", "peerIface": "et-0/0/48" }
+      ]
+    },
+    {
+      "switchId": "sw-edge-a", "label": "Edge A", "outputIface": "et-0/0/48",
+      "otherInBps": 2000000000,
+      "inputs": [
+        { "iface": "xe-0/0/1", "deltaBps": 7000000000,
+          "peerKind": "host", "peerId": "lab-gpu-01", "peerIface": "eno1" }
+      ]
+    }
+  ]
+}
+```
+
+`samples/` 底下是網頁上那六個範例的 JSON，可以直接拿來改。
+
+### 驗證錯誤對照
+
+載入失敗時會直接印出這些訊息，照著改欄位就好：
+
+| 訊息 | 意思 |
+| --- | --- |
+| 最外層必須是 JSON 物件。 | 檔案最外面是陣列或字串 |
+| 缺少 investigation。 | 沒有 `investigation` 這個 key |
+| investigation.switchId 必填。 | 沒給、或給了空字串 |
+| investigation.iface 必填。 | 同上 |
+| investigation.deltaBps 必須是正數（bps）。 | 不是數字、是 0、或是負數；別寫成 `"10G"` |
+| investigation.direction 只能是 "in" 或 "out"。 | 拼錯，例如寫成 `"input"` |
+| kind 只能是 "destination" 或 "source"。 | 拼錯 |
+| hops 必須是非空陣列。 | `hops` 不是陣列，或是空的 `[]` |
+| hops[i] 不是物件。 | 陣列裡混了字串或數字 |
+| hops[i].switchId 必填。 | 那一跳沒給 id，就沒得合併 |
+| hops[i].outputs 必須是陣列。 | 給了單一物件，忘了包 `[]` |
+| hops[i].outputs[j] 不是物件。 | port 陣列裡混了別的東西 |
+| hops[i].outputs[j].iface 必填。 | port 沒給 interface 名 |
+| hops[i].outputs[j].deltaBps 必須是非負數。 | port 的量不是數字或是負數 |
+| investigation.switchId「X」在 hops 裡找不到。 | 起點那台沒有出現在 `hops`，通常是 id 打錯或大小寫不一致 |
+
+（`inputs` 的訊息一樣，只是把 `outputs` 換成 `inputs`。）
+
+另外有三種**警告**，不會擋著不畫，會列在圖下方：
+
+- `顯式的 otherInBps/otherOutBps 對不上` — 兩個都給了但湊不出平衡式，圖照你給的顯式值畫
+- `宣告的對端 X 與 Y 的 inputIface 對不上` — 上一跳說接到某個 iface，下一跳的 `inputIface` 不是它
+- `拓樸疑似有環` — hops 兜出了環，欄位順序會不準
 
 ## 追查方向
 
@@ -45,7 +226,7 @@ index.html?sample=campus&mode=balanced&tab=chart
 
 ## 守恆與殘差
 
-每層只跟前 N 名或佔比 ≥ 門檻（預設概念是前 3 名 / ≥ 10%）時：
+每層只跟前 N 名或佔比 ≥ 門檻（例如前 3 名 / ≥ 10%）時：
 
 - **其他輸出**（玫瑰）：這層 focus 增加量裡，沒跟下去的 port（截斷、太小、已滿 N 名）
 - **其他輸入**（琥珀）：跟下去的出口／入口總量比剛追進來那條更大（別的上聯、沒追的來源）
@@ -56,8 +237,8 @@ index.html?sample=campus&mode=balanced&tab=chart
 已知 in + 其他輸入 = 已追查 out + 其他輸出
 ```
 
-JSON 可以顯式給 `otherInBps` / `otherOutBps`；沒給時由平衡式補缺口。兩個都給又對不上，
-圖照顯式值畫並在摘要下方出警告。
+`otherInBps` / `otherOutBps` **不給就由平衡式自動補缺口**，所以最少只要填實際跟到的 port 就會守恆。
+兩個都給又對不上，圖照顯式值畫並在摘要下方出警告。
 
 ## 畫法（目前生效的定案）
 
@@ -71,70 +252,32 @@ JSON 可以顯式給 `otherInBps` / `otherOutBps`；沒給時由平衡式補缺�
   node 用同一套截斷，沒跟的 pod 併成該 node 的其他輸出。
 - hop 數字摘要放圖下方，是圖外資訊，不是盒子內標籤。
 
-## 三種讀圖模式
-
-| 模式 | 用途 |
-| --- | --- |
-| 平衡 Sankey（預設） | 實際量 ＋ 其他進／出，圖會守恆 |
-| 只看貢獻 | 只留能歸因到追查起點的量；截斷的其他進／出會消失 |
-| 原始實際量 | 不補缺口，只畫有跟下去的 interface，用來對照 counter |
-
-## 追查 JSON
-
-必要：
-
-- `investigation`：`switchId`、`iface`、`direction`、`deltaBps`（bps）
-- `hops`：非空陣列，每筆要有 `switchId`
-
-選填：
-
-- `kind`、`pruning.topN`、`pruning.minShare`
-- hop：`label`、`role`（`switch` / `node` / `pod`）、`otherInBps`、`otherOutBps`
-- port：`iface`、`deltaBps`、`peerKind`、`peerId` / `peerSwitchId`、`peerIface`、`namespace`
-
-```json
-{
-  "kind": "destination",
-  "investigation": { "switchId": "sw-edge-a", "iface": "xe-0/0/1", "direction": "in", "deltaBps": 10000000000 },
-  "pruning": { "topN": 3, "minShare": 0.1 },
-  "hops": [
-    {
-      "switchId": "sw-edge-a", "label": "Edge A", "inputIface": "xe-0/0/1",
-      "outputs": [
-        { "iface": "et-0/0/48", "deltaBps": 20000000000,
-          "peerKind": "switch", "peerSwitchId": "sw-core-1", "peerIface": "et-1/0/1" }
-      ]
-    }
-  ]
-}
-```
-
-`samples/` 底下是網頁上那六個範例的 JSON，CLI 可以直接吃。
-
 ## CLI
 
 `tools/trace_sankey.py`：先算 residual 再畫／印。純文字離線可用；本機裝了 plotly 就能出互動 HTML。
 
 ```bash
-python3 tools/trace_sankey.py samples/classic.json
-python3 tools/trace_sankey.py samples/source.json --mode contribution
-python3 tools/trace_sankey.py samples/k8s.json --mermaid sankey
-python3 tools/trace_sankey.py samples/campus.json --mermaid flow
-python3 tools/trace_sankey.py samples/pruned.json --json
-python3 tools/trace_sankey.py trace.json --plotly out.html      # 需要 plotly
-cat trace.json | python3 tools/trace_sankey.py - --mode raw
+make draw    FILE=samples/classic.json          # python3 tools/trace_sankey.py samples/classic.json
+make mermaid FILE=samples/k8s.json KIND=sankey  # ... --mermaid sankey
+make mermaid FILE=samples/campus.json KIND=flow # ... --mermaid flow
+make html    FILE=trace.json OUT=out.html       # ... --plotly out.html（需要 plotly）
+make check                                      # 所有 samples 跑一次
+
+python3 tools/trace_sankey.py samples/pruned.json --json   # 印算好的模型
+cat trace.json | python3 tools/trace_sankey.py -           # 吃 stdin
 ```
 
 ## 檔案
 
 ```
+Makefile                   跑起來與驗證的入口（make help）
 index.html                 版面與五個分頁
 assets/css/app.css
-assets/js/samples.js       六個範例（純資料）
+assets/js/samples.js       六個內建範例（純資料）
 assets/js/model.js         驗證、合併 hop、算殘差與可歸因量
 assets/js/render.js        SVG Sankey、殘差短虛線、終止小卡、hop 摘要
 assets/js/exports.js       Mermaid sankey-beta / flowchart
-assets/js/app.js           query string、分頁、JSON 編輯器、tooltip
-samples/*.json             範例 JSON（CLI 用）
+assets/js/app.js           query string、分頁、開檔／拖放、JSON 編輯器、tooltip
+samples/*.json             範例 JSON（CLI 也吃同一份）
 tools/trace_sankey.py      CLI：文字報告 / Mermaid / plotly
 ```
