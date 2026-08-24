@@ -1,6 +1,10 @@
 /* 匯出：Mermaid sankey-beta 與 flowchart。 */
 (function (global) {
   'use strict';
+  /* 跟圖上同一個門檻（render.js 的 resIn/resOut）：小於 counter 浮點雜訊的殘差不輸出，
+     免得 Mermaid 長出一堆圖上看不到的 +2 bps 節點。 */
+  function resIn(n) { return n.otherIn > (n.resEps || 0) ? n.otherIn : 0; }
+  function resOut(n) { return n.otherOut > (n.resEps || 0) ? n.otherOut : 0; }
   var G = global.TraceModel.gbps, F = global.TraceModel.fmtBps;
 
   function q(s) {
@@ -25,8 +29,8 @@
     });
     model.nodes.forEach(function (n) {
       if (n.kind !== 'node') return;
-      if (n.otherIn > 0) L.push(q('其他輸入 · ' + n.label) + ',' + q(n.label) + ',' + G(n.otherIn));
-      if (n.otherOut > 0) L.push(q(n.label) + ',' + q('其他輸出 · ' + n.label) + ',' + G(n.otherOut));
+      if (resIn(n)) L.push(q('其他輸入 · ' + n.label) + ',' + q(n.label) + ',' + G(n.otherIn));
+      if (resOut(n)) L.push(q(n.label) + ',' + q('其他輸出 · ' + n.label) + ',' + G(n.otherOut));
     });
     return L.join('\n');
   }
@@ -56,11 +60,11 @@
     });
     model.nodes.forEach(function (n) {
       if (n.kind !== 'node') return;
-      if (n.otherIn > 0) {
+      if (resIn(n)) {
         L.push('  oi_' + id(n.id) + '(["其他輸入<br/>+' + F(n.otherIn) + '"]):::otherin');
         L.push('  oi_' + id(n.id) + ' -.-> ' + id(n.id));
       }
-      if (n.otherOut > 0) {
+      if (resOut(n)) {
         L.push('  oo_' + id(n.id) + '(["其他輸出<br/>' + F(n.otherOut) + '<br/>截斷"]):::otherout');
         L.push('  ' + id(n.id) + ' -.-> oo_' + id(n.id));
       }

@@ -264,8 +264,14 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 
 - 青色長帶＝有跟下去的 uplink／追查路徑，帶寬用實際 increment。
 - 殘差不進走廊：不畫成穿越別台的長色帶，也不做盒子內底部 chips。
-- 殘差貼在該台外側短虛線：其他輸入在左、其他輸出在右；虛線高度固定不跟 Gbps 等比放大，
-  標籤與數量寫在虛線旁。
+- 殘差貼在該台外側的虛線色塊：其他輸入在左、其他輸出在右；**高度跟 Gbps 等比，
+  跟青帶共用同一把比例尺**（`maxVal` 也把殘差算進去），標籤與數量寫在色塊旁。
+  這樣「有追查」跟「沒追查」的比例一眼看得出來。
+- 殘差是盒子左右 port 疊裡的**真槽位**，跟已追查 port 一起排版。同一台左右兩側的
+  **色塊厚度總和完全相等**（守恆等式保證）；但每一列有 24px 最小高度、列間 9px 間距，
+  所以**兩疊的總高度不會剛好一樣**——守恆看色塊厚度，不是看疊起來的總高度。
+- 小於該台自己讀數誤差（`max(已知 in, 已追查 out) × 0.5% + 1 bps`）的殘差不畫，
+  免得浮點雜訊在圖上長出一塊。圖、hop 摘要、Mermaid 用同一個門檻。
 - 盒子裡只畫已追查 port，殘差不用斜線填滿整台 switch。
 - 追查終止葉節點是灰色虛線小卡（「追查終止」「未再往下追」＋ iface ＋ 帶寬），不是又一台 switch。
 - k8s 接在同一條 Sankey 上：switch → node（虛線盒）→ pod（葉，標 namespace/name）。
@@ -297,7 +303,7 @@ index.html                 版面與五個分頁
 assets/css/app.css
 assets/js/samples.js       六個內建範例（純資料）
 assets/js/model.js         驗證、合併 hop、算殘差與可歸因量
-assets/js/render.js        SVG Sankey、殘差短虛線、終止小卡、hop 摘要
+assets/js/render.js        SVG Sankey、等比殘差色塊、終止小卡、hop 摘要
 assets/js/zoom.js          圖的縮放與平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
 assets/js/exports.js       Mermaid sankey-beta / flowchart
 assets/js/app.js           query string、分頁、開檔／拖放、JSON 編輯器、tooltip、

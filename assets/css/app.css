@@ -70,8 +70,9 @@ main{padding:18px 20px 60px;max-width:1880px;margin:0 auto}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:22px;height:9px;border-radius:2px;display:inline-block}
 .lg-cyan{background:linear-gradient(90deg,var(--cyan),var(--cyan-d))}
-.lg-amber{height:0!important;border-top:2px dashed var(--amber)}
-.lg-rose{height:0!important;border-top:2px dashed var(--rose)}
+/* 殘差現在跟帶寬等比，legend 不能再用零高度的虛線（那本來就是「不等比」的訊號） */
+.lg-amber{background:rgba(245,158,11,.16);border:1.4px dashed var(--amber)}
+.lg-rose{background:rgba(251,113,133,.16);border:1.4px dashed var(--rose)}
 .lg-gray{height:0!important;border-top:2px dashed var(--gray)}
 .chart-wrap{position:relative;border:1px solid var(--line);border-radius:var(--radius);
   background:radial-gradient(1200px 500px at 20% -10%,#12202e,transparent),var(--panel);
