@@ -5,11 +5,16 @@ Reads a trace JSON (same contract as the web app), merges hops that belong to
 the same switch, solves the per-hop residual so the picture conserves flow, and
 then prints a text report, emits Mermaid, or renders an interactive Plotly page.
 
-Balance per hop:  known in + other in  ==  traced out + other out
+Bandwidths are always the actual increment; the gap is carried by per-hop
+other-in / other-out, so every hop balances:
+
+    known in + other in  ==  traced out + other out
+
+How much of that is attributable to the investigated counter is reported as a
+number next to the graph, never as a second set of bandwidths.
 
 Usage:
     python3 tools/trace_sankey.py samples/classic.json
-    python3 tools/trace_sankey.py trace.json --mode contribution
     python3 tools/trace_sankey.py trace.json --mermaid sankey
     python3 tools/trace_sankey.py trace.json --plotly out.html
 """
@@ -21,9 +26,6 @@ import json
 import sys
 from dataclasses import dataclass, field
 from typing import Any
-
-MODES = ("balanced", "contribution", "raw")
-
 
 # --------------------------------------------------------------------------- #
 # formatting
@@ -313,9 +315,6 @@ class Trace:
                     e.attr = got * (e.bps / denom) if denom > 0 else 0.0
 
     # -- helpers ------------------------------------------------------------- #
-    def value(self, e: Edge, mode: str) -> float:
-        return e.attr if mode == "contribution" else e.bps
-
     def hop_nodes(self) -> list[Node]:
         return sorted((n for n in self.nodes.values() if n.kind == "node"), key=lambda n: n.col)
 
@@ -323,7 +322,7 @@ class Trace:
 # --------------------------------------------------------------------------- #
 # text report
 # --------------------------------------------------------------------------- #
-def report(t: Trace, mode: str) -> str:
+def report(t: Trace) -> str:
     inv = t.inv
     side = "in" if t.dir == "destination" else "out"
     pin = "leftmost" if t.dir == "destination" else "rightmost"
@@ -337,7 +336,6 @@ def report(t: Trace, mode: str) -> str:
     pr = t.pruning
     if pr:
         L.append(f"prune: topN={pr.get('topN', '-')} minShare={pr.get('minShare', '-')}")
-    L.append(f"mode : {mode}")
     L.append("=" * 74)
 
     for n in t.hop_nodes():
@@ -352,8 +350,8 @@ def report(t: Trace, mode: str) -> str:
         for e in n.in_edges:
             peer = t.nodes[e.from_id]
             note = "  [investigated counter]" if peer.kind == "anchor" else ""
-            L.append(f"      <- {e.to_iface:<14} {fmt_bps(t.value(e, mode)):>12}  from {peer.label}{note}")
-        if mode == "balanced" and n.other_in > 0:
+            L.append(f"      <- {e.to_iface:<14} {fmt_bps(e.bps):>12}  from {peer.label}{note}")
+        if n.other_in > 0:
             L.append(f"      +  other in     {fmt_bps(n.other_in):>12}  (other uplinks / untraced sources)")
 
         tag_out = "  <- investigated counter" if (t.dir == "source" and n.is_root) else ""
@@ -366,12 +364,12 @@ def report(t: Trace, mode: str) -> str:
             elif peer.kind == "anchor":
                 note = "  [investigated counter]"
             ns = f" ns/{peer.namespace}" if peer.namespace else ""
-            L.append(f"      -> {e.from_iface:<14} {fmt_bps(t.value(e, mode)):>12}  to {peer.label}{ns}{note}")
-        if mode == "balanced" and n.other_out > 0:
+            L.append(f"      -> {e.from_iface:<14} {fmt_bps(e.bps):>12}  to {peer.label}{ns}{note}")
+        if n.other_out > 0:
             L.append(f"      +  other out    {fmt_bps(n.other_out):>12}  (pruned / too small / over topN)")
 
-        bal_l = n.traced_in + (n.other_in if mode == "balanced" else 0)
-        bal_r = n.traced_out + (n.other_out if mode == "balanced" else 0)
+        bal_l = n.traced_in + n.other_in
+        bal_r = n.traced_out + n.other_out
         L.append(f"    balance      {fmt_bps(bal_l)} in  ==  {fmt_bps(bal_r)} out")
         L.append(f"    attributable {fmt_bps(n.attr_out if t.dir == 'destination' else n.attr_in)}"
                  f"  (of the traced {anchored} increment)")
@@ -406,24 +404,23 @@ def _name(t: Trace, n: Node) -> str:
     return n.label
 
 
-def mermaid_sankey(t: Trace, mode: str) -> str:
+def mermaid_sankey(t: Trace) -> str:
     L = ["---", "config:", "  sankey:", "    showValues: true", "---", "sankey-beta", "",
          "%% values in Gbps; residual carried by per-hop other-in / other-out nodes"]
     for e in t.edges:
-        v = gbps(t.value(e, mode))
+        v = gbps(e.bps)
         if v <= 0:
             continue
         L.append(f"{_q(_name(t, t.nodes[e.from_id]))},{_q(_name(t, t.nodes[e.to_id]))},{v}")
-    if mode == "balanced":
-        for n in t.hop_nodes():
-            if n.other_in > 0:
-                L.append(f"{_q('other in - ' + n.label)},{_q(n.label)},{gbps(n.other_in)}")
-            if n.other_out > 0:
-                L.append(f"{_q(n.label)},{_q('other out - ' + n.label)},{gbps(n.other_out)}")
+    for n in t.hop_nodes():
+        if n.other_in > 0:
+            L.append(f"{_q('other in - ' + n.label)},{_q(n.label)},{gbps(n.other_in)}")
+        if n.other_out > 0:
+            L.append(f"{_q(n.label)},{_q('other out - ' + n.label)},{gbps(n.other_out)}")
     return "\n".join(L)
 
 
-def mermaid_flow(t: Trace, mode: str) -> str:
+def mermaid_flow(t: Trace) -> str:
     def nid(s: str) -> str:
         return "n_" + "".join(c if c.isalnum() else "_" for c in str(s))
 
@@ -435,24 +432,23 @@ def mermaid_flow(t: Trace, mode: str) -> str:
             L.append(f'  {nid(n.id)}["{label}"]{cls}')
         elif n.kind == "leaf":
             v = n.in_edges[0] if t.dir == "destination" else n.out_edges[0]
-            val = fmt_bps(t.value(v, mode)) if v else "0"
+            val = fmt_bps(v.bps) if v else "0"
             ns = f"<br/>ns/{n.namespace}" if n.namespace else ""
             L.append(f'  {nid(n.id)}("STOP<br/>{n.label}{ns}<br/>{val}<br/>not followed"):::leaf')
         else:
             L.append(f'  {nid(n.id)}(["TRACE START<br/>{t.inv["iface"]}<br/>{fmt_bps(t.inv["deltaBps"])}"]):::anchor')
     for e in t.edges:
         a, b = t.nodes[e.from_id], t.nodes[e.to_id]
-        lbl = f'{e.from_iface or "?"} -> {e.to_iface or "?"}<br/>{fmt_bps(t.value(e, mode))}'
+        lbl = f'{e.from_iface or "?"} -> {e.to_iface or "?"}<br/>{fmt_bps(e.bps)}'
         arrow = f'-. "{lbl}" .->' if b.kind == "leaf" else f'-- "{lbl}" -->'
         L.append(f"  {nid(a.id)} {arrow} {nid(b.id)}")
-    if mode == "balanced":
-        for n in t.hop_nodes():
-            if n.other_in > 0:
-                L.append(f'  oi_{nid(n.id)}(["other in<br/>+{fmt_bps(n.other_in)}"]):::otherin')
-                L.append(f"  oi_{nid(n.id)} -.-> {nid(n.id)}")
-            if n.other_out > 0:
-                L.append(f'  oo_{nid(n.id)}(["other out<br/>{fmt_bps(n.other_out)}<br/>pruned"]):::otherout')
-                L.append(f"  {nid(n.id)} -.-> oo_{nid(n.id)}")
+    for n in t.hop_nodes():
+        if n.other_in > 0:
+            L.append(f'  oi_{nid(n.id)}(["other in<br/>+{fmt_bps(n.other_in)}"]):::otherin')
+            L.append(f"  oi_{nid(n.id)} -.-> {nid(n.id)}")
+        if n.other_out > 0:
+            L.append(f'  oo_{nid(n.id)}(["other out<br/>{fmt_bps(n.other_out)}<br/>pruned"]):::otherout')
+            L.append(f"  {nid(n.id)} -.-> oo_{nid(n.id)}")
     L += [
         "  classDef root stroke:#22d3ee,stroke-width:2px;",
         "  classDef k8snode stroke:#7dd3fc,stroke-dasharray:6 4;",
@@ -467,7 +463,7 @@ def mermaid_flow(t: Trace, mode: str) -> str:
 # --------------------------------------------------------------------------- #
 # plotly (optional, local only)
 # --------------------------------------------------------------------------- #
-def plotly_html(t: Trace, mode: str, out_path: str) -> str:
+def plotly_html(t: Trace, out_path: str) -> str:
     try:
         import plotly.graph_objects as go
     except ImportError as exc:  # pragma: no cover - depends on local env
@@ -499,27 +495,26 @@ def plotly_html(t: Trace, mode: str, out_path: str) -> str:
             idx(n.id, f"start {t.inv['iface']}", "#22d3ee")
 
     for e in t.edges:
-        v = gbps(t.value(e, mode))
+        v = gbps(e.bps)
         if v <= 0:
             continue
         src.append(index[e.from_id])
         dst.append(index[e.to_id])
         val.append(v)
         lcolor.append("rgba(34,211,238,0.45)")
-        ltext.append(f"{e.from_iface} -> {e.to_iface}: {fmt_bps(t.value(e, mode))}")
+        ltext.append(f"{e.from_iface} -> {e.to_iface}: {fmt_bps(e.bps)}")
 
-    if mode == "balanced":
-        for n in t.hop_nodes():
-            if n.other_in > 0:
-                i = idx("oi:" + n.id, f"other in ({n.label})", "#f59e0b")
-                src.append(i); dst.append(index[n.id]); val.append(gbps(n.other_in))
-                lcolor.append("rgba(245,158,11,0.35)")
-                ltext.append(f"other inputs into {n.label}: {fmt_bps(n.other_in)}")
-            if n.other_out > 0:
-                i = idx("oo:" + n.id, f"other out ({n.label})", "#fb7185")
-                src.append(index[n.id]); dst.append(i); val.append(gbps(n.other_out))
-                lcolor.append("rgba(251,113,133,0.35)")
-                ltext.append(f"pruned / untracked outputs of {n.label}: {fmt_bps(n.other_out)}")
+    for n in t.hop_nodes():
+        if n.other_in > 0:
+            i = idx("oi:" + n.id, f"other in ({n.label})", "#f59e0b")
+            src.append(i); dst.append(index[n.id]); val.append(gbps(n.other_in))
+            lcolor.append("rgba(245,158,11,0.35)")
+            ltext.append(f"other inputs into {n.label}: {fmt_bps(n.other_in)}")
+        if n.other_out > 0:
+            i = idx("oo:" + n.id, f"other out ({n.label})", "#fb7185")
+            src.append(index[n.id]); dst.append(i); val.append(gbps(n.other_out))
+            lcolor.append("rgba(251,113,133,0.35)")
+            ltext.append(f"pruned / untracked outputs of {n.label}: {fmt_bps(n.other_out)}")
 
     fig = go.Figure(go.Sankey(
         arrangement="snap",
@@ -532,7 +527,7 @@ def plotly_html(t: Trace, mode: str, out_path: str) -> str:
     fig.update_layout(
         title=(f"{inv['switchId']} {inv['iface']} "
                f"{'in' if t.dir == 'destination' else 'out'} +{fmt_bps(inv['deltaBps'])} "
-               f"— {t.dir} trace ({mode})"),
+               f"— {t.dir} trace"),
         paper_bgcolor="#0b1017", plot_bgcolor="#0b1017",
         font=dict(color="#e6edf5", size=13), height=max(420, 120 + 70 * len(t.hop_nodes())),
     )
@@ -545,9 +540,6 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("trace", help="path to trace JSON, or - for stdin")
-    ap.add_argument("--mode", choices=MODES, default="balanced",
-                    help="balanced (default): actual + residual; contribution: only what is "
-                         "attributable to the start; raw: followed interfaces only")
     ap.add_argument("--mermaid", choices=("sankey", "flow"), help="print Mermaid instead of the report")
     ap.add_argument("--plotly", metavar="OUT.html", help="render an interactive Sankey (needs plotly)")
     ap.add_argument("--json", action="store_true", help="print the solved model as JSON")
@@ -567,14 +559,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.plotly:
         try:
-            print(f"wrote {plotly_html(t, args.mode, args.plotly)}")
+            print(f"wrote {plotly_html(t, args.plotly)}")
         except TraceError as exc:
             print(str(exc), file=sys.stderr)
             return 3
     if args.mermaid == "sankey":
-        print(mermaid_sankey(t, args.mode))
+        print(mermaid_sankey(t))
     elif args.mermaid == "flow":
-        print(mermaid_flow(t, args.mode))
+        print(mermaid_flow(t))
     elif args.json:
         print(json.dumps({
             "dir": t.dir,
@@ -588,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
             "warnings": t.warnings,
         }, ensure_ascii=False, indent=2))
     elif not args.plotly:
-        print(report(t, args.mode))
+        print(report(t))
     for w in t.warnings:
         print(f"! {w}", file=sys.stderr)
     return 0
