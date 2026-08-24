@@ -35,6 +35,20 @@ h1,h2,h3{margin:0;font-weight:650}
 .chip[aria-current="true"]{background:rgba(34,211,238,.13);border-color:var(--cyan);color:#c8f4ff}
 .ctl-note{margin:8px 0 0;font-size:12px;color:var(--dim2);max-width:52ch}
 
+/* ---------- 讀檔 ---------- */
+.ctl-input{min-width:min(100%,420px)}
+.file-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.file-name{font-size:12.5px;color:var(--dim);border:1px dashed var(--line2);border-radius:99px;
+  padding:5px 12px;max-width:44ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-name.ok{color:#c8f4ff;border-color:var(--cyan-d);border-style:solid}
+.file-name.bad{color:var(--err);border-color:var(--err);border-style:solid}
+
+.drop-hint{position:fixed;inset:0;z-index:60;background:rgba(11,16,23,.78);
+  display:flex;align-items:center;justify-content:center;pointer-events:none}
+.drop-hint[hidden]{display:none}
+.drop-box{border:2px dashed var(--cyan);border-radius:var(--radius);padding:28px 44px;
+  color:#c8f4ff;font-size:16px;background:rgba(34,211,238,.07)}
+
 /* ---------- tabs ---------- */
 .tabs{display:flex;gap:4px;padding:0 14px;border-bottom:1px solid var(--line);overflow-x:auto}
 .tab{padding:11px 14px;color:var(--dim);text-decoration:none;font-size:13.5px;border-bottom:2px solid transparent;white-space:nowrap}

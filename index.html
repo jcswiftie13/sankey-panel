@@ -11,22 +11,27 @@
   <div class="brand">
     <span class="dot"></span>
     <div>
-      <h1>Interface Increment 追查</h1>
-      <p class="sub">一跳多條 uplink 也守恆的 Sankey 追查圖</p>
+      <h1>Interface Increment 追查 Sankey</h1>
+      <p class="sub">讀入規範格式的追查 JSON，畫成守恆的 Sankey</p>
     </div>
   </div>
   <div class="dir-hint">封包方向永遠 <b>左 → 右</b>；追查起點只決定釘在哪一側</div>
 </header>
 
 <nav class="controls">
-  <section class="ctl">
-    <h2>範例</h2>
-    <div class="chips" id="sampleChips"></div>
+  <section class="ctl ctl-input">
+    <h2>追查 JSON</h2>
+    <div class="file-row">
+      <button id="openFile" class="btn primary">開啟 JSON 檔…</button>
+      <input type="file" id="fileInput" accept=".json,application/json" hidden>
+      <span id="fileName" class="file-name">尚未載入檔案，目前顯示內建範例</span>
+    </div>
+    <p class="ctl-note">也可以把 <code>.json</code> 直接拖進這個頁面。純本機讀取，不上傳、不進資料庫。</p>
   </section>
   <section class="ctl">
-    <h2>讀圖模式</h2>
-    <div class="chips" id="modeChips"></div>
-    <p class="ctl-note" id="modeNote"></p>
+    <h2>範例展示</h2>
+    <div class="chips" id="sampleChips"></div>
+    <p class="ctl-note">內建示範資料，用來看圖長什麼樣子，不是你的追查結果。</p>
   </section>
 </nav>
 
@@ -111,12 +116,10 @@
         <li><b>k8s</b>：同一條 Sankey 接下去，switch → node（虛線盒）→ pod（葉，標 namespace/name）。node 用同一套截斷，沒跟的 pod 併成該 node 的其他輸出。不一開始把上百個 pod 畫成細帶。</li>
         <li>hop 數字摘要放圖下方，是圖外資訊，不是盒子內標籤。</li>
       </ul>
-      <h3>5. 三種讀圖模式</h3>
-      <ul>
-        <li><b>平衡 Sankey</b>（預設、最建議）：實際量 ＋ 其他進／出，圖守恆。</li>
-        <li><b>只看貢獻</b>：只留能歸因到追查起點的量；截斷的其他進／出會消失。</li>
-        <li><b>原始實際量</b>：不補缺口，只畫有跟下去的 interface，用來對照 counter。</li>
-      </ul>
+      <h3>5. 平衡 Sankey 怎麼讀</h3>
+      <p>只有這一種讀圖方式。圖上的帶寬一律是<b>實際 increment</b>，缺口用其他輸入／其他輸出補齊，所以每一台都守恆：</p>
+      <p class="balance">已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出</p>
+      <p>「能歸因到追查起點多少」是<b>圖外資訊</b>：看圖下方 hop 摘要的「可歸因」欄，或把游標移到帶子上看 tooltip。不另外做一種只畫貢獻的圖，免得同一張拓樸有兩套數字。</p>
       <h3>6. 明確不做</h3>
       <ul>
         <li>不自動偵測網路上的 switch／counter。</li>
@@ -127,18 +130,20 @@
       </ul>
       <h3>7. CLI</h3>
       <p><code>tools/trace_sankey.py</code>：先算 residual 再畫／印。純文字離線可用，本機有 plotly 就能出互動 HTML。</p>
-      <pre class="code">python3 tools/trace_sankey.py samples/classic-imbalance.json
+      <pre class="code">make draw FILE=trace.json
+python3 tools/trace_sankey.py samples/classic.json
 python3 tools/trace_sankey.py trace.json --mermaid sankey
-python3 tools/trace_sankey.py trace.json --plotly out.html --mode balanced</pre>
+python3 tools/trace_sankey.py trace.json --plotly out.html</pre>
     </div>
   </section>
 </main>
 
 <div id="tooltip" class="tooltip" hidden></div>
+<div id="dropHint" class="drop-hint" hidden><div class="drop-box">把追查 JSON 放開，就畫這一份</div></div>
 
 <footer class="foot">
-  <span>不登入、不進資料庫、不抓 counter、不掃網。所有狀態都在 query string：<code>?sample=&amp;mode=&amp;tab=</code></span>
-  <noscript class="noscript">JS 沒載入也沒關係：上面所有控制項都是真的連結，直接換頁就能切。</noscript>
+  <span>不登入、不進資料庫、不抓 counter、不掃網。檔案只在瀏覽器裡讀。分頁與範例狀態都在 query string：<code>?sample=&amp;tab=</code></span>
+  <noscript class="noscript">JS 沒載入時，範例與分頁還是能切（都是真的連結）；開檔、拖放、JSON 編輯器需要 JS。</noscript>
 </footer>
 
 <script src="assets/js/samples.js"></script>

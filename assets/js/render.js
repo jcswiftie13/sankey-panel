@@ -16,9 +16,6 @@
     });
   }
 
-  function valueOf(e, mode) { return mode === 'contribution' ? e.attr : e.bps; }
-  function showResidual(mode) { return mode === 'balanced'; }
-
   function textWidth(str, size) {
     var w = 0;
     for (var i = 0; i < str.length; i++) {
@@ -29,11 +26,11 @@
 
   function leafH(n) { return n.role === 'pod' ? 80 : 70; }
 
-  function layout(model, mode) {
+  function layout(model) {
     var nodes = model.nodes, edges = model.edges;
 
     var maxVal = 0;
-    edges.forEach(function (e) { maxVal = Math.max(maxVal, valueOf(e, mode)); });
+    edges.forEach(function (e) { maxVal = Math.max(maxVal, e.bps); });
     if (maxVal <= 0) maxVal = 1;
     var scale = THICK_MAX / maxVal;
     var thick = function (v) { return Math.max(THICK_MIN, v * scale); };
@@ -41,13 +38,13 @@
     /* 每個節點的 port 槽位 */
     nodes.forEach(function (n) {
       n.leftSlots = n.inEdges.map(function (e) {
-        return { edge: e, iface: e.toIface, t: thick(valueOf(e, mode)) };
+        return { edge: e, iface: e.toIface, t: thick(e.bps) };
       });
       n.rightSlots = n.outEdges.map(function (e) {
-        return { edge: e, iface: e.fromIface, t: thick(valueOf(e, mode)) };
+        return { edge: e, iface: e.fromIface, t: thick(e.bps) };
       });
       var lh = stackH(n.leftSlots), rh = stackH(n.rightSlots);
-      n.resPad = (showResidual(mode) && n.kind === 'node' && (n.otherIn > 0 || n.otherOut > 0)) ? RES_PAD : 0;
+      n.resPad = (n.kind === 'node' && (n.otherIn > 0 || n.otherOut > 0)) ? RES_PAD : 0;
       if (n.kind === 'node') {
         n.w = NODE_W;
         n.h = HEADER_H + Math.max(lh, rh, BODY_MIN) + BODY_PAD + n.resPad;
@@ -139,8 +136,8 @@
       ' C' + mx + ',' + (e.y2 + b) + ' ' + mx + ',' + (e.y1 + a) + ' ' + e.x1 + ',' + (e.y1 + a) + ' Z';
   }
 
-  function render(model, mode) {
-    var geo = layout(model, mode);
+  function render(model) {
+    var geo = layout(model);
     var out = [];
     out.push('<svg viewBox="0 0 ' + geo.width + ' ' + geo.height + '" ' +
       'preserveAspectRatio="xMinYMin meet" ' +
@@ -163,7 +160,6 @@
 
     /* 帶：先畫，壓在盒子下面 */
     model.edges.forEach(function (e) {
-      var v = valueOf(e, mode);
       var meta = {
         from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
         fi: e.fromIface, ti: e.toIface, bps: e.bps, attr: e.attr, anchor: !!e.isAnchor
@@ -171,33 +167,30 @@
       out.push('<path class="band" d="' + ribbon(e) + '" fill="url(#gband)" ' +
         'stroke="#22d3ee" stroke-opacity=".35" stroke-width="1" ' +
         'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
-        esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + F(v)) +
+        esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + F(e.bps)) +
         '</title></path>');
     });
 
     /* 帶上的數字 */
     model.edges.forEach(function (e) {
-      var v = valueOf(e, mode);
       var mx = (e.x1 + e.x2) / 2, my = (e.y1 + e.y2) / 2;
       out.push('<text x="' + mx + '" y="' + (my + 4) + '" text-anchor="middle" class="p-val" ' +
-        'style="paint-order:stroke;stroke:#0b1017;stroke-width:3.5px">' + esc(F(v)) + '</text>');
+        'style="paint-order:stroke;stroke:#0b1017;stroke-width:3.5px">' + esc(F(e.bps)) + '</text>');
     });
 
     /* 盒子 */
     model.nodes.forEach(function (n) {
-      if (n.kind === 'node') out.push(nodeBox(n, model, mode));
-      else if (n.kind === 'leaf') out.push(leafCard(n, mode));
+      if (n.kind === 'node') out.push(nodeBox(n, model));
+      else if (n.kind === 'leaf') out.push(leafCard(n));
       else out.push(anchorCard(n, model));
     });
 
     /* 殘差：外側短虛線，不進走廊 */
-    if (showResidual(mode)) {
-      model.nodes.forEach(function (n) {
-        if (n.kind !== 'node') return;
-        if (n.otherIn > 0) out.push(residual(n, 'in'));
-        if (n.otherOut > 0) out.push(residual(n, 'out'));
-      });
-    }
+    model.nodes.forEach(function (n) {
+      if (n.kind !== 'node') return;
+      if (n.otherIn > 0) out.push(residual(n, 'in'));
+      if (n.otherOut > 0) out.push(residual(n, 'out'));
+    });
 
     out.push('</svg>');
     return out.join('');
@@ -211,7 +204,7 @@
     return '追查終止';
   }
 
-  function nodeBox(n, model, mode) {
+  function nodeBox(n, model) {
     var isK8sNode = n.role === 'node';
     var s = [];
     s.push('<g>');
@@ -236,8 +229,7 @@
     return s.join('');
   }
 
-  function leafCard(n, mode) {
-    var v = mode === 'contribution' ? n.attr : n.bps;
+  function leafCard(n) {
     var s = [];
     var isPod = n.role === 'pod';
     s.push('<g>');
@@ -251,7 +243,7 @@
       ly += 14;
     }
     s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">' + esc(n.iface || n.localIface || '') +
-      ' · ' + esc(F(v)) + '</text>');
+      ' · ' + esc(F(n.bps)) + '</text>');
     s.push('<text class="leaf-stop" text-anchor="end" x="' + (n.x + n.w - 12) + '" y="' + (n.y + 17) +
       '">未再往下追</text>');
     s.push('</g>');
@@ -299,7 +291,7 @@
   }
 
   /* ---------- 圖外資訊：hop 數字摘要 ---------- */
-  function summary(model, mode) {
+  function summary(model) {
     var dir = model.dir;
     var rows = model.nodes.filter(function (n) { return n.kind === 'node'; })
       .sort(function (a, b) { return a.col - b.col; });
@@ -317,8 +309,7 @@
         '<td class="num c-cyan">' + F(dir === 'destination' ? n.attrOut : n.attrIn) + '</td></tr>');
     });
     h.push('</tbody></table></div>');
-    h.push('<p class="warn">平衡式：已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出。' +
-      (mode === 'balanced' ? '' : '目前模式不畫殘差，表格仍列出實際數字。') + '</p>');
+    h.push('<p class="warn">平衡式：已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出。</p>');
     model.warnings.forEach(function (w) { h.push('<p class="warn">⚠ ' + esc(w) + '</p>'); });
     return h.join('');
   }

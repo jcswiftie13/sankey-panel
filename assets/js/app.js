@@ -1,13 +1,8 @@
-/* UI 接線：query string 是唯一狀態來源，控制項是真的連結。 */
+/* UI 接線：query string 是狀態來源，控制項是真的連結。追查 JSON 從本機檔案讀，不上傳。 */
 (function () {
   'use strict';
   var M = window.TraceModel, R = window.TraceRender, X = window.TraceExports, S = window.TraceSamples;
 
-  var MODES = [
-    { key: 'balanced', name: '平衡 Sankey', note: '預設、最建議。實際量 ＋ 其他進／出，圖會守恆。' },
-    { key: 'contribution', name: '只看貢獻', note: '只留能歸因到追查起點的量；截斷的其他進／出會消失。' },
-    { key: 'raw', name: '原始實際量', note: '不補缺口，只畫有跟下去的 interface，用來對照 counter。' }
-  ];
   var TABS = [
     { key: 'chart', name: '圖' },
     { key: 'json', name: 'JSON' },
@@ -16,28 +11,40 @@
     { key: 'notes', name: '畫法說明' }
   ];
   var LS_KEY = 'trace-sankey/custom';
+  var LS_NAME = 'trace-sankey/custom-name';
 
-  var state = { sample: S.defaultKey, mode: 'balanced', tab: 'chart' };
+  var state = { sample: S.defaultKey, tab: 'chart' };
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
   function readQuery() {
     var p = new URLSearchParams(location.search);
-    var s = p.get('sample'), m = p.get('mode'), t = p.get('tab');
+    var s = p.get('sample'), t = p.get('tab');
     if (s && (S.byKey[s] || s === 'custom')) state.sample = s;
-    if (m && MODES.some(function (x) { return x.key === m; })) state.mode = m;
     if (t && TABS.some(function (x) { return x.key === t; })) state.tab = t;
   }
   function href(patch) {
     var next = Object.assign({}, state, patch);
-    return '?sample=' + encodeURIComponent(next.sample) +
-      '&mode=' + encodeURIComponent(next.mode) + '&tab=' + encodeURIComponent(next.tab);
+    return '?sample=' + encodeURIComponent(next.sample) + '&tab=' + encodeURIComponent(next.tab);
+  }
+
+  /* 載入來源：有檔名＝從檔案來的，沒有＝編輯器貼的 */
+  function customName() { return lsGet(LS_NAME) || ''; }
+  function customLabel() { return customName() || '自訂 JSON'; }
+  function customDesc() {
+    var n = customName();
+    return n ? '從本機檔案載入：' + n : '從 JSON 編輯器套用的追查。';
   }
 
   function currentDoc() {
     if (state.sample === 'custom') {
-      var raw = null;
-      try { raw = localStorage.getItem(LS_KEY); } catch (e) { raw = null; }
-      if (raw) { try { return { doc: JSON.parse(raw), raw: raw, custom: true }; }
-                 catch (e2) { return { doc: null, raw: raw, custom: true, parseError: e2.message }; } }
+      var raw = lsGet(LS_KEY);
+      if (raw) {
+        try { return { doc: JSON.parse(raw), raw: raw, custom: true }; }
+        catch (e) { return { doc: null, raw: raw, custom: true, parseError: e.message }; }
+      }
       state.sample = S.defaultKey;
     }
     var s = S.byKey[state.sample] || S.byKey[S.defaultKey];
@@ -52,15 +59,8 @@
         '" title="' + R.esc(s.desc) + '"' + (state.sample === s.key ? ' aria-current="true"' : '') + '>' +
         R.esc(s.name) + '</a>';
     }).join('') + (state.sample === 'custom'
-      ? '<a class="chip" href="' + href({ sample: 'custom' }) + '" aria-current="true">自訂 JSON</a>' : '');
-
-    var mc = document.getElementById('modeChips');
-    mc.innerHTML = MODES.map(function (m) {
-      return '<a class="chip" href="' + href({ mode: m.key }) + '" data-nav="mode" data-val="' + m.key + '"' +
-        (state.mode === m.key ? ' aria-current="true"' : '') + '>' + R.esc(m.name) + '</a>';
-    }).join('');
-    var cur = MODES.filter(function (m) { return m.key === state.mode; })[0];
-    document.getElementById('modeNote').textContent = cur ? cur.note : '';
+      ? '<a class="chip" href="' + href({ sample: 'custom' }) + '" aria-current="true">' +
+        R.esc(customLabel()) + '</a>' : '');
 
     document.getElementById('tabs').innerHTML = TABS.map(function (t) {
       return '<a class="tab" href="' + href({ tab: t.key }) + '" data-nav="tab" data-val="' + t.key + '"' +
@@ -70,6 +70,17 @@
     Array.prototype.forEach.call(document.querySelectorAll('.panel'), function (p) {
       p.classList.toggle('active', p.getAttribute('data-tab') === state.tab);
     });
+
+    var fn = document.getElementById('fileName');
+    if (state.sample === 'custom') fileNote('目前來源：' + customLabel(), 'ok');
+    else if (fn && !fn.classList.contains('bad')) fileNote('尚未載入檔案，目前顯示內建範例', '');
+  }
+
+  function fileNote(msg, cls) {
+    var el = document.getElementById('fileName');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'file-name' + (cls ? ' ' + cls : '');
   }
 
   /* ---------- 主繪製 ---------- */
@@ -81,13 +92,13 @@
     var editor = document.getElementById('jsonEditor');
     if (document.activeElement !== editor) editor.value = cur.raw || '';
 
-    var name = cur.custom ? '自訂 JSON' : cur.sample.name;
-    var desc = cur.custom ? '從編輯器套用的追查。' : cur.sample.desc;
+    var name = cur.custom ? customLabel() : cur.sample.name;
+    var desc = cur.custom ? customDesc() : cur.sample.desc;
 
     if (!cur.doc) {
       meta.innerHTML = '<span class="title">' + R.esc(name) + '</span>';
       chart.innerHTML = '<div class="empty"><b>JSON 解析失敗</b>' + R.esc(cur.parseError || '') +
-        '<br>切到 JSON 分頁修好再套用。</div>';
+        '<br>切到 JSON 分頁修好再套用，或重新載入一份檔案。</div>';
       sum.innerHTML = ''; setCode('');
       return;
     }
@@ -113,22 +124,14 @@
         ? '<span class="pill">截斷：前 ' + (model.pruning.topN || '—') + ' 名 / ≥ ' +
           Math.round((model.pruning.minShare || 0) * 100) + '%</span>' : '');
 
-    var band = state.mode === 'contribution'
-      ? '已追查（帶寬＝可歸因到起點的量）'
-      : '已追查（帶寬＝實際 increment）';
-    var legend = '<span><i class="lg-cyan"></i>' + band + '</span>';
-    if (state.mode === 'balanced') {
-      legend += '<span><i class="lg-amber"></i>其他輸入（貼左側短虛線，高度不等比）</span>' +
-        '<span><i class="lg-rose"></i>其他輸出（貼右側短虛線，截斷／太小）</span>';
-    } else {
-      legend += '<span class="c-dim">此模式不畫其他進／出' +
-        (state.mode === 'raw' ? '，圖不守恆，用來對照 counter' : '，截斷的量直接消失') + '</span>';
-    }
-    legend += '<span><i class="lg-gray"></i>追查終止葉節點（不是又一台 switch）</span>';
-    document.getElementById('legend').innerHTML = legend;
+    document.getElementById('legend').innerHTML =
+      '<span><i class="lg-cyan"></i>已追查（帶寬＝實際 increment）</span>' +
+      '<span><i class="lg-amber"></i>其他輸入（貼左側短虛線，高度不等比）</span>' +
+      '<span><i class="lg-rose"></i>其他輸出（貼右側短虛線，截斷／太小）</span>' +
+      '<span><i class="lg-gray"></i>追查終止葉節點（不是又一台 switch）</span>';
 
-    chart.innerHTML = R.render(model, state.mode);
-    sum.innerHTML = R.summary(model, state.mode);
+    chart.innerHTML = R.render(model);
+    sum.innerHTML = R.summary(model);
     setCode(model);
     bindTips();
   }
@@ -136,8 +139,8 @@
   function setCode(model) {
     var a = document.getElementById('mmSankey'), b = document.getElementById('mmFlow');
     if (!model) { a.textContent = ''; b.textContent = ''; return; }
-    a.textContent = X.mermaidSankey(model, state.mode);
-    b.textContent = X.mermaidFlow(model, state.mode);
+    a.textContent = X.mermaidSankey(model);
+    b.textContent = X.mermaidFlow(model);
   }
 
   /* ---------- tooltip ---------- */
@@ -179,6 +182,96 @@
   });
   window.addEventListener('popstate', function () { readQuery(); chips(); draw(); });
 
+  /* ---------- 套用一份 JSON（開檔與編輯器共用同一條驗證路徑） ---------- */
+  function applyRaw(raw, sourceName) {
+    var doc;
+    try { doc = JSON.parse(raw); }
+    catch (e) { return { ok: false, msg: 'JSON 語法錯誤：' + e.message }; }
+    var built = M.build(doc);
+    if (!built.ok) return { ok: false, msg: '不合契約：' + built.errors.join(' / ') };
+    lsSet(LS_KEY, raw);
+    if (sourceName) lsSet(LS_NAME, sourceName); else lsDel(LS_NAME);
+    state.sample = 'custom';
+    history.pushState(null, '', href({}));
+    chips(); draw();
+    return { ok: true, warnings: built.warnings };
+  }
+
+  /* ---------- 開檔 / 拖放 ---------- */
+  function loadFailed(title, msg, raw) {
+    fileNote(msg, 'bad');
+    status(msg, 'bad');
+    document.getElementById('metaBar').innerHTML = '<span class="title">' + R.esc(title) + '</span>';
+    document.getElementById('chart').innerHTML =
+      '<div class="empty"><b>載入失敗</b>' + R.esc(msg) + '<br>修好再載入一次，或先選一個內建範例。</div>';
+    document.getElementById('hopSummary').innerHTML = '';
+    document.getElementById('legend').innerHTML = '';
+    setCode('');
+    if (raw != null) document.getElementById('jsonEditor').value = raw;
+  }
+
+  function readFile(file) {
+    if (!file) return;
+    if (!/\.json$/i.test(file.name)) {
+      loadFailed(file.name, '只接受 .json 檔案（收到 ' + file.name + '）');
+      return;
+    }
+    var fr = new FileReader();
+    fr.onload = function () {
+      var raw = String(fr.result);
+      var res = applyRaw(raw, file.name);
+      if (res.ok) {
+        document.getElementById('jsonEditor').classList.remove('bad');
+        status('已載入 ' + file.name + '。' +
+          (res.warnings.length ? '有 ' + res.warnings.length + ' 則警告，看圖下方。' : ''), 'ok');
+        fileNote('目前來源：' + file.name +
+          (res.warnings.length ? '（' + res.warnings.length + ' 則警告）' : ''), 'ok');
+      } else {
+        loadFailed(file.name, file.name + '：' + res.msg, raw);
+      }
+    };
+    fr.onerror = function () { loadFailed(file.name, '讀不到檔案：' + file.name); };
+    fr.readAsText(file);
+  }
+
+  var fileInput = document.getElementById('fileInput');
+  document.getElementById('openFile').addEventListener('click', function () { fileInput.click(); });
+  fileInput.addEventListener('change', function () {
+    readFile(fileInput.files && fileInput.files[0]);
+    fileInput.value = '';           /* 同一個檔案連續選兩次也要觸發 */
+  });
+
+  var dragDepth = 0;
+  function dropHint(on) {
+    var el = document.getElementById('dropHint');
+    if (el) el.hidden = !on;
+  }
+  document.addEventListener('dragenter', function (ev) {
+    if (!hasFiles(ev)) return;
+    ev.preventDefault(); dragDepth++; dropHint(true);
+  });
+  document.addEventListener('dragover', function (ev) {
+    if (!hasFiles(ev)) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+  });
+  document.addEventListener('dragleave', function (ev) {
+    if (!hasFiles(ev)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) dropHint(false);
+  });
+  document.addEventListener('drop', function (ev) {
+    if (!hasFiles(ev)) return;
+    ev.preventDefault(); dragDepth = 0; dropHint(false);
+    readFile(ev.dataTransfer.files[0]);
+  });
+  function hasFiles(ev) {
+    var dt = ev.dataTransfer;
+    if (!dt) return false;
+    if (dt.files && dt.files.length) return true;
+    return dt.types && Array.prototype.indexOf.call(dt.types, 'Files') >= 0;
+  }
+
   /* ---------- JSON 編輯器 ---------- */
   function status(msg, cls) {
     var el = document.getElementById('jsonStatus');
@@ -187,26 +280,18 @@
   }
   document.getElementById('applyJson').addEventListener('click', function () {
     var ta = document.getElementById('jsonEditor');
-    var doc;
-    try { doc = JSON.parse(ta.value); }
-    catch (e) { ta.classList.add('bad'); status('JSON 語法錯誤：' + e.message, 'bad'); return; }
-    var errs = M.validate(doc);
-    if (errs.length) { ta.classList.add('bad'); status('不合契約：' + errs.join(' / '), 'bad'); return; }
-    var built = M.build(doc);
-    if (!built.ok) { ta.classList.add('bad'); status('不合契約：' + built.errors.join(' / '), 'bad'); return; }
+    var res = applyRaw(ta.value, null);
+    if (!res.ok) { ta.classList.add('bad'); status(res.msg, 'bad'); return; }
     ta.classList.remove('bad');
-    try { localStorage.setItem(LS_KEY, ta.value); } catch (e) {}
-    state.sample = 'custom';
-    history.pushState(null, '', href({}));
-    status('已套用。' + (built.warnings.length ? '有 ' + built.warnings.length + ' 則警告，看圖下方。' : ''), 'ok');
-    chips(); draw();
+    status('已套用。' + (res.warnings.length ? '有 ' + res.warnings.length + ' 則警告，看圖下方。' : ''), 'ok');
   });
   document.getElementById('resetJson').addEventListener('click', function () {
     state.sample = S.defaultKey;
-    try { localStorage.removeItem(LS_KEY); } catch (e) {}
+    lsDel(LS_KEY); lsDel(LS_NAME);
     document.getElementById('jsonEditor').classList.remove('bad');
     history.pushState(null, '', href({}));
-    status('已還原成範例。', 'ok');
+    status('已還原成內建範例。', 'ok');
+    fileNote('尚未載入檔案，目前顯示內建範例', '');
     chips(); draw();
   });
   document.getElementById('copyJson').addEventListener('click', function () {
