@@ -59,6 +59,26 @@ index.html?sample=campus&tab=chart
 | `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s`（`custom` = 你載入的那份） |
 | `tab` | `chart` `json` `mermaid-sankey` `mermaid-flow` `notes` |
 
+## 看圖：縮放與平移
+
+switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定尺寸的畫布，
+內容在裡面縮放平移，不再靠捲軸：
+
+| 操作 | 動作 |
+| --- | --- |
+| 滾輪／觸控板雙指 | 以游標為中心縮放（不會捲到頁面） |
+| 按住拖曳 | 平移 |
+| `＋` `−` | 放大／縮小一格 |
+| `0` | 符合視窗（整張圖塞進畫布） |
+| `1` | 1:1 原始大小 |
+| `F` | 專注模式：收起頁首與控制列，圖填滿整個視窗；`Esc` 離開 |
+
+右下角的工具列有同樣的按鈕，中間顯示目前倍率（`100%`＝原始大小，點一下回到 1:1）。
+
+開場是「符合視窗，但不放大超過原始大小」——小圖維持原尺寸，大圖才縮到看得見全貌。
+換一份資料會重新回到這個開場視角；只是切分頁再切回來則會保留你的縮放。
+縮放狀態刻意不進 query string（滾一格就推一筆瀏覽紀錄會很難用）。
+
 ## 輸入 JSON 規格
 
 單位一律是 **bps**（10 Gbps 寫成 `10000000000`）。網頁與 CLI 吃同一份契約。
@@ -251,6 +271,8 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 - k8s 接在同一條 Sankey 上：switch → node（虛線盒）→ pod（葉，標 namespace/name）。
   node 用同一套截斷，沒跟的 pod 併成該 node 的其他輸出。
 - hop 數字摘要放圖下方，是圖外資訊，不是盒子內標籤。
+- 圖區是固定尺寸畫布：SVG 填滿容器，`viewBox` 的 meet-fit 就是「符合視窗」，
+  縮放平移只改一層 `<g>` 的 `transform`。字級與線寬跟著等比縮放（真幾何縮放）。
 
 ## CLI
 
@@ -276,8 +298,10 @@ assets/css/app.css
 assets/js/samples.js       六個內建範例（純資料）
 assets/js/model.js         驗證、合併 hop、算殘差與可歸因量
 assets/js/render.js        SVG Sankey、殘差短虛線、終止小卡、hop 摘要
+assets/js/zoom.js          圖的縮放與平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
 assets/js/exports.js       Mermaid sankey-beta / flowchart
-assets/js/app.js           query string、分頁、開檔／拖放、JSON 編輯器、tooltip
+assets/js/app.js           query string、分頁、開檔／拖放、JSON 編輯器、tooltip、
+                           縮放按鈕與快捷鍵、圖區高度
 samples/*.json             範例 JSON（CLI 也吃同一份）
 tools/trace_sankey.py      CLI：文字報告 / Mermaid / plotly
 ```

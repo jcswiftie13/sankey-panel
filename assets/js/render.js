@@ -139,10 +139,9 @@
   function render(model) {
     var geo = layout(model);
     var out = [];
+    /* 尺寸交給 CSS（.chart svg）：SVG 填滿容器，meet-fit 就是「符合視窗」。 */
     out.push('<svg viewBox="0 0 ' + geo.width + ' ' + geo.height + '" ' +
-      'preserveAspectRatio="xMinYMin meet" ' +
-      'style="width:' + geo.width + 'px;max-width:100%;height:auto;min-width:' +
-      Math.round(geo.width * 0.85) + 'px" ' +
+      'preserveAspectRatio="xMidYMid meet" ' +
       'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="追查 Sankey">');
     out.push('<defs>' +
       '<linearGradient id="gband" x1="0" x2="1"><stop offset="0" stop-color="#22d3ee" stop-opacity=".85"/>' +
@@ -150,6 +149,8 @@
       '<linearGradient id="gband-h" x1="0" x2="1"><stop offset="0" stop-color="#67e8f9"/>' +
       '<stop offset="1" stop-color="#22d3ee"/></linearGradient>' +
       '</defs>');
+    /* 縮放層：TraceZoom 只動這個 <g> 的 transform。<defs> 留在外面。 */
+    out.push('<g class="zoom-layer">');
 
     /* 欄位標題 */
     (geo.cols || []).forEach(function (col, ci) {
@@ -192,6 +193,7 @@
       if (n.otherOut > 0) out.push(residual(n, 'out'));
     });
 
+    out.push('</g>');
     out.push('</svg>');
     return out.join('');
   }

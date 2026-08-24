@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   var M = window.TraceModel, R = window.TraceRender, X = window.TraceExports, S = window.TraceSamples;
+  var Z = window.TraceZoom;
 
   var TABS = [
     { key: 'chart', name: '圖' },
@@ -84,6 +85,8 @@
   }
 
   /* ---------- 主繪製 ---------- */
+  var lastKey = null;                 /* 資料沒變就不重畫，縮放才不會被切分頁洗掉 */
+
   function draw() {
     var cur = currentDoc();
     var meta = document.getElementById('metaBar');
@@ -100,6 +103,7 @@
       chart.innerHTML = '<div class="empty"><b>JSON 解析失敗</b>' + R.esc(cur.parseError || '') +
         '<br>切到 JSON 分頁修好再套用，或重新載入一份檔案。</div>';
       sum.innerHTML = ''; setCode('');
+      chartGone();
       return;
     }
 
@@ -109,6 +113,7 @@
       chart.innerHTML = '<div class="empty"><b>追查 JSON 不合契約</b>' +
         model.errors.map(function (e) { return R.esc(e); }).join('<br>') + '</div>';
       sum.innerHTML = ''; setCode('');
+      chartGone();
       return;
     }
 
@@ -130,10 +135,27 @@
       '<span><i class="lg-rose"></i>其他輸出（貼右側短虛線，截斷／太小）</span>' +
       '<span><i class="lg-gray"></i>追查終止葉節點（不是又一台 switch）</span>';
 
-    chart.innerHTML = R.render(model);
     sum.innerHTML = R.summary(model);
     setCode(model);
-    bindTips();
+
+    /* 同一份資料重畫（例如只是切分頁回來）就沿用既有 SVG，保住縮放狀態 */
+    var key = state.sample + '\n' + (cur.raw || '');
+    if (key !== lastKey || !chart.querySelector('svg')) {
+      chart.innerHTML = R.render(model);
+      bindTips();
+      lastKey = key;
+    }
+    sizeChart();                    /* 一定要在 attach 之前：fit 要用最終高度算 */
+    zoomCtl(Z.attach(document.getElementById('chartWrap'), {
+      onPanStart: hideTip,
+      onChange: function (scale) {
+        var el = document.getElementById('zoomPct');
+        if (!el) return;
+        /* 超大圖 fit 可能只有 0.17%，四捨五入成 0% 看起來像壞掉 */
+        el.textContent = scale == null ? '—'
+          : (scale >= 0.1 ? Math.round(scale * 100) : (scale * 100).toFixed(1)) + '%';
+      }
+    }));
   }
 
   function setCode(model) {
@@ -144,10 +166,20 @@
   }
 
   /* ---------- tooltip ---------- */
+  var hoverBand = null;
+
+  /* 拖曳時 pointer capture 會把 mouseleave 攔走，高亮與 tooltip 得手動收 */
+  function hideTip() {
+    document.getElementById('tooltip').hidden = true;
+    if (hoverBand) { hoverBand.setAttribute('fill', 'url(#gband)'); hoverBand = null; }
+  }
+
   function bindTips() {
     var tip = document.getElementById('tooltip');
+    hoverBand = null;
     Array.prototype.forEach.call(document.querySelectorAll('.band'), function (el) {
       el.addEventListener('mouseenter', function () {
+        if (Z.isPanning()) return;
         var d;
         try { d = JSON.parse(el.getAttribute('data-tip')); } catch (e) { return; }
         tip.innerHTML = '<b>' + R.esc(d.from) + ' → ' + R.esc(d.to) + '</b>' +
@@ -158,6 +190,7 @@
           (d.anchor ? '<div class="t-row"><span>這條是追查起點</span><span></span></div>' : '');
         tip.hidden = false;
         el.setAttribute('fill', 'url(#gband-h)');
+        hoverBand = el;
       });
       el.addEventListener('mousemove', function (ev) {
         var w = tip.offsetWidth || 260, h = tip.offsetHeight || 90;
@@ -167,6 +200,7 @@
       el.addEventListener('mouseleave', function () {
         tip.hidden = true;
         el.setAttribute('fill', 'url(#gband)');
+        if (hoverBand === el) hoverBand = null;
       });
     });
   }
@@ -199,6 +233,7 @@
 
   /* ---------- 開檔 / 拖放 ---------- */
   function loadFailed(title, msg, raw) {
+    chartGone();
     fileNote(msg, 'bad');
     status(msg, 'bad');
     document.getElementById('metaBar').innerHTML = '<span class="title">' + R.esc(title) + '</span>';
@@ -319,6 +354,70 @@
     tip.style.left = '50%'; tip.style.top = '16px'; tip.hidden = false;
     setTimeout(function () { tip.hidden = true; }, 1400);
   }
+
+  /* ---------- 圖區高度 ---------- */
+  /* 上面有 header + 控制列 + 分頁 + meta + legend，固定 vh 會讓圖掉出視窗外。
+     量出圖區的實際起點，把剩下的視窗高度全給它。 */
+  function sizeChart() {
+    var wrap = document.getElementById('chartWrap');
+    if (!wrap) return;
+    if (document.body.classList.contains('chart-focus')) { wrap.style.height = ''; return; }
+    if (state.tab !== 'chart') return;          /* 隱藏時量不到，切回來會再算 */
+    var top = wrap.getBoundingClientRect().top + (window.pageYOffset || 0);
+    wrap.style.height = Math.max(360, window.innerHeight - top - 22) + 'px';
+  }
+
+  window.addEventListener('resize', function () { sizeChart(); Z.refresh(); });
+
+  /* ---------- 縮放控制項 ---------- */
+  /* 圖沒了（解析失敗／不合契約／載入失敗）：卸掉縮放、收工具列、強迫下次重畫 */
+  function chartGone() {
+    Z.detach();
+    zoomCtl(false);
+    lastKey = null;
+  }
+  function zoomCtl(on) {
+    var el = document.getElementById('zoomCtl');
+    if (el) el.hidden = !on;
+  }
+  function zb(id, fn) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('click', fn);
+  }
+  zb('zoomIn', function () { Z.zoomBy(Z.step); });
+  zb('zoomOut', function () { Z.zoomBy(1 / Z.step); });
+  zb('zoomFit', function () { Z.fit(); });
+  zb('zoomOne', function () { Z.actual(); });
+  zb('zoomPct', function () { Z.actual(); });
+  zb('chartFocus', function () {
+    focusMode(!document.body.classList.contains('chart-focus'));
+  });
+
+  function focusMode(on) {
+    document.body.classList.toggle('chart-focus', on);
+    var b = document.getElementById('chartFocus');
+    if (b) b.textContent = on ? '離開專注' : '專注';
+    sizeChart();
+    Z.refresh();                      /* 視窗大小變了：重夾平移、更新百分比 */
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    var t = ev.target, tn = t && t.tagName;
+    if (tn === 'TEXTAREA' || tn === 'INPUT' || (t && t.isContentEditable)) return;
+    if (ev.key === 'Escape' && document.body.classList.contains('chart-focus')) {
+      focusMode(false); ev.preventDefault(); return;
+    }
+    if (state.tab !== 'chart') return;
+    if (ev.key === '+' || ev.key === '=') Z.zoomBy(Z.step);
+    else if (ev.key === '-' || ev.key === '_') Z.zoomBy(1 / Z.step);
+    else if (ev.key === '0') Z.fit();
+    else if (ev.key === '1') Z.actual();
+    else if (ev.key === 'f' || ev.key === 'F') {
+      focusMode(!document.body.classList.contains('chart-focus'));
+    } else return;
+    ev.preventDefault();
+  });
 
   readQuery(); chips(); draw();
 })();
