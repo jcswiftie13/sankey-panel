@@ -1,0 +1,89 @@
+{
+  "kind": "destination",
+  "investigation": {
+    "switchId": "sw-edge-a",
+    "iface": "xe-0/0/1",
+    "direction": "in",
+    "deltaBps": 10000000000
+  },
+  "pruning": {
+    "topN": 3,
+    "minShare": 0.1
+  },
+  "hops": [
+    {
+      "switchId": "sw-edge-a",
+      "label": "Edge A",
+      "role": "switch",
+      "inputIface": "xe-0/0/1",
+      "outputs": [
+        {
+          "iface": "et-0/0/48",
+          "deltaBps": 6000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-core-1",
+          "peerIface": "et-1/0/1"
+        },
+        {
+          "iface": "et-0/0/49",
+          "deltaBps": 4000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-core-1",
+          "peerIface": "et-1/0/2"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-core-1",
+      "label": "Core 1",
+      "role": "switch",
+      "inputIface": "et-1/0/1",
+      "outputs": [
+        {
+          "iface": "et-1/0/24",
+          "deltaBps": 9000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-agg-9",
+          "peerIface": "et-9/0/1"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-core-1",
+      "label": "Core 1",
+      "role": "switch",
+      "inputIface": "et-1/0/2",
+      "outputs": [
+        {
+          "iface": "et-1/0/24",
+          "deltaBps": 7000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-agg-9",
+          "peerIface": "et-9/0/1"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-agg-9",
+      "label": "Agg 9",
+      "role": "switch",
+      "inputIface": "et-9/0/1",
+      "outputs": [
+        {
+          "iface": "xe-9/0/12",
+          "deltaBps": 11000000000,
+          "peerKind": "host",
+          "peerId": "srv-cache-02",
+          "peerIface": "bond0"
+        },
+        {
+          "iface": "xe-9/0/13",
+          "deltaBps": 5000000000,
+          "peerKind": "host",
+          "peerId": "srv-cache-03",
+          "peerIface": "bond0"
+        }
+      ]
+    }
+  ]
+}

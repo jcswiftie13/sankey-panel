@@ -1,0 +1,68 @@
+{
+  "kind": "destination",
+  "investigation": {
+    "switchId": "sw-tor-14",
+    "iface": "et-0/0/52",
+    "direction": "in",
+    "deltaBps": 40000000000
+  },
+  "pruning": {
+    "topN": 3,
+    "minShare": 0.1
+  },
+  "hops": [
+    {
+      "switchId": "sw-tor-14",
+      "label": "ToR 14",
+      "role": "switch",
+      "inputIface": "et-0/0/52",
+      "otherOutBps": 9000000000,
+      "outputs": [
+        {
+          "iface": "xe-0/0/1",
+          "deltaBps": 18000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-leaf-3",
+          "peerIface": "et-3/0/1"
+        },
+        {
+          "iface": "xe-0/0/2",
+          "deltaBps": 9000000000,
+          "peerKind": "host",
+          "peerId": "srv-app-11",
+          "peerIface": "eno2"
+        },
+        {
+          "iface": "xe-0/0/3",
+          "deltaBps": 6000000000,
+          "peerKind": "host",
+          "peerId": "srv-app-12",
+          "peerIface": "eno2"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-leaf-3",
+      "label": "Leaf 3",
+      "role": "switch",
+      "inputIface": "et-3/0/1",
+      "otherOutBps": 3000000000,
+      "outputs": [
+        {
+          "iface": "xe-3/0/8",
+          "deltaBps": 10000000000,
+          "peerKind": "host",
+          "peerId": "srv-log-01",
+          "peerIface": "bond0"
+        },
+        {
+          "iface": "xe-3/0/9",
+          "deltaBps": 5000000000,
+          "peerKind": "host",
+          "peerId": "srv-log-02",
+          "peerIface": "bond0"
+        }
+      ]
+    }
+  ]
+}

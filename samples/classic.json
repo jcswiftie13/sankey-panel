@@ -1,0 +1,46 @@
+{
+  "kind": "destination",
+  "investigation": {
+    "switchId": "sw-edge-a",
+    "iface": "xe-0/0/1",
+    "direction": "in",
+    "deltaBps": 10000000000,
+    "note": "Edge A 的 access port 進來 +10 Gbps"
+  },
+  "pruning": {
+    "topN": 3,
+    "minShare": 0.1
+  },
+  "hops": [
+    {
+      "switchId": "sw-edge-a",
+      "label": "Edge A",
+      "role": "switch",
+      "inputIface": "xe-0/0/1",
+      "outputs": [
+        {
+          "iface": "et-0/0/48",
+          "deltaBps": 20000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-core-1",
+          "peerIface": "et-1/0/1"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-core-1",
+      "label": "Core 1",
+      "role": "switch",
+      "inputIface": "et-1/0/1",
+      "outputs": [
+        {
+          "iface": "et-1/0/9",
+          "deltaBps": 20000000000,
+          "peerKind": "host",
+          "peerId": "srv-db-07",
+          "peerIface": "eno1"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "kind": "source",
+  "investigation": {
+    "switchId": "sw-core-1",
+    "iface": "et-1/0/9",
+    "direction": "out",
+    "deltaBps": 20000000000,
+    "note": "Core 1 出向 et-1/0/9 +20 Gbps，問誰灌的"
+  },
+  "pruning": {
+    "topN": 3,
+    "minShare": 0.1
+  },
+  "hops": [
+    {
+      "switchId": "sw-core-1",
+      "label": "Core 1",
+      "role": "switch",
+      "outputIface": "et-1/0/9",
+      "inputs": [
+        {
+          "iface": "et-1/0/1",
+          "deltaBps": 12000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-edge-a",
+          "peerIface": "et-0/0/48"
+        },
+        {
+          "iface": "et-1/0/2",
+          "deltaBps": 6000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-edge-b",
+          "peerIface": "et-0/0/48"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-edge-a",
+      "label": "Edge A",
+      "role": "switch",
+      "outputIface": "et-0/0/48",
+      "inputs": [
+        {
+          "iface": "xe-0/0/1",
+          "deltaBps": 7000000000,
+          "peerKind": "host",
+          "peerId": "lab-gpu-01",
+          "peerIface": "eno1"
+        },
+        {
+          "iface": "xe-0/0/2",
+          "deltaBps": 3000000000,
+          "peerKind": "host",
+          "peerId": "lab-gpu-02",
+          "peerIface": "eno1"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-edge-b",
+      "label": "Edge B",
+      "role": "switch",
+      "outputIface": "et-0/0/48",
+      "otherInBps": 2000000000,
+      "inputs": [
+        {
+          "iface": "xe-0/0/5",
+          "deltaBps": 4000000000,
+          "peerKind": "host",
+          "peerId": "backup-relay",
+          "peerIface": "eth0"
+        }
+      ]
+    }
+  ]
+}

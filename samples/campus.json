@@ -1,0 +1,105 @@
+{
+  "kind": "destination",
+  "investigation": {
+    "switchId": "sw-dorm-b3",
+    "iface": "ae0",
+    "direction": "in",
+    "deltaBps": 8000000000,
+    "note": "宿舍 B3 上聯 ae0 進向 +8 Gbps"
+  },
+  "pruning": {
+    "topN": 3,
+    "minShare": 0.1
+  },
+  "hops": [
+    {
+      "switchId": "sw-dorm-b3",
+      "label": "宿網 B3",
+      "role": "switch",
+      "inputIface": "ae0",
+      "outputs": [
+        {
+          "iface": "et-0/0/50",
+          "deltaBps": 22000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-agg-dorm",
+          "peerIface": "et-2/0/3"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-agg-dorm",
+      "label": "宿區匯聚",
+      "role": "switch",
+      "inputIface": "et-2/0/3",
+      "outputs": [
+        {
+          "iface": "ae10",
+          "deltaBps": 18000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-core-n",
+          "peerIface": "ae1"
+        },
+        {
+          "iface": "xe-2/0/7",
+          "deltaBps": 6000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "fw-campus",
+          "peerIface": "xe-0/0/0"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-core-n",
+      "label": "核心 North",
+      "role": "switch",
+      "inputIface": "ae1",
+      "outputs": [
+        {
+          "iface": "et-0/0/1",
+          "deltaBps": 12000000000,
+          "peerKind": "router",
+          "peerId": "rtr-tanet",
+          "peerIface": "Te0/1/0"
+        },
+        {
+          "iface": "et-0/0/2",
+          "deltaBps": 4000000000,
+          "peerKind": "switch",
+          "peerSwitchId": "sw-dc-spine",
+          "peerIface": "et-1/1/1"
+        }
+      ]
+    },
+    {
+      "switchId": "fw-campus",
+      "label": "校園防火牆",
+      "role": "switch",
+      "inputIface": "xe-0/0/0",
+      "outputs": [
+        {
+          "iface": "xe-0/0/1",
+          "deltaBps": 6000000000,
+          "peerKind": "router",
+          "peerId": "rtr-tanet",
+          "peerIface": "Te0/1/1"
+        }
+      ]
+    },
+    {
+      "switchId": "sw-dc-spine",
+      "label": "機房 Spine",
+      "role": "switch",
+      "inputIface": "et-1/1/1",
+      "outputs": [
+        {
+          "iface": "et-1/1/9",
+          "deltaBps": 4000000000,
+          "peerKind": "host",
+          "peerId": "srv-nas-01",
+          "peerIface": "ens5f0"
+        }
+      ]
+    }
+  ]
+}

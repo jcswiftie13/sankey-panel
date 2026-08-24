@@ -1,0 +1,327 @@
+/* SVG Sankey 繪製：青帶＝已追查、殘差＝外側短虛線、終止＝灰虛線小卡。 */
+(function (global) {
+  'use strict';
+  var F = global.TraceModel.fmtBps;
+
+  var NODE_W = 208, LEAF_W = 178, ANCHOR_W = 152;
+  var HEADER_H = 36, ROW_H = 24, ROW_GAP = 9, BODY_PAD = 12, BODY_MIN = 26;
+  var COL_GAP = 218, VGAP = 34;
+  var PAD_TOP = 46, PAD_BOTTOM = 26, PAD_SIDE = 122;
+  var THICK_MAX = 86, THICK_MIN = 3;
+  var RES_LEN = 34, RES_H = 9, RES_PAD = 24;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function valueOf(e, mode) { return mode === 'contribution' ? e.attr : e.bps; }
+  function showResidual(mode) { return mode === 'balanced'; }
+
+  function textWidth(str, size) {
+    var w = 0;
+    for (var i = 0; i < str.length; i++) {
+      w += /[\u3000-\u9fff\uff00-\uffef]/.test(str[i]) ? size : size * 0.56;
+    }
+    return w;
+  }
+
+  function leafH(n) { return n.role === 'pod' ? 80 : 70; }
+
+  function layout(model, mode) {
+    var nodes = model.nodes, edges = model.edges;
+
+    var maxVal = 0;
+    edges.forEach(function (e) { maxVal = Math.max(maxVal, valueOf(e, mode)); });
+    if (maxVal <= 0) maxVal = 1;
+    var scale = THICK_MAX / maxVal;
+    var thick = function (v) { return Math.max(THICK_MIN, v * scale); };
+
+    /* 每個節點的 port 槽位 */
+    nodes.forEach(function (n) {
+      n.leftSlots = n.inEdges.map(function (e) {
+        return { edge: e, iface: e.toIface, t: thick(valueOf(e, mode)) };
+      });
+      n.rightSlots = n.outEdges.map(function (e) {
+        return { edge: e, iface: e.fromIface, t: thick(valueOf(e, mode)) };
+      });
+      var lh = stackH(n.leftSlots), rh = stackH(n.rightSlots);
+      n.resPad = (showResidual(mode) && n.kind === 'node' && (n.otherIn > 0 || n.otherOut > 0)) ? RES_PAD : 0;
+      if (n.kind === 'node') {
+        n.w = NODE_W;
+        n.h = HEADER_H + Math.max(lh, rh, BODY_MIN) + BODY_PAD + n.resPad;
+      } else if (n.kind === 'leaf') {
+        n.w = LEAF_W; n.h = Math.max(leafH(n), lh, rh);
+      } else {
+        n.w = ANCHOR_W; n.h = Math.max(66, lh, rh);
+      }
+    });
+
+    /* 欄位 x */
+    var cols = [];
+    nodes.forEach(function (n) { (cols[n.col] = cols[n.col] || []).push(n); });
+    var x = PAD_SIDE, colX = [];
+    for (var c = 0; c < cols.length; c++) {
+      var list = cols[c] || [];
+      var w = list.reduce(function (m, n) { return Math.max(m, n.w); }, NODE_W);
+      colX[c] = x;
+      list.forEach(function (n) { n.x = x; });
+      x += w + COL_GAP;
+    }
+    var totalW = x - COL_GAP + PAD_SIDE;
+
+    /* 欄位 y：先照上游中心排序，再整欄對齊上游重心 */
+    for (var ci = 0; ci < cols.length; ci++) {
+      var col = cols[ci] || [];
+      col.forEach(function (n, i) {
+        var parents = n.inEdges.filter(function (e) {
+          var p = model.nodeMap[e.fromId];
+          return p.col < n.col && typeof p.__cy === 'number';
+        });
+        n.__pref = parents.length
+          ? parents.reduce(function (s, e) { return s + model.nodeMap[e.fromId].__cy; }, 0) / parents.length
+          : i * 1e-3;
+        n.__ord = i;
+      });
+      col.sort(function (a, b) { return (a.__pref - b.__pref) || (a.__ord - b.__ord); });
+      var y = 0;
+      col.forEach(function (n) { n.y = y; y += n.h + VGAP; });
+      var blockH = Math.max(0, y - VGAP);
+      var prefAvg = col.reduce(function (s, n) { return s + n.__pref; }, 0) / (col.length || 1);
+      var shift = col.length && ci > 0 ? (prefAvg - blockH / 2) : 0;
+      col.forEach(function (n) {
+        n.y += shift;
+        n.__cy = n.y + n.h / 2;
+      });
+    }
+
+    /* 正規化 y */
+    var minY = Infinity, maxY = -Infinity;
+    nodes.forEach(function (n) { minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y + n.h); });
+    var dy = PAD_TOP - minY;
+    nodes.forEach(function (n) { n.y += dy; n.__cy = n.y + n.h / 2; });
+    var totalH = (maxY + dy) + PAD_BOTTOM;
+
+    /* port 中心點 */
+    nodes.forEach(function (n) {
+      var top = n.kind === 'node' ? n.y + HEADER_H : n.y;
+      var avail = n.kind === 'node' ? n.h - HEADER_H - BODY_PAD - (n.resPad || 0) : n.h;
+      place(n.leftSlots, top, avail);
+      place(n.rightSlots, top, avail);
+      n.leftSlots.forEach(function (s) { s.edge.x2 = n.x; s.edge.y2 = s.cy; s.edge.t2 = s.t; });
+      n.rightSlots.forEach(function (s) { s.edge.x1 = n.x + n.w; s.edge.y1 = s.cy; s.edge.t1 = s.t; });
+    });
+
+    return { cols: cols, colX: colX, width: totalW, height: Math.max(totalH, 220), thick: thick };
+
+    function stackH(slots) {
+      if (!slots.length) return 0;
+      return slots.reduce(function (s, x) { return s + Math.max(x.t, ROW_H); }, 0) + (slots.length - 1) * ROW_GAP;
+    }
+    function place(slots, top, avail) {
+      var h = stackH(slots);
+      var cur = top + Math.max(0, (avail - h) / 2);
+      slots.forEach(function (s) {
+        var sh = Math.max(s.t, ROW_H);
+        s.cy = cur + sh / 2;
+        cur += sh + ROW_GAP;
+      });
+    }
+  }
+
+  function ribbon(e) {
+    var mx = (e.x1 + e.x2) / 2;
+    var a = e.t1 / 2, b = e.t2 / 2;
+    return 'M' + e.x1 + ',' + (e.y1 - a) +
+      ' C' + mx + ',' + (e.y1 - a) + ' ' + mx + ',' + (e.y2 - b) + ' ' + e.x2 + ',' + (e.y2 - b) +
+      ' L' + e.x2 + ',' + (e.y2 + b) +
+      ' C' + mx + ',' + (e.y2 + b) + ' ' + mx + ',' + (e.y1 + a) + ' ' + e.x1 + ',' + (e.y1 + a) + ' Z';
+  }
+
+  function render(model, mode) {
+    var geo = layout(model, mode);
+    var out = [];
+    out.push('<svg viewBox="0 0 ' + geo.width + ' ' + geo.height + '" ' +
+      'preserveAspectRatio="xMinYMin meet" ' +
+      'style="width:' + geo.width + 'px;max-width:100%;height:auto;min-width:' +
+      Math.round(geo.width * 0.85) + 'px" ' +
+      'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="追查 Sankey">');
+    out.push('<defs>' +
+      '<linearGradient id="gband" x1="0" x2="1"><stop offset="0" stop-color="#22d3ee" stop-opacity=".85"/>' +
+      '<stop offset="1" stop-color="#0e7490" stop-opacity=".85"/></linearGradient>' +
+      '<linearGradient id="gband-h" x1="0" x2="1"><stop offset="0" stop-color="#67e8f9"/>' +
+      '<stop offset="1" stop-color="#22d3ee"/></linearGradient>' +
+      '</defs>');
+
+    /* 欄位標題 */
+    (geo.cols || []).forEach(function (col, ci) {
+      if (!col || !col.length) return;
+      var cap = colCaption(col, model.dir);
+      out.push('<text class="col-cap" x="' + col[0].x + '" y="24">' + esc(cap) + '</text>');
+    });
+
+    /* 帶：先畫，壓在盒子下面 */
+    model.edges.forEach(function (e) {
+      var v = valueOf(e, mode);
+      var meta = {
+        from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
+        fi: e.fromIface, ti: e.toIface, bps: e.bps, attr: e.attr, anchor: !!e.isAnchor
+      };
+      out.push('<path class="band" d="' + ribbon(e) + '" fill="url(#gband)" ' +
+        'stroke="#22d3ee" stroke-opacity=".35" stroke-width="1" ' +
+        'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
+        esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + F(v)) +
+        '</title></path>');
+    });
+
+    /* 帶上的數字 */
+    model.edges.forEach(function (e) {
+      var v = valueOf(e, mode);
+      var mx = (e.x1 + e.x2) / 2, my = (e.y1 + e.y2) / 2;
+      out.push('<text x="' + mx + '" y="' + (my + 4) + '" text-anchor="middle" class="p-val" ' +
+        'style="paint-order:stroke;stroke:#0b1017;stroke-width:3.5px">' + esc(F(v)) + '</text>');
+    });
+
+    /* 盒子 */
+    model.nodes.forEach(function (n) {
+      if (n.kind === 'node') out.push(nodeBox(n, model, mode));
+      else if (n.kind === 'leaf') out.push(leafCard(n, mode));
+      else out.push(anchorCard(n, model));
+    });
+
+    /* 殘差：外側短虛線，不進走廊 */
+    if (showResidual(mode)) {
+      model.nodes.forEach(function (n) {
+        if (n.kind !== 'node') return;
+        if (n.otherIn > 0) out.push(residual(n, 'in'));
+        if (n.otherOut > 0) out.push(residual(n, 'out'));
+      });
+    }
+
+    out.push('</svg>');
+    return out.join('');
+  }
+
+  function colCaption(col, dir) {
+    var kinds = {};
+    col.forEach(function (n) { kinds[n.kind] = true; });
+    if (kinds.anchor) return dir === 'destination' ? '追查起點 (in)' : '追查起點 (out)';
+    if (kinds.node) return '第 ' + col[0].col + ' 跳';
+    return '追查終止';
+  }
+
+  function nodeBox(n, model, mode) {
+    var isK8sNode = n.role === 'node';
+    var s = [];
+    s.push('<g>');
+    s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="9" ' +
+      'fill="#101c28" stroke="' + (isK8sNode ? '#7dd3fc' : (n.isRoot ? '#22d3ee' : '#2c3e52')) + '" ' +
+      'stroke-width="' + (n.isRoot ? 1.8 : 1.2) + '"' + (isK8sNode ? ' stroke-dasharray="6 4"' : '') + '/>');
+    s.push('<line x1="' + n.x + '" y1="' + (n.y + HEADER_H - 6) + '" x2="' + (n.x + n.w) +
+      '" y2="' + (n.y + HEADER_H - 6) + '" stroke="#22303f"/>');
+    s.push('<text class="n-title" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">' + esc(n.label) +
+      (n.hopCount > 1 ? ' <tspan class="n-sub">×' + n.hopCount + ' hop 合併</tspan>' : '') + '</text>');
+    s.push('<text class="n-sub" x="' + (n.x + 12) + '" y="' + (n.y + 29) + '">' + esc(n.id) +
+      (isK8sNode ? ' · node' : '') + '</text>');
+
+    n.leftSlots.forEach(function (sl) {
+      s.push('<text class="p-label" x="' + (n.x + 10) + '" y="' + (sl.cy + 3.5) + '">' + esc(sl.iface) + '</text>');
+    });
+    n.rightSlots.forEach(function (sl) {
+      s.push('<text class="p-label" text-anchor="end" x="' + (n.x + n.w - 10) + '" y="' + (sl.cy + 3.5) + '">' +
+        esc(sl.iface) + '</text>');
+    });
+    s.push('</g>');
+    return s.join('');
+  }
+
+  function leafCard(n, mode) {
+    var v = mode === 'contribution' ? n.attr : n.bps;
+    var s = [];
+    var isPod = n.role === 'pod';
+    s.push('<g>');
+    s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8" ' +
+      'fill="#0e151d" stroke="#94a3b8" stroke-opacity=".65" stroke-width="1.1" stroke-dasharray="5 4"/>');
+    s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">追查終止</text>');
+    s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 34) + '">' + esc(n.label) + '</text>');
+    var ly = n.y + 48;
+    if (isPod && n.namespace) {
+      s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">ns/' + esc(n.namespace) + ' · pod</text>');
+      ly += 14;
+    }
+    s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">' + esc(n.iface || n.localIface || '') +
+      ' · ' + esc(F(v)) + '</text>');
+    s.push('<text class="leaf-stop" text-anchor="end" x="' + (n.x + n.w - 12) + '" y="' + (n.y + 17) +
+      '">未再往下追</text>');
+    s.push('</g>');
+    return s.join('');
+  }
+
+  function anchorCard(n, model) {
+    var inv = model.investigation;
+    var s = [];
+    s.push('<g>');
+    s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8" ' +
+      'fill="#0d1a22" stroke="#22d3ee" stroke-width="1.4" stroke-dasharray="4 3"/>');
+    s.push('<text class="leaf-stop" style="fill:#22d3ee" x="' + (n.x + 12) + '" y="' + (n.y + 18) + '">追查起點</text>');
+    s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 36) + '">' + esc(inv.iface) + '</text>');
+    s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + (n.y + 52) + '">' +
+      esc(n.dirLabel) + ' 方向 · ' + esc(F(inv.deltaBps)) + '</text>');
+    s.push('</g>');
+    return s.join('');
+  }
+
+  function residual(n, side) {
+    var isIn = side === 'in';
+    var color = isIn ? '#f59e0b' : '#fb7185';
+    var y = n.y + n.h - 12;
+    var x1 = isIn ? n.x - RES_LEN : n.x + n.w;
+    var x2 = isIn ? n.x : n.x + n.w + RES_LEN;
+    var txtX = isIn ? x1 - 8 : x2 + 8;
+    var anchorAttr = isIn ? 'end' : 'start';
+    var word = isIn ? '其他輸入' : '其他輸出';
+    var amount = (isIn ? '+' : '') + F(isIn ? n.otherIn : n.otherOut);
+    var tw = Math.max(textWidth(word, 10.5), textWidth(amount, 10.5)) + 10;
+    var bx = isIn ? txtX - tw + 5 : txtX - 5;
+    var s = [];
+    s.push('<g>');
+    s.push('<rect x="' + x1 + '" y="' + (y - RES_H / 2) + '" width="' + RES_LEN + '" height="' + RES_H + '" ' +
+      'fill="none" stroke="' + color + '" stroke-width="1.4" stroke-dasharray="4 3"/>');
+    s.push('<rect x="' + bx + '" y="' + (y - 13) + '" width="' + tw + '" height="26" rx="4" ' +
+      'fill="#0b1017" fill-opacity=".92"/>');
+    s.push('<text class="res-label" text-anchor="' + anchorAttr + '" x="' + txtX + '" y="' + (y - 1) +
+      '" style="fill:' + color + '">' + esc(word) + '</text>');
+    s.push('<text class="res-label" text-anchor="' + anchorAttr + '" x="' + txtX + '" y="' + (y + 11) +
+      '" style="fill:' + color + '">' + esc(amount) + '</text>');
+    s.push('</g>');
+    return s.join('');
+  }
+
+  /* ---------- 圖外資訊：hop 數字摘要 ---------- */
+  function summary(model, mode) {
+    var dir = model.dir;
+    var rows = model.nodes.filter(function (n) { return n.kind === 'node'; })
+      .sort(function (a, b) { return a.col - b.col; });
+    var h = ['<h3>hop 數字摘要（圖外資訊）</h3><div class="tbl-wrap"><table><thead><tr>',
+      '<th>hop</th><th>追查輸入</th><th>出口增加</th><th class="c-amber">其他進</th>',
+      '<th class="c-rose">其他出</th><th class="c-cyan">可歸因</th></tr></thead><tbody>'];
+    rows.forEach(function (n) {
+      var known = dir === 'destination' ? n.tracedIn : n.tracedIn;
+      h.push('<tr><td>' + esc(n.label) + ' <span class="c-dim">' + esc(n.id) + '</span>' +
+        (n.hopCount > 1 ? ' <span class="c-dim">(合併 ' + n.hopCount + ' hop)</span>' : '') + '</td>' +
+        '<td class="num">' + F(known) + '</td>' +
+        '<td class="num">' + F(n.tracedOut) + '</td>' +
+        '<td class="num c-amber">' + (n.otherIn > 0 ? '+' + F(n.otherIn) : '—') + '</td>' +
+        '<td class="num c-rose">' + (n.otherOut > 0 ? F(n.otherOut) : '—') + '</td>' +
+        '<td class="num c-cyan">' + F(dir === 'destination' ? n.attrOut : n.attrIn) + '</td></tr>');
+    });
+    h.push('</tbody></table></div>');
+    h.push('<p class="warn">平衡式：已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出。' +
+      (mode === 'balanced' ? '' : '目前模式不畫殘差，表格仍列出實際數字。') + '</p>');
+    model.warnings.forEach(function (w) { h.push('<p class="warn">⚠ ' + esc(w) + '</p>'); });
+    return h.join('');
+  }
+
+  global.TraceRender = { render: render, summary: summary, esc: esc };
+})(window);
