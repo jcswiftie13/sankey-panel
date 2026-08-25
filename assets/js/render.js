@@ -36,14 +36,19 @@
     var scale = THICK_MAX / maxVal;
     var thick = function (v) { return Math.max(THICK_MIN, v * scale); };
 
-    /* 每個節點的 port 槽位 */
+    /* 每個節點的 port 槽位。橫向邊（同 tier 同欄互連）兩端都掛右側：
+       弧帶整條活在欄右側的間隙，受端若從左邊進就得繞過整個盒子。 */
     nodes.forEach(function (n) {
-      n.leftSlots = n.inEdges.map(function (e) {
-        return { edge: e, iface: e.toIface, t: thick(e.bps) };
+      n.leftSlots = n.inEdges.filter(function (e) { return !e.lateral; }).map(function (e) {
+        return { edge: e, role: 'in', iface: e.toIface, t: thick(e.bps) };
       });
-      n.rightSlots = n.outEdges.map(function (e) {
-        return { edge: e, iface: e.fromIface, t: thick(e.bps) };
-      });
+      n.rightSlots = n.outEdges.filter(function (e) { return !e.lateral; }).map(function (e) {
+        return { edge: e, role: 'out', iface: e.fromIface, t: thick(e.bps) };
+      }).concat(n.outEdges.filter(function (e) { return e.lateral; }).map(function (e) {
+        return { edge: e, role: 'lat-out', iface: e.fromIface, t: thick(e.bps) };
+      })).concat(n.inEdges.filter(function (e) { return e.lateral; }).map(function (e) {
+        return { edge: e, role: 'lat-in', iface: e.toIface, t: thick(e.bps) };
+      }));
       /* 殘差是真的槽位，排在已追查 port 之後（最外側），才會跟它們一起被 place() 置中。
          放最外側而不是插在中間：place() 依順序指派 cy，插中間會把下面所有帶子往下推、
          憑空製造交叉。 */
@@ -83,12 +88,25 @@
           var p = model.nodeMap[e.fromId];
           return p.col < n.col && typeof p.__cy === 'number';
         });
+        n.__hasXParent = parents.length > 0;
         n.__pref = parents.length
           ? parents.reduce(function (s, e) { return s + model.nodeMap[e.fromId].__cy; }, 0) / parents.length
           : i * 1e-3;
         n.__ord = i;
       });
-      col.sort(function (a, b) { return (a.__pref - b.__pref) || (a.__ord - b.__ord); });
+      /* 只被同欄餵的節點（如 dci）沒有跨欄父節點：__pref 繼承橫向上游，
+         平手時再靠 subOrder 落在生產者與消費者之間。照 subOrder 走可沿鏈傳遞。 */
+      col.slice().sort(function (a, b) { return (a.subOrder || 0) - (b.subOrder || 0); })
+        .forEach(function (n) {
+          if (n.__hasXParent) return;
+          var lat = n.inEdges.filter(function (e) { return e.lateral; });
+          if (lat.length) {
+            n.__pref = lat.reduce(function (s, e) { return s + model.nodeMap[e.fromId].__pref; }, 0) / lat.length;
+          }
+        });
+      col.sort(function (a, b) {
+        return (a.__pref - b.__pref) || ((a.subOrder || 0) - (b.subOrder || 0)) || (a.__ord - b.__ord);
+      });
       var y = 0;
       col.forEach(function (n) { n.y = y; y += n.h + VGAP; });
       var blockH = Math.max(0, y - VGAP);
@@ -119,7 +137,24 @@
       });
       n.rightSlots.forEach(function (s) {
         if (!s.edge) return;
-        s.edge.x1 = n.x + n.w; s.edge.y1 = s.cy; s.edge.t1 = s.t;
+        if (s.role === 'lat-in') { s.edge.x2 = n.x + n.w; s.edge.y2 = s.cy; s.edge.t2 = s.t; }
+        else { s.edge.x1 = n.x + n.w; s.edge.y1 = s.cy; s.edge.t1 = s.t; }
+      });
+    });
+
+    /* 橫向弧帶的凸出量：跨距短的在內圈、長的在外圈，弧才不會互相穿過 */
+    var latByCol = {};
+    edges.forEach(function (e) {
+      if (!e.lateral) return;
+      var c = model.nodeMap[e.fromId].col;
+      (latByCol[c] = latByCol[c] || []).push(e);
+    });
+    Object.keys(latByCol).forEach(function (c) {
+      latByCol[c].sort(function (a, b) {
+        return Math.abs(a.y2 - a.y1) - Math.abs(b.y2 - b.y1);
+      });
+      latByCol[c].forEach(function (e, i) {
+        e.bulge = Math.min(56 + (e.t1 + e.t2) / 2 * 0.67 + 18 * i, COL_GAP - 26);
       });
     });
 
@@ -149,6 +184,20 @@
       ' C' + mx + ',' + (e.y2 + b) + ' ' + mx + ',' + (e.y1 + a) + ' ' + e.x1 + ',' + (e.y1 + a) + ' Z';
   }
 
+  /* 同欄互連：兩端都在欄右緣的馬蹄形弧帶，往右凸 B 再折回。
+     外緣接兩端「遠離中線」的邊界、內緣接近側，弧頂寬度才會 ≈ 平均帶寬。 */
+  function lateralRibbon(e, B) {
+    var a = e.t1 / 2, b = e.t2 / 2;
+    var s = e.y2 >= e.y1 ? 1 : -1;
+    var k = (a + b) * 0.67, Bo = B + k, Bi = Math.max(8, B - k);
+    return 'M' + e.x1 + ',' + (e.y1 - s * a) +
+      ' C' + (e.x1 + Bo) + ',' + (e.y1 - s * a) + ' ' + (e.x2 + Bo) + ',' + (e.y2 + s * b) +
+      ' ' + e.x2 + ',' + (e.y2 + s * b) +
+      ' L' + e.x2 + ',' + (e.y2 - s * b) +
+      ' C' + (e.x2 + Bi) + ',' + (e.y2 - s * b) + ' ' + (e.x1 + Bi) + ',' + (e.y1 + s * a) +
+      ' ' + e.x1 + ',' + (e.y1 + s * a) + ' Z';
+  }
+
   function render(model) {
     var geo = layout(model);
     var out = [];
@@ -176,18 +225,22 @@
     model.edges.forEach(function (e) {
       var meta = {
         from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
-        fi: e.fromIface, ti: e.toIface, bps: e.bps, attr: e.attr, anchor: !!e.isAnchor
+        fi: e.fromIface, ti: e.toIface, bps: e.bps, attr: e.attr, anchor: !!e.isAnchor,
+        lateral: e.lateral || undefined      /* stringify 會把 undefined 丟掉：沒 tier 的圖輸出不變 */
       };
-      out.push('<path class="band" d="' + ribbon(e) + '" fill="url(#gband)" ' +
+      out.push('<path class="band' + (e.lateral ? ' band-lat' : '') + '" d="' +
+        (e.lateral ? lateralRibbon(e, e.bulge) : ribbon(e)) + '" fill="url(#gband)" ' +
         'stroke="#22d3ee" stroke-opacity=".35" stroke-width="1" ' +
         'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
-        esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + F(e.bps)) +
+        esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + F(e.bps) +
+          (e.lateral ? '（同層互連）' : '')) +
         '</title></path>');
     });
 
-    /* 帶上的數字 */
+    /* 帶上的數字。橫向弧帶的數字放弧頂，放中點會壓在欄上 */
     model.edges.forEach(function (e) {
-      var mx = (e.x1 + e.x2) / 2, my = (e.y1 + e.y2) / 2;
+      var mx = e.lateral ? e.x1 + 0.72 * e.bulge : (e.x1 + e.x2) / 2;
+      var my = (e.y1 + e.y2) / 2;
       out.push('<text x="' + mx + '" y="' + (my + 4) + '" text-anchor="middle" class="p-val" ' +
         'style="paint-order:stroke;stroke:#0b1017;stroke-width:3.5px">' + esc(F(e.bps)) + '</text>');
     });

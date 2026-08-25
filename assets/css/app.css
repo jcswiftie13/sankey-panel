@@ -70,6 +70,10 @@ main{padding:18px 20px 60px;max-width:1880px;margin:0 auto}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:22px;height:9px;border-radius:2px;display:inline-block}
 .lg-cyan{background:linear-gradient(90deg,var(--cyan),var(--cyan-d))}
+/* 同層互連弧帶：同一把比例尺、略低的填色透明度做區隔，半圓示意馬蹄形 */
+.lg-lat{background:linear-gradient(90deg,var(--cyan),var(--cyan-d));opacity:.62;
+  border-radius:0 99px 99px 0;width:14px}
+.band-lat{fill-opacity:.62}
 /* 殘差現在跟帶寬等比，legend 不能再用零高度的虛線（那本來就是「不等比」的訊號） */
 .lg-amber{background:rgba(245,158,11,.16);border:1.4px dashed var(--amber)}
 .lg-rose{background:rgba(251,113,133,.16);border:1.4px dashed var(--rose)}

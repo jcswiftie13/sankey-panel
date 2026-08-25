@@ -116,6 +116,7 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 | `switchId` | string | ✔ | 合併鍵。同一個 id 出現多次會**合併成一個盒子**，不畫成兩台 |
 | `label` | string | | 顯示名稱，沒給就用 `switchId` |
 | `role` | `"switch"` \| `"node"` \| `"pod"` | | `node` 畫成虛線盒（k8s node），預設 `switch` |
+| `tier` | string（非空） | | 同層標籤。同 `tier` 的 hop **鎖在同一欄**，彼此之間的邊畫成右側弧帶；字串內容自訂，程式只比對相同與否。見下方「同層互連（tier）」 |
 | `inputIface` | string | 追終點 | 流量從哪條進這台 |
 | `outputs` | array of port | 追終點 | 跟下去的出口 |
 | `outputIface` | string | 追來源 | 流量從哪條出這台 |
@@ -200,7 +201,7 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 }
 ```
 
-`samples/` 底下是網頁上那六個範例的 JSON，可以直接拿來改。
+`samples/` 底下是網頁上那些範例的 JSON，可以直接拿來改。
 
 ### 驗證錯誤對照
 
@@ -218,6 +219,7 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 | hops 必須是非空陣列。 | `hops` 不是陣列，或是空的 `[]` |
 | hops[i] 不是物件。 | 陣列裡混了字串或數字 |
 | hops[i].switchId 必填。 | 那一跳沒給 id，就沒得合併 |
+| hops[i].tier 必須是非空字串。 | `tier` 給了數字、空字串或其他型別 |
 | hops[i].outputs 必須是陣列。 | 給了單一物件，忘了包 `[]` |
 | hops[i].outputs[j] 不是物件。 | port 陣列裡混了別的東西 |
 | hops[i].outputs[j].iface 必填。 | port 沒給 interface 名 |
@@ -226,11 +228,23 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 
 （`inputs` 的訊息一樣，只是把 `outputs` 換成 `inputs`。）
 
-另外有三種**警告**，不會擋著不畫，會列在圖下方：
+另外有幾種**警告**，不會擋著不畫，會列在圖下方：
 
 - `顯式的 otherInBps/otherOutBps 對不上` — 兩個都給了但湊不出平衡式，圖照你給的顯式值畫
 - `宣告的對端 X 與 Y 的 inputIface 對不上` — 上一跳說接到某個 iface，下一跳的 `inputIface` 不是它
 - `拓樸疑似有環` — hops 兜出了環，欄位順序會不準
+- `同一台在不同 hop 給了不同 tier` — 同 `switchId` 的 hop 標了兩種 tier，採用先出現的
+- `tier 分組後拓樸有環` — tier 讓群組之間繞成環（甲群 → 乙 → 甲群），忽略 tier 退回最長路徑排欄
+- `tier「X」內部有環` — 同 tier 內 a→b→a，環上的量無法完整歸因
+
+### 同層互連（tier）
+
+欄位預設照最長路徑排：每條邊都逼下游至少右一欄。同一層彼此互連時（例如 bdr↔dci 跨 DC），
+互連下游的機器會被推到右邊一欄，同一層被拆成兩欄。把同層的 hop 都標同一個 `tier` 就能鎖回同欄：
+
+- 同 `tier` 的機器整群視為一個節點跑最長路徑，欄位順序仍由拓樸自動推，**不用宣告層級編號**；tier 內部的邊不參與排欄。沒標 `tier` 的 hop 行為完全不變。
+- tier 內部的邊畫成**欄右側的弧帶**（往右凸再折回），厚度與青帶共用同一把比例尺；守恆與可歸因量照常經過這些邊。
+- 範例見 `samples/dci-tier.json`（網頁上的「同層互連（tier）」）。
 
 ## 追查方向
 

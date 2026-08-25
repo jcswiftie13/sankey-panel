@@ -131,6 +131,7 @@
 
     document.getElementById('legend').innerHTML =
       '<span><i class="lg-cyan"></i>已追查（帶寬＝實際 increment）</span>' +
+      '<span><i class="lg-lat"></i>同層互連（同 tier 同欄，右側弧帶，等比）</span>' +
       '<span><i class="lg-amber"></i>其他輸入（貼左側，高度與帶寬等比）</span>' +
       '<span><i class="lg-rose"></i>其他輸出（截斷／太小，貼右側，高度等比）</span>' +
       '<span><i class="lg-gray"></i>追查終止葉節點（不是又一台 switch）</span>';
@@ -187,7 +188,8 @@
           '<div class="t-row"><span>入口 iface</span><span>' + R.esc(d.ti || '—') + '</span></div>' +
           '<div class="t-row"><span>實際 increment</span><span>' + M.fmtBps(d.bps) + '</span></div>' +
           '<div class="t-row"><span>可歸因</span><span>' + M.fmtBps(d.attr) + '</span></div>' +
-          (d.anchor ? '<div class="t-row"><span>這條是追查起點</span><span></span></div>' : '');
+          (d.anchor ? '<div class="t-row"><span>這條是追查起點</span><span></span></div>' : '') +
+          (d.lateral ? '<div class="t-row"><span>同層互連（同 tier）</span><span></span></div>' : '');
         tip.hidden = false;
         el.setAttribute('fill', 'url(#gband-h)');
         hoverBand = el;
