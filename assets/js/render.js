@@ -1,4 +1,4 @@
-/* SVG Sankey 繪製：青帶＝已追查、殘差＝外側短虛線、終止＝灰虛線小卡。 */
+/* SVG Sankey 繪製：青帶＝已追查、殘差＝盒子外側與帶寬等比的虛線色塊、終止＝灰虛線小卡。 */
 (function (global) {
   'use strict';
   var F = global.TraceModel.fmtBps;
@@ -8,7 +8,7 @@
   var COL_GAP = 218, VGAP = 34;
   var PAD_TOP = 46, PAD_BOTTOM = 26, PAD_SIDE = 122;
   var THICK_MAX = 86, THICK_MIN = 3;
-  var RES_LEN = 34, RES_H = 9, RES_PAD = 24;
+  var RES_LEN = 34, RES_GAP = 8;   /* 高度改用 thick()，不再有固定的 RES_H／RES_PAD */
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -16,21 +16,22 @@
     });
   }
 
-  function textWidth(str, size) {
-    var w = 0;
-    for (var i = 0; i < str.length; i++) {
-      w += /[\u3000-\u9fff\uff00-\uffef]/.test(str[i]) ? size : size * 0.56;
-    }
-    return w;
-  }
-
   function leafH(n) { return n.role === 'pod' ? 80 : 70; }
+
+  /* 殘差門檻用 model 算好的 resEps：小於 counter 浮點雜訊的殘差不畫，也不佔版面。
+     注意這是「相對這台自己流量」的判斷，粗細卻是全圖 maxVal 的比例——
+     小 hop 的真殘差可能過得了門檻但只有 THICK_MIN 這麼細，那是對的。 */
+  function resIn(n) { return n.kind === 'node' && n.otherIn > (n.resEps || 0) ? n.otherIn : 0; }
+  function resOut(n) { return n.kind === 'node' && n.otherOut > (n.resEps || 0) ? n.otherOut : 0; }
 
   function layout(model) {
     var nodes = model.nodes, edges = model.edges;
 
+    /* 殘差跟青帶共用同一把比例尺，比例才讀得出來。殘差比所有邊都大時青帶會變細，
+       那正是「沒追到的佔大多數」該有的觀感。 */
     var maxVal = 0;
     edges.forEach(function (e) { maxVal = Math.max(maxVal, e.bps); });
+    nodes.forEach(function (n) { maxVal = Math.max(maxVal, resIn(n), resOut(n)); });
     if (maxVal <= 0) maxVal = 1;
     var scale = THICK_MAX / maxVal;
     var thick = function (v) { return Math.max(THICK_MIN, v * scale); };
@@ -43,11 +44,17 @@
       n.rightSlots = n.outEdges.map(function (e) {
         return { edge: e, iface: e.fromIface, t: thick(e.bps) };
       });
+      /* 殘差是真的槽位，排在已追查 port 之後（最外側），才會跟它們一起被 place() 置中。
+         放最外側而不是插在中間：place() 依順序指派 cy，插中間會把下面所有帶子往下推、
+         憑空製造交叉。 */
+      var ri = resIn(n), ro = resOut(n);
+      if (ri) n.leftSlots.push({ res: 'in', bps: ri, t: thick(ri) });
+      if (ro) n.rightSlots.push({ res: 'out', bps: ro, t: thick(ro) });
+
       var lh = stackH(n.leftSlots), rh = stackH(n.rightSlots);
-      n.resPad = (n.kind === 'node' && (n.otherIn > 0 || n.otherOut > 0)) ? RES_PAD : 0;
       if (n.kind === 'node') {
         n.w = NODE_W;
-        n.h = HEADER_H + Math.max(lh, rh, BODY_MIN) + BODY_PAD + n.resPad;
+        n.h = HEADER_H + Math.max(lh, rh, BODY_MIN) + BODY_PAD;
       } else if (n.kind === 'leaf') {
         n.w = LEAF_W; n.h = Math.max(leafH(n), lh, rh);
       } else {
@@ -103,11 +110,17 @@
     /* port 中心點 */
     nodes.forEach(function (n) {
       var top = n.kind === 'node' ? n.y + HEADER_H : n.y;
-      var avail = n.kind === 'node' ? n.h - HEADER_H - BODY_PAD - (n.resPad || 0) : n.h;
+      var avail = n.kind === 'node' ? n.h - HEADER_H - BODY_PAD : n.h;
       place(n.leftSlots, top, avail);
       place(n.rightSlots, top, avail);
-      n.leftSlots.forEach(function (s) { s.edge.x2 = n.x; s.edge.y2 = s.cy; s.edge.t2 = s.t; });
-      n.rightSlots.forEach(function (s) { s.edge.x1 = n.x + n.w; s.edge.y1 = s.cy; s.edge.t1 = s.t; });
+      n.leftSlots.forEach(function (s) {
+        if (!s.edge) return;                       /* 殘差槽沒有 edge */
+        s.edge.x2 = n.x; s.edge.y2 = s.cy; s.edge.t2 = s.t;
+      });
+      n.rightSlots.forEach(function (s) {
+        if (!s.edge) return;
+        s.edge.x1 = n.x + n.w; s.edge.y1 = s.cy; s.edge.t1 = s.t;
+      });
     });
 
     return { cols: cols, colX: colX, width: totalW, height: Math.max(totalH, 220), thick: thick };
@@ -186,11 +199,13 @@
       else out.push(anchorCard(n, model));
     });
 
-    /* 殘差：外側短虛線，不進走廊 */
+    /* 殘差：貼盒子外側、與帶寬等比的虛線色塊，不進走廊。
+       直接走槽位，畫出來的東西跟 layout() 保留的空間就不可能不一致。 */
     model.nodes.forEach(function (n) {
       if (n.kind !== 'node') return;
-      if (n.otherIn > 0) out.push(residual(n, 'in'));
-      if (n.otherOut > 0) out.push(residual(n, 'out'));
+      n.leftSlots.concat(n.rightSlots).forEach(function (sl) {
+        if (sl.res) out.push(residual(n, sl));
+      });
     });
 
     out.push('</g>');
@@ -221,9 +236,11 @@
       (isK8sNode ? ' · node' : '') + '</text>');
 
     n.leftSlots.forEach(function (sl) {
+      if (sl.res) return;                          /* 殘差的標籤畫在盒子外面 */
       s.push('<text class="p-label" x="' + (n.x + 10) + '" y="' + (sl.cy + 3.5) + '">' + esc(sl.iface) + '</text>');
     });
     n.rightSlots.forEach(function (sl) {
+      if (sl.res) return;
       s.push('<text class="p-label" text-anchor="end" x="' + (n.x + n.w - 10) + '" y="' + (sl.cy + 3.5) + '">' +
         esc(sl.iface) + '</text>');
     });
@@ -266,28 +283,28 @@
     return s.join('');
   }
 
-  function residual(n, side) {
-    var isIn = side === 'in';
+  function residual(n, sl) {
+    var isIn = sl.res === 'in';
     var color = isIn ? '#f59e0b' : '#fb7185';
-    var y = n.y + n.h - 12;
-    var x1 = isIn ? n.x - RES_LEN : n.x + n.w;
-    var x2 = isIn ? n.x : n.x + n.w + RES_LEN;
-    var txtX = isIn ? x1 - 8 : x2 + 8;
+    var h = sl.t;                                  /* 已含 THICK_MIN 下限 */
+    var x = isIn ? n.x - RES_LEN : n.x + n.w;
+    var txtX = isIn ? x - RES_GAP : x + RES_LEN + RES_GAP;
     var anchorAttr = isIn ? 'end' : 'start';
     var word = isIn ? '其他輸入' : '其他輸出';
-    var amount = (isIn ? '+' : '') + F(isIn ? n.otherIn : n.otherOut);
-    var tw = Math.max(textWidth(word, 10.5), textWidth(amount, 10.5)) + 10;
-    var bx = isIn ? txtX - tw + 5 : txtX - 5;
+    var amount = (isIn ? '+' : '') + F(sl.bps);
+    /* 標籤用描邊光暈，不用不透明底板——底板會在青帶上打出一個黑洞（殘差最後才畫） */
+    var halo = 'paint-order:stroke;stroke:#0b1017;stroke-width:3.5px';
     var s = [];
     s.push('<g>');
-    s.push('<rect x="' + x1 + '" y="' + (y - RES_H / 2) + '" width="' + RES_LEN + '" height="' + RES_H + '" ' +
-      'fill="none" stroke="' + color + '" stroke-width="1.4" stroke-dasharray="4 3"/>');
-    s.push('<rect x="' + bx + '" y="' + (y - 13) + '" width="' + tw + '" height="26" rx="4" ' +
-      'fill="#0b1017" fill-opacity=".92"/>');
-    s.push('<text class="res-label" text-anchor="' + anchorAttr + '" x="' + txtX + '" y="' + (y - 1) +
-      '" style="fill:' + color + '">' + esc(word) + '</text>');
-    s.push('<text class="res-label" text-anchor="' + anchorAttr + '" x="' + txtX + '" y="' + (y + 11) +
-      '" style="fill:' + color + '">' + esc(amount) + '</text>');
+    s.push('<title>' + esc(n.label + '：' + word + ' ' + F(sl.bps) +
+      '（已追查 in ' + F(n.tracedIn) + ' / out ' + F(n.tracedOut) + '）') + '</title>');
+    s.push('<rect x="' + x + '" y="' + (sl.cy - h / 2) + '" width="' + RES_LEN + '" height="' + h + '" ' +
+      'fill="' + color + '" fill-opacity=".16" ' +
+      'stroke="' + color + '" stroke-width="1.4" stroke-dasharray="4 3"/>');
+    s.push('<text class="res-label" text-anchor="' + anchorAttr + '" x="' + txtX + '" y="' + (sl.cy - 1) +
+      '" style="fill:' + color + ';' + halo + '">' + esc(word) + '</text>');
+    s.push('<text class="res-label" text-anchor="' + anchorAttr + '" x="' + txtX + '" y="' + (sl.cy + 11) +
+      '" style="fill:' + color + ';' + halo + '">' + esc(amount) + '</text>');
     s.push('</g>');
     return s.join('');
   }
@@ -306,8 +323,8 @@
         (n.hopCount > 1 ? ' <span class="c-dim">(合併 ' + n.hopCount + ' hop)</span>' : '') + '</td>' +
         '<td class="num">' + F(known) + '</td>' +
         '<td class="num">' + F(n.tracedOut) + '</td>' +
-        '<td class="num c-amber">' + (n.otherIn > 0 ? '+' + F(n.otherIn) : '—') + '</td>' +
-        '<td class="num c-rose">' + (n.otherOut > 0 ? F(n.otherOut) : '—') + '</td>' +
+        '<td class="num c-amber">' + (resIn(n) ? '+' + F(n.otherIn) : '—') + '</td>' +
+        '<td class="num c-rose">' + (resOut(n) ? F(n.otherOut) : '—') + '</td>' +
         '<td class="num c-cyan">' + F(dir === 'destination' ? n.attrOut : n.attrIn) + '</td></tr>');
     });
     h.push('</tbody></table></div>');

@@ -131,8 +131,8 @@
 
     document.getElementById('legend').innerHTML =
       '<span><i class="lg-cyan"></i>已追查（帶寬＝實際 increment）</span>' +
-      '<span><i class="lg-amber"></i>其他輸入（貼左側短虛線，高度不等比）</span>' +
-      '<span><i class="lg-rose"></i>其他輸出（貼右側短虛線，截斷／太小）</span>' +
+      '<span><i class="lg-amber"></i>其他輸入（貼左側，高度與帶寬等比）</span>' +
+      '<span><i class="lg-rose"></i>其他輸出（截斷／太小，貼右側，高度等比）</span>' +
       '<span><i class="lg-gray"></i>追查終止葉節點（不是又一台 switch）</span>';
 
     sum.innerHTML = R.summary(model);

@@ -195,10 +195,11 @@
       n.tracedIn = sum(n.inEdges);
       n.tracedOut = sum(n.outEdges);
       var left = n.tracedIn, right = n.tracedOut;
+      var eps = Math.max(left, right) * 0.005 + 1;   /* 讀 counter 的浮點雜訊門檻 */
       var oi = n.otherInBps, oo = n.otherOutBps;
       if (num(oi) && num(oo)) {
         var gap = (left + oi) - (right + oo);
-        if (Math.abs(gap) > Math.max(left, right) * 0.005 + 1) {
+        if (Math.abs(gap) > eps) {
           warnings.push(n.label + '：顯式的 otherInBps/otherOutBps 對不上（差 ' + fmtBps(gap) + '），圖照顯式值畫。');
         }
       } else if (num(oo)) {
@@ -213,6 +214,7 @@
       n.otherOut = oo || 0;
       n.totalIn = n.tracedIn + n.otherIn;
       n.totalOut = n.tracedOut + n.otherOut;
+      n.resEps = eps;        /* 圖上小於這個值的殘差不畫，見 render.js 的 resIn/resOut */
     });
 
     /* 7. 可歸因量：從追查起點往下（或往回）依比例分配 */

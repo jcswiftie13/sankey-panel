@@ -122,7 +122,7 @@
     {
       key: 'pruned',
       name: '截斷殘差',
-      desc: '這層有 9 個 port 在漲，只跟前 3 名（≥10%）。沒跟的併成其他輸出，用短虛線貼在右邊。',
+      desc: '這層有 9 個 port 在漲，只跟前 3 名（≥10%）。沒跟的併成其他輸出，用等比的虛線色塊貼在右邊。',
       json: {
         kind: 'destination',
         investigation: { switchId: 'sw-tor-14', iface: 'et-0/0/52', direction: 'in', deltaBps: G(40) },
