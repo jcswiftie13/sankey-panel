@@ -57,6 +57,7 @@ class Edge:
     namespace: str | None = None
     is_anchor: bool = False
     attr: float = 0.0
+    lateral: bool = False
 
 
 @dataclass
@@ -65,6 +66,8 @@ class Node:
     label: str
     kind: str = "node"          # node | leaf | anchor
     role: str = "switch"        # switch | node | pod | leaf | anchor
+    tier: str | None = None
+    sub_order: int = 0
     hop_count: int = 0
     anchor_ifaces: list[str] = field(default_factory=list)
     namespace: str | None = None
@@ -116,6 +119,9 @@ def validate(doc: Any) -> list[str]:
                 continue
             if not h.get("switchId"):
                 errs.append(f"hops[{i}].switchId is required")
+            tier = h.get("tier")
+            if tier is not None and (not isinstance(tier, str) or not tier):
+                errs.append(f"hops[{i}].tier must be a non-empty string")
             for key in ("outputs", "inputs"):
                 ports = h.get(key)
                 if ports is None:
@@ -181,6 +187,13 @@ class Trace:
                 n.label = h["label"]
             if h.get("role"):
                 n.role = h["role"]
+            if h.get("tier"):
+                if n.tier is None:
+                    n.tier = h["tier"]
+                elif n.tier != h["tier"]:
+                    self.warnings.append(
+                        f"{n.label}: different tier across hops "
+                        f"({n.tier!r} vs {h['tier']!r}); keeping the first {n.tier!r}")
             for key, attr in (("otherInBps", "other_in_bps"), ("otherOutBps", "other_out_bps")):
                 if isinstance(h.get(key), (int, float)):
                     cur = getattr(n, attr) or 0.0
@@ -251,21 +264,84 @@ class Trace:
             self.nodes[edge.to_id].in_edges.append(edge)
 
     # -- 4. longest-path columns -------------------------------------------- #
+    # Nodes sharing a tier act as one super-node: intra-tier edges do not
+    # constrain columns, so a same-layer mesh (bdr <-> dci) stays in one column.
+    # Untagged nodes are singleton groups, i.e. plain longest-path.
     def _columns(self) -> None:
-        for _ in range(len(self.order) + 2):
+        group_of = {i: (f"t:{n.tier}" if n.tier is not None else f"n:{i}")
+                    for i, n in self.nodes.items()}
+        gcol = {g: 0 for g in group_of.values()}
+        for _ in range(len(gcol) + 2):
             moved = False
             for e in self.edges:
-                a, b = self.nodes[e.from_id], self.nodes[e.to_id]
-                if b.col < a.col + 1:
-                    b.col = a.col + 1
+                ga, gb = group_of[e.from_id], group_of[e.to_id]
+                if ga == gb:
+                    continue
+                if gcol[gb] < gcol[ga] + 1:
+                    gcol[gb] = gcol[ga] + 1
                     moved = True
             if not moved:
+                for i, n in self.nodes.items():
+                    n.col = gcol[group_of[i]]
                 break
         else:
-            self.warnings.append("topology looks cyclic; column order may be off")
+            self.warnings.append("tier grouping made the topology cyclic; "
+                                 "ignoring tiers and using plain longest-path columns")
+            for _ in range(len(self.order) + 2):
+                moved = False
+                for e in self.edges:
+                    a, b = self.nodes[e.from_id], self.nodes[e.to_id]
+                    if b.col < a.col + 1:
+                        b.col = a.col + 1
+                        moved = True
+                if not moved:
+                    break
+            else:
+                self.warnings.append("topology looks cyclic; column order may be off")
         low = min(n.col for n in self.nodes.values())
         for n in self.nodes.values():
             n.col -= low
+        for e in self.edges:
+            e.lateral = self.nodes[e.from_id].col == self.nodes[e.to_id].col
+        self._tier_sub_order()
+
+    # Topological order inside each tier group, so the attribution sweep visits
+    # producers before consumers when columns tie.
+    def _tier_sub_order(self) -> None:
+        groups: dict[str, list[str]] = {}
+        for i, n in self.nodes.items():
+            if n.tier is not None:
+                groups.setdefault(n.tier, []).append(i)
+        for tier, members in groups.items():
+            if len(members) < 2:
+                continue
+            in_group = set(members)
+            indeg = {i: 0 for i in members}
+            adj: dict[str, list[str]] = {i: [] for i in members}
+            for e in self.edges:
+                if e.from_id in in_group and e.to_id in in_group:
+                    adj[e.from_id].append(e.to_id)
+                    indeg[e.to_id] += 1
+            queue = [i for i in members if indeg[i] == 0]
+            seq = 0
+            popped: set[str] = set()
+            while queue:
+                cur = queue.pop(0)
+                popped.add(cur)
+                self.nodes[cur].sub_order = seq
+                seq += 1
+                for m in adj[cur]:
+                    indeg[m] -= 1
+                    if indeg[m] == 0:
+                        queue.append(m)
+            if seq < len(members):
+                self.warnings.append(
+                    f"tier {tier!r} has an internal cycle; "
+                    "flow on the cycle cannot be fully attributed")
+                for i in members:
+                    if i not in popped:
+                        self.nodes[i].sub_order = seq
+                        seq += 1
 
     # -- 5. residuals -------------------------------------------------------- #
     def _residuals(self) -> None:
@@ -293,7 +369,7 @@ class Trace:
     # -- 6. attribution back to the investigated counter --------------------- #
     def _attribute(self) -> None:
         self.anchor_edge.attr = float(self.inv["deltaBps"])
-        ids = sorted(self.nodes, key=lambda i: self.nodes[i].col)
+        ids = sorted(self.nodes, key=lambda i: (self.nodes[i].col, self.nodes[i].sub_order))
         seq = ids if self.dir == "destination" else list(reversed(ids))
         for i in seq:
             n = self.nodes[i]

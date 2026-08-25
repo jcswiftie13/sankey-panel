@@ -71,7 +71,7 @@
       <div class="contract-body">
         <p><b>必要</b>：<code>investigation</code>（<code>switchId</code>、<code>iface</code>、<code>direction</code>、<code>deltaBps</code>）、<code>hops</code>（非空，每筆有 <code>switchId</code>）。</p>
         <p><b>選填</b>：<code>kind</code>（<code>destination</code> / <code>source</code>）、<code>pruning.topN</code>、<code>pruning.minShare</code>。</p>
-        <p><b>hop</b>：<code>label</code>、<code>role</code>（<code>switch</code> / <code>node</code> / <code>pod</code>）、<code>otherInBps</code>、<code>otherOutBps</code>。追終點用 <code>inputIface</code> + <code>outputs</code>；追來源用 <code>outputIface</code> + <code>inputs</code>。</p>
+        <p><b>hop</b>：<code>label</code>、<code>role</code>（<code>switch</code> / <code>node</code> / <code>pod</code>）、<code>tier</code>（非空字串；同 tier 的 hop 鎖同一欄，彼此之間的邊畫成右側弧帶）、<code>otherInBps</code>、<code>otherOutBps</code>。追終點用 <code>inputIface</code> + <code>outputs</code>；追來源用 <code>outputIface</code> + <code>inputs</code>。</p>
         <p><b>port</b>：<code>iface</code>、<code>deltaBps</code>、<code>peerKind</code>、<code>peerId</code> / <code>peerSwitchId</code>、<code>peerIface</code>、<code>namespace</code>。</p>
       </div>
     </details>
@@ -106,7 +106,13 @@
         </tbody>
       </table>
       <p>追終點 hop 填 <code>inputIface</code> + <code>outputs</code>；追來源 hop 填 <code>outputIface</code> + <code>inputs</code>。同一台 switch 出現多次（雙 uplink 匯入核心）會<b>合併成一個盒子</b>，不畫成兩台。</p>
-      <h3>3. 守恆與殘差</h3>
+      <h3>2b. 同層互連（tier）</h3>
+      <p>欄位預設照最長路徑排。同一層彼此互連時（bdr↔dci 跨 DC），互連下游的機器會被推到右邊一欄，同一層被拆成兩欄。把同層的 hop 都標同一個 <code>tier</code>（字串內容自訂，程式只比對相同與否）：</p>
+      <ul>
+        <li>同 <code>tier</code> 的機器<b>鎖在同一欄</b>；欄位順序照舊由拓樸自動推（整群視為一個節點跑最長路徑，tier 內部的邊不參與排欄）。沒標的 hop 完全照舊。</li>
+        <li>tier 內部的邊畫成<b>欄右側的弧帶</b>：往右凸再折回，厚度與青帶共用同一把比例尺。守恆、可歸因量都照常經過這些邊。</li>
+        <li>tier 標到讓群組之間繞成環（甲群 → 乙 → 甲群）時會警告並忽略 tier 退回最長路徑；tier <b>內部</b>有環（a→b→a）時環上的量無法完整歸因，也會警告。</li>
+      </ul>
       <p>每層只跟前 N 名或佔比 ≥ 門檻（預設前 3 名 / ≥ 10%）時：</p>
       <ul>
         <li><b class="c-rose">其他輸出</b>：這層 focus 增加量裡沒跟下去的 port（截斷、太小、已滿 N 名）。</li>
