@@ -169,28 +169,14 @@
   }
 
   /* ---------- tooltip ---------- */
-  var hoverBand = null;
-
-  /* 拖曳時 pointer capture 會把 mouseleave 攔走，高亮與 tooltip 得手動收 */
+  /* 帶子的 hover 高亮純靠 CSS（.band:hover），JS 只管 tooltip：
+     少了要還原的顏色狀態，mouseleave 沒觸發也不會有帶子卡在高亮色。 */
   function hideTip() {
     document.getElementById('tooltip').hidden = true;
-    if (hoverBand) { unhighlight(hoverBand); hoverBand = null; }
-  }
-
-  /* 回流帶的 fill 是玫瑰漸層（相鄰欄）或 none（繞外圈的 stroke 迴路），
-     高亮只能動青帶的 fill，還原也得還原成各自原本的值，不能寫死 gband */
-  function highlight(el) {
-    if (el.classList.contains('band-back')) return;
-    el.__origFill = el.getAttribute('fill');
-    el.setAttribute('fill', 'url(#gband-h)');
-  }
-  function unhighlight(el) {
-    if (el.__origFill != null) { el.setAttribute('fill', el.__origFill); el.__origFill = null; }
   }
 
   function bindTips() {
     var tip = document.getElementById('tooltip');
-    hoverBand = null;
     Array.prototype.forEach.call(document.querySelectorAll('.band'), function (el) {
       el.addEventListener('mouseenter', function () {
         if (Z.isPanning()) return;
@@ -205,8 +191,6 @@
           (d.lateral ? '<div class="t-row"><span>同層互連（同 tier）</span><span></span></div>' : '') +
           (d.backward ? '<div class="t-row"><span>回流（逆著多數流量方向）</span><span></span></div>' : '');
         tip.hidden = false;
-        highlight(el);
-        hoverBand = el;
       });
       el.addEventListener('mousemove', function (ev) {
         var w = tip.offsetWidth || 260, h = tip.offsetHeight || 90;
@@ -215,8 +199,6 @@
       });
       el.addEventListener('mouseleave', function () {
         tip.hidden = true;
-        unhighlight(el);
-        if (hoverBand === el) hoverBand = null;
       });
     });
   }

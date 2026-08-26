@@ -74,6 +74,10 @@ main{padding:18px 20px 60px;max-width:1880px;margin:0 auto}
 .lg-lat{background:linear-gradient(90deg,var(--cyan),var(--cyan-d));opacity:.62;
   border-radius:0 99px 99px 0;width:14px}
 .band-lat{fill-opacity:.62}
+/* hover 高亮交給 CSS：狀態由瀏覽器管，mouseleave 沒觸發（觸控、游標衝出視窗）也不會卡住 */
+.band:hover{fill:url(#gband-h)}
+.band.band-back:hover{fill:url(#gband-back-h)}
+.band.band-loop:hover{fill:none;stroke-opacity:.85}
 /* 殘差現在跟帶寬等比，legend 不能再用零高度的虛線（那本來就是「不等比」的訊號） */
 .lg-back{background:linear-gradient(90deg,#9f1239,var(--rose))}
 .lg-amber{background:rgba(245,158,11,.16);border:1.4px dashed var(--amber)}

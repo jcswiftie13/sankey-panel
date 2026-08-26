@@ -265,6 +265,8 @@
       '<stop offset="1" stop-color="#22d3ee"/></linearGradient>' +
       '<linearGradient id="gband-back" x1="1" x2="0"><stop offset="0" stop-color="#fb7185" stop-opacity=".75"/>' +
       '<stop offset="1" stop-color="#9f1239" stop-opacity=".75"/></linearGradient>' +
+      '<linearGradient id="gband-back-h" x1="1" x2="0"><stop offset="0" stop-color="#fda4af"/>' +
+      '<stop offset="1" stop-color="#be123c"/></linearGradient>' +
       '</defs>');
     /* 縮放層：TraceZoom 只動這個 <g> 的 transform。<defs> 留在外面。 */
     out.push('<g class="zoom-layer">');
@@ -294,7 +296,8 @@
             'stroke="#fb7185" stroke-opacity=".35" stroke-width="1" ' +
             'data-tip="' + esc(JSON.stringify(meta)) + '">' + backTitle + '</path>');
         } else {
-          out.push('<path class="band band-back" d="' + backwardRibbon(e) + '" fill="none" ' +
+          /* band-loop：fill 是 none，hover 只能加深 stroke，CSS 得認得出來 */
+          out.push('<path class="band band-back band-loop" d="' + backwardRibbon(e) + '" fill="none" ' +
             'stroke="#fb7185" stroke-opacity=".55" stroke-width="' + e.backT + '" ' +
             'stroke-linejoin="round" stroke-linecap="butt" ' +
             'data-tip="' + esc(JSON.stringify(meta)) + '">' + backTitle + '</path>');
