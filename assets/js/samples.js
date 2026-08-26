@@ -366,7 +366,7 @@
       key: 'dci-backflow',
       name: '跨 DC 回流（tier 有環）',
       desc: '兩個 DC 的 tier 之間有 2G 回打流量繞成環。同 tier 仍鎖同一欄：' +
-        '以流量多數決排欄，逆向的邊畫成繞經圖底外圍的玫瑰色回流帶。',
+        '以流量多數決排欄，逆向的邊畫成走廊內的玫瑰色回流帶。',
       json: {
         kind: 'destination',
         investigation: {
