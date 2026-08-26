@@ -15,7 +15,6 @@
       "switchId": "sw-tor-14",
       "label": "ToR 14",
       "role": "switch",
-      "inputIface": "et-0/0/52",
       "otherOutBps": 9000000000,
       "outputs": [
         {
@@ -45,7 +44,6 @@
       "switchId": "sw-leaf-3",
       "label": "Leaf 3",
       "role": "switch",
-      "inputIface": "et-3/0/1",
       "otherOutBps": 3000000000,
       "outputs": [
         {

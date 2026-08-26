@@ -15,7 +15,6 @@
       "switchId": "sw-tor-k8s",
       "label": "ToR k8s",
       "role": "switch",
-      "inputIface": "et-0/0/48",
       "outputs": [
         {
           "iface": "xe-0/0/11",
@@ -37,7 +36,6 @@
       "switchId": "node-w-11",
       "label": "node-w-11",
       "role": "node",
-      "inputIface": "bond0",
       "otherOutBps": 2500000000,
       "outputs": [
         {
@@ -60,7 +58,6 @@
       "switchId": "node-w-12",
       "label": "node-w-12",
       "role": "node",
-      "inputIface": "bond0",
       "otherOutBps": 1500000000,
       "outputs": [
         {

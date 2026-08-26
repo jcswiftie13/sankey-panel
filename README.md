@@ -117,9 +117,7 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 | `label` | string | | 顯示名稱，沒給就用 `switchId` |
 | `role` | `"switch"` \| `"node"` \| `"pod"` | | `node` 畫成虛線盒（k8s node），預設 `switch` |
 | `tier` | string（非空） | | 同層標籤。同 `tier` 的 hop **鎖在同一欄**，彼此之間的邊畫成右側弧帶；字串內容自訂，程式只比對相同與否。見下方「同層互連（tier）」 |
-| `inputIface` | string | 追終點 | 流量從哪條進這台 |
 | `outputs` | array of port | 追終點 | 跟下去的出口 |
-| `outputIface` | string | 追來源 | 流量從哪條出這台 |
 | `inputs` | array of port | 追來源 | 往回追的入口 |
 | `otherInBps` | number | | 顯式的其他輸入。不給就由平衡式補 |
 | `otherOutBps` | number | | 顯式的其他輸出。不給就由平衡式補 |
@@ -132,7 +130,7 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 | `deltaBps` | number ≥ 0 | ✔ | 這條的 increment，bps |
 | `peerSwitchId` | string | | 對端 switch／node 的 id |
 | `peerId` | string | | 對端不是 switch 時用（host / router / pod） |
-| `peerIface` | string | | 對端那一側的 interface |
+| `peerIface` | string | | 對端那一側的 interface。對端 iface 只由這裡決定，沒填就留空、不猜 |
 | `peerKind` | string | | `switch` / `node` / `pod` / `host` / `router`；`pod` 會畫成 pod 葉節點 |
 | `namespace` | string | | `peerKind: "pod"` 時顯示 `ns/<namespace>` |
 
@@ -152,7 +150,6 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
   "hops": [
     {
       "switchId": "sw-edge-a", "label": "Edge A", "role": "switch",
-      "inputIface": "xe-0/0/1",
       "outputs": [
         { "iface": "et-0/0/48", "deltaBps": 20000000000,
           "peerKind": "switch", "peerSwitchId": "sw-core-1", "peerIface": "et-1/0/1" }
@@ -160,7 +157,6 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
     },
     {
       "switchId": "sw-core-1", "label": "Core 1", "role": "switch",
-      "inputIface": "et-1/0/1",
       "outputs": [
         { "iface": "et-1/0/9", "deltaBps": 20000000000,
           "peerKind": "host", "peerId": "srv-db-07", "peerIface": "eno1" }
@@ -183,14 +179,14 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
   },
   "hops": [
     {
-      "switchId": "sw-core-1", "label": "Core 1", "outputIface": "et-1/0/9",
+      "switchId": "sw-core-1", "label": "Core 1",
       "inputs": [
         { "iface": "et-1/0/1", "deltaBps": 12000000000,
           "peerKind": "switch", "peerSwitchId": "sw-edge-a", "peerIface": "et-0/0/48" }
       ]
     },
     {
-      "switchId": "sw-edge-a", "label": "Edge A", "outputIface": "et-0/0/48",
+      "switchId": "sw-edge-a", "label": "Edge A",
       "otherInBps": 2000000000,
       "inputs": [
         { "iface": "xe-0/0/1", "deltaBps": 7000000000,
@@ -231,7 +227,6 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 另外有幾種**警告**，不會擋著不畫，會列在圖下方：
 
 - `顯式的 otherInBps/otherOutBps 對不上` — 兩個都給了但湊不出平衡式，圖照你給的顯式值畫
-- `宣告的對端 X 與 Y 的 inputIface 對不上` — 上一跳說接到某個 iface，下一跳的 `inputIface` 不是它
 - `拓樸疑似有環` — hops 兜出了環，欄位順序會不準
 - `同一台在不同 hop 給了不同 tier` — 同 `switchId` 的 hop 標了兩種 tier，採用先出現的
 - `tier 分組後拓樸有環` — tier 讓群組之間繞成環（甲群 → 乙 → 甲群），忽略 tier 退回最長路徑排欄
@@ -255,7 +250,7 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 | 追終點 | 某條 in 增加 | 貢獻大的 out | 最左 | `kind:"destination"` 或 `investigation.direction:"in"` |
 | 追來源 | 某條 out 增加 | 貢獻大的 in | 最右 | `kind:"source"` 或 `investigation.direction:"out"` |
 
-追終點 hop 填 `inputIface` + `outputs`；追來源 hop 填 `outputIface` + `inputs`。
+追終點 hop 填 `outputs`；追來源 hop 填 `inputs`。
 同一台 switch 在 `hops` 出現多次（雙 uplink 匯入核心）會合併成一個盒子，不會畫成兩台。
 
 ## 守恆與殘差

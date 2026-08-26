@@ -69,7 +69,6 @@ class Node:
     tier: str | None = None
     sub_order: int = 0
     hop_count: int = 0
-    anchor_ifaces: list[str] = field(default_factory=list)
     namespace: str | None = None
     iface: str | None = None
     other_in_bps: float | None = None
@@ -198,9 +197,6 @@ class Trace:
                 if isinstance(h.get(key), (int, float)):
                     cur = getattr(n, attr) or 0.0
                     setattr(n, attr, cur + float(h[key]))
-            for key in ("inputIface", "outputIface"):
-                if h.get(key) and h[key] not in n.anchor_ifaces:
-                    n.anchor_ifaces.append(h[key])
             side = "outputs" if self.dir == "destination" else "inputs"
             for p in h.get(side) or []:
                 pk = f"{p['iface']}|{p.get('peerSwitchId') or p.get('peerId') or ''}"
@@ -235,11 +231,11 @@ class Trace:
                     self.order.append(peer.id)
                 if self.dir == "destination":
                     e = Edge(node.id, peer.id, p["iface"],
-                             p.get("peerIface") or (peer.anchor_ifaces[0] if peer.anchor_ifaces else ""),
+                             p.get("peerIface") or "",
                              p["deltaBps"], p.get("peerKind"), p.get("namespace"))
                 else:
                     e = Edge(peer.id, node.id,
-                             p.get("peerIface") or (peer.anchor_ifaces[0] if peer.anchor_ifaces else ""),
+                             p.get("peerIface") or "",
                              p["iface"], p["deltaBps"], p.get("peerKind"), p.get("namespace"))
                 self.edges.append(e)
 
@@ -251,11 +247,10 @@ class Trace:
                  iface=self.inv["iface"])
         self.nodes[a.id] = a
         self.order.append(a.id)
-        local = self.root.anchor_ifaces[0] if self.root.anchor_ifaces else self.inv["iface"]
         if self.dir == "destination":
-            e = Edge(a.id, self.root.id, self.inv["iface"], local, float(self.inv["deltaBps"]))
+            e = Edge(a.id, self.root.id, self.inv["iface"], self.inv["iface"], float(self.inv["deltaBps"]))
         else:
-            e = Edge(self.root.id, a.id, local, self.inv["iface"], float(self.inv["deltaBps"]))
+            e = Edge(self.root.id, a.id, self.inv["iface"], self.inv["iface"], float(self.inv["deltaBps"]))
         e.is_anchor = True
         self.anchor_edge = e
         self.edges.append(e)

@@ -12,7 +12,6 @@
       "switchId": "core-1",
       "label": "Core",
       "role": "switch",
-      "inputIface": "et-0/0/0",
       "outputs": [
         {
           "iface": "et-0/0/1",
@@ -63,7 +62,6 @@
       "label": "BDR 1",
       "role": "switch",
       "tier": "border",
-      "inputIface": "et-1/0/1",
       "outputs": [
         {
           "iface": "et-1/1/1",
@@ -83,7 +81,8 @@
           "iface": "et-1/2/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-1"
+          "peerSwitchId": "spn-1",
+          "peerIface": "et-2/0/1"
         }
       ]
     },
@@ -92,7 +91,6 @@
       "label": "BDR 2",
       "role": "switch",
       "tier": "border",
-      "inputIface": "et-1/0/1",
       "outputs": [
         {
           "iface": "et-1/1/1",
@@ -112,7 +110,8 @@
           "iface": "et-1/2/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-2"
+          "peerSwitchId": "spn-2",
+          "peerIface": "et-2/0/2"
         }
       ]
     },
@@ -121,7 +120,6 @@
       "label": "BDR 3",
       "role": "switch",
       "tier": "border",
-      "inputIface": "et-1/0/1",
       "outputs": [
         {
           "iface": "et-1/1/1",
@@ -141,7 +139,8 @@
           "iface": "et-1/2/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-3"
+          "peerSwitchId": "spn-3",
+          "peerIface": "et-2/0/3"
         }
       ]
     },
@@ -150,25 +149,27 @@
       "label": "DCI 1",
       "role": "switch",
       "tier": "border",
-      "inputIface": "ae0",
       "outputs": [
         {
           "iface": "et-9/0/1",
           "deltaBps": 1000000000,
           "peerKind": "switch",
-          "peerSwitchId": "bdr-4"
+          "peerSwitchId": "bdr-4",
+          "peerIface": "et-1/0/2"
         },
         {
           "iface": "et-9/0/2",
           "deltaBps": 1000000000,
           "peerKind": "switch",
-          "peerSwitchId": "bdr-5"
+          "peerSwitchId": "bdr-5",
+          "peerIface": "et-1/0/2"
         },
         {
           "iface": "et-9/0/3",
           "deltaBps": 1000000000,
           "peerKind": "switch",
-          "peerSwitchId": "bdr-6"
+          "peerSwitchId": "bdr-6",
+          "peerIface": "et-1/0/2"
         }
       ]
     },
@@ -177,25 +178,27 @@
       "label": "DCI 2",
       "role": "switch",
       "tier": "border",
-      "inputIface": "ae0",
       "outputs": [
         {
           "iface": "et-9/0/1",
           "deltaBps": 1000000000,
           "peerKind": "switch",
-          "peerSwitchId": "bdr-4"
+          "peerSwitchId": "bdr-4",
+          "peerIface": "et-1/0/3"
         },
         {
           "iface": "et-9/0/2",
           "deltaBps": 1000000000,
           "peerKind": "switch",
-          "peerSwitchId": "bdr-5"
+          "peerSwitchId": "bdr-5",
+          "peerIface": "et-1/0/3"
         },
         {
           "iface": "et-9/0/3",
           "deltaBps": 1000000000,
           "peerKind": "switch",
-          "peerSwitchId": "bdr-6"
+          "peerSwitchId": "bdr-6",
+          "peerIface": "et-1/0/3"
         }
       ]
     },
@@ -204,25 +207,27 @@
       "label": "BDR 4",
       "role": "switch",
       "tier": "border",
-      "inputIface": "et-1/0/1",
       "outputs": [
         {
           "iface": "et-1/2/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-1"
+          "peerSwitchId": "spn-1",
+          "peerIface": "et-2/0/4"
         },
         {
           "iface": "et-1/2/2",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-2"
+          "peerSwitchId": "spn-2",
+          "peerIface": "et-2/0/4"
         },
         {
           "iface": "et-1/2/3",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-3"
+          "peerSwitchId": "spn-3",
+          "peerIface": "et-2/0/4"
         }
       ]
     },
@@ -231,25 +236,27 @@
       "label": "BDR 5",
       "role": "switch",
       "tier": "border",
-      "inputIface": "et-1/0/1",
       "outputs": [
         {
           "iface": "et-1/2/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-1"
+          "peerSwitchId": "spn-1",
+          "peerIface": "et-2/0/5"
         },
         {
           "iface": "et-1/2/2",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-2"
+          "peerSwitchId": "spn-2",
+          "peerIface": "et-2/0/5"
         },
         {
           "iface": "et-1/2/3",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-3"
+          "peerSwitchId": "spn-3",
+          "peerIface": "et-2/0/5"
         }
       ]
     },
@@ -258,25 +265,27 @@
       "label": "BDR 6",
       "role": "switch",
       "tier": "border",
-      "inputIface": "et-1/0/1",
       "outputs": [
         {
           "iface": "et-1/2/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-1"
+          "peerSwitchId": "spn-1",
+          "peerIface": "et-2/0/6"
         },
         {
           "iface": "et-1/2/2",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-2"
+          "peerSwitchId": "spn-2",
+          "peerIface": "et-2/0/6"
         },
         {
           "iface": "et-1/2/3",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "spn-3"
+          "peerSwitchId": "spn-3",
+          "peerIface": "et-2/0/6"
         }
       ]
     },
@@ -284,31 +293,34 @@
       "switchId": "spn-1",
       "label": "SPN 1",
       "role": "switch",
-      "inputIface": "et-2/0/1",
       "outputs": [
         {
           "iface": "et-2/1/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-1"
+          "peerSwitchId": "tor-1",
+          "peerIface": "et-3/0/1"
         },
         {
           "iface": "et-2/1/2",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-2"
+          "peerSwitchId": "tor-2",
+          "peerIface": "et-3/0/1"
         },
         {
           "iface": "et-2/1/3",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-3"
+          "peerSwitchId": "tor-3",
+          "peerIface": "et-3/0/1"
         },
         {
           "iface": "et-2/1/4",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-4"
+          "peerSwitchId": "tor-4",
+          "peerIface": "et-3/0/1"
         }
       ]
     },
@@ -316,31 +328,34 @@
       "switchId": "spn-2",
       "label": "SPN 2",
       "role": "switch",
-      "inputIface": "et-2/0/1",
       "outputs": [
         {
           "iface": "et-2/1/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-1"
+          "peerSwitchId": "tor-1",
+          "peerIface": "et-3/0/2"
         },
         {
           "iface": "et-2/1/2",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-2"
+          "peerSwitchId": "tor-2",
+          "peerIface": "et-3/0/2"
         },
         {
           "iface": "et-2/1/3",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-3"
+          "peerSwitchId": "tor-3",
+          "peerIface": "et-3/0/2"
         },
         {
           "iface": "et-2/1/4",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-4"
+          "peerSwitchId": "tor-4",
+          "peerIface": "et-3/0/2"
         }
       ]
     },
@@ -348,31 +363,34 @@
       "switchId": "spn-3",
       "label": "SPN 3",
       "role": "switch",
-      "inputIface": "et-2/0/1",
       "outputs": [
         {
           "iface": "et-2/1/1",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-1"
+          "peerSwitchId": "tor-1",
+          "peerIface": "et-3/0/3"
         },
         {
           "iface": "et-2/1/2",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-2"
+          "peerSwitchId": "tor-2",
+          "peerIface": "et-3/0/3"
         },
         {
           "iface": "et-2/1/3",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-3"
+          "peerSwitchId": "tor-3",
+          "peerIface": "et-3/0/3"
         },
         {
           "iface": "et-2/1/4",
           "deltaBps": 2000000000,
           "peerKind": "switch",
-          "peerSwitchId": "tor-4"
+          "peerSwitchId": "tor-4",
+          "peerIface": "et-3/0/3"
         }
       ]
     },
@@ -380,7 +398,6 @@
       "switchId": "tor-1",
       "label": "ToR 1",
       "role": "switch",
-      "inputIface": "et-3/0/1",
       "outputs": [
         {
           "iface": "xe-3/0/10",
@@ -395,7 +412,6 @@
       "switchId": "tor-2",
       "label": "ToR 2",
       "role": "switch",
-      "inputIface": "et-3/0/1",
       "outputs": [
         {
           "iface": "xe-3/0/10",
@@ -410,7 +426,6 @@
       "switchId": "tor-3",
       "label": "ToR 3",
       "role": "switch",
-      "inputIface": "et-3/0/1",
       "outputs": [
         {
           "iface": "xe-3/0/10",
@@ -425,7 +440,6 @@
       "switchId": "tor-4",
       "label": "ToR 4",
       "role": "switch",
-      "inputIface": "et-3/0/1",
       "outputs": [
         {
           "iface": "xe-3/0/10",

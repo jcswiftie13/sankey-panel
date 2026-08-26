@@ -15,7 +15,6 @@
       "switchId": "sw-edge-a",
       "label": "Edge A",
       "role": "switch",
-      "inputIface": "xe-0/0/1",
       "outputs": [
         {
           "iface": "et-0/0/48",
@@ -37,7 +36,6 @@
       "switchId": "sw-core-1",
       "label": "Core 1",
       "role": "switch",
-      "inputIface": "et-1/0/1",
       "outputs": [
         {
           "iface": "et-1/0/24",
@@ -52,7 +50,6 @@
       "switchId": "sw-core-1",
       "label": "Core 1",
       "role": "switch",
-      "inputIface": "et-1/0/2",
       "outputs": [
         {
           "iface": "et-1/0/24",
@@ -67,7 +64,6 @@
       "switchId": "sw-agg-9",
       "label": "Agg 9",
       "role": "switch",
-      "inputIface": "et-9/0/1",
       "outputs": [
         {
           "iface": "xe-9/0/12",

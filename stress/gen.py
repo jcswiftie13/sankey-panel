@@ -38,7 +38,7 @@ def build(depth, fan, chain, total_bps):
                     'peerIface': 'eno1',
                 })
             hops.append({'switchId': sid(d, 0), 'label': 'Hop %02d' % d, 'role': 'switch',
-                         'inputIface': 'et-%d/0/0' % d, 'outputs': outs})
+                         'outputs': outs})
             bw *= 0.6
         return hops
 
@@ -60,7 +60,7 @@ def build(depth, fan, chain, total_bps):
                 if not last:
                     nxt.append((d + 1, child, share))
             hops.append({'switchId': sid(d, idx), 'label': 'L%d-%03d' % (d, idx), 'role': 'switch',
-                         'inputIface': 'et-%d/0/0' % d, 'outputs': outs})
+                         'outputs': outs})
         frontier = nxt
     return hops
 

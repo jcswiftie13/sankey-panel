@@ -16,7 +16,6 @@
       "switchId": "sw-dorm-b3",
       "label": "宿網 B3",
       "role": "switch",
-      "inputIface": "ae0",
       "outputs": [
         {
           "iface": "et-0/0/50",
@@ -31,7 +30,6 @@
       "switchId": "sw-agg-dorm",
       "label": "宿區匯聚",
       "role": "switch",
-      "inputIface": "et-2/0/3",
       "outputs": [
         {
           "iface": "ae10",
@@ -53,7 +51,6 @@
       "switchId": "sw-core-n",
       "label": "核心 North",
       "role": "switch",
-      "inputIface": "ae1",
       "outputs": [
         {
           "iface": "et-0/0/1",
@@ -75,7 +72,6 @@
       "switchId": "fw-campus",
       "label": "校園防火牆",
       "role": "switch",
-      "inputIface": "xe-0/0/0",
       "outputs": [
         {
           "iface": "xe-0/0/1",
@@ -90,7 +86,6 @@
       "switchId": "sw-dc-spine",
       "label": "機房 Spine",
       "role": "switch",
-      "inputIface": "et-1/1/1",
       "outputs": [
         {
           "iface": "et-1/1/9",
