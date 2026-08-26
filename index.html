@@ -71,7 +71,7 @@
       <div class="contract-body">
         <p><b>必要</b>：<code>investigation</code>（<code>switchId</code>、<code>iface</code>、<code>direction</code>、<code>deltaBps</code>）、<code>hops</code>（非空，每筆有 <code>switchId</code>）。</p>
         <p><b>選填</b>：<code>kind</code>（<code>destination</code> / <code>source</code>）、<code>pruning.topN</code>、<code>pruning.minShare</code>。</p>
-        <p><b>hop</b>：<code>label</code>、<code>role</code>（<code>switch</code> / <code>node</code> / <code>pod</code>）、<code>tier</code>（非空字串；同 tier 的 hop 鎖同一欄，彼此之間的邊畫成右側弧帶）、<code>otherInBps</code>、<code>otherOutBps</code>。追終點用 <code>inputIface</code> + <code>outputs</code>；追來源用 <code>outputIface</code> + <code>inputs</code>。</p>
+        <p><b>hop</b>：<code>label</code>、<code>role</code>（<code>switch</code> / <code>node</code> / <code>pod</code>）、<code>tier</code>（非空字串；同 tier 的 hop 鎖同一欄，彼此之間的邊畫成右側弧帶）、<code>otherInBps</code>、<code>otherOutBps</code>。追終點用 <code>outputs</code>；追來源用 <code>inputs</code>。</p>
         <p><b>port</b>：<code>iface</code>、<code>deltaBps</code>、<code>peerKind</code>、<code>peerId</code> / <code>peerSwitchId</code>、<code>peerIface</code>、<code>namespace</code>。</p>
       </div>
     </details>
@@ -105,7 +105,7 @@
           <tr><td>追來源</td><td>某條 out 增加</td><td>貢獻大的 in</td><td>最右</td><td><code>kind:"source"</code> 或 <code>direction:"out"</code></td></tr>
         </tbody>
       </table>
-      <p>追終點 hop 填 <code>inputIface</code> + <code>outputs</code>；追來源 hop 填 <code>outputIface</code> + <code>inputs</code>。同一台 switch 出現多次（雙 uplink 匯入核心）會<b>合併成一個盒子</b>，不畫成兩台。</p>
+      <p>追終點 hop 填 <code>outputs</code>；追來源 hop 填 <code>inputs</code>。同一台 switch 出現多次（雙 uplink 匯入核心）會<b>合併成一個盒子</b>，不畫成兩台。</p>
       <h3>2b. 同層互連（tier）</h3>
       <p>欄位預設照最長路徑排。同一層彼此互連時（bdr↔dci 跨 DC），互連下游的機器會被推到右邊一欄，同一層被拆成兩欄。把同層的 hop 都標同一個 <code>tier</code>（字串內容自訂，程式只比對相同與否）：</p>
       <ul>

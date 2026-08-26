@@ -85,7 +85,7 @@
       if (!n) {
         n = nodes[h.switchId] = {
           id: h.switchId, label: h.label || h.switchId, role: h.role || 'switch',
-          kind: 'node', hopCount: 0, anchorIfaces: [], tier: null,
+          kind: 'node', hopCount: 0, tier: null,
           portsOut: {}, portsIn: {}, otherInBps: null, otherOutBps: null,
           inEdges: [], outEdges: [], col: 0
         };
@@ -103,8 +103,6 @@
       }
       if (num(h.otherInBps)) n.otherInBps = (n.otherInBps || 0) + h.otherInBps;
       if (num(h.otherOutBps)) n.otherOutBps = (n.otherOutBps || 0) + h.otherOutBps;
-      if (h.inputIface) pushUniq(n.anchorIfaces, h.inputIface);
-      if (h.outputIface) pushUniq(n.anchorIfaces, h.outputIface);
 
       var side = dir === 'destination' ? 'outputs' : 'inputs';
       var bag = dir === 'destination' ? n.portsOut : n.portsIn;
@@ -115,8 +113,7 @@
           cur = bag[key] = {
             iface: p.iface, deltaBps: 0, peerKind: p.peerKind || null,
             peerId: p.peerId || null, peerSwitchId: p.peerSwitchId || null,
-            peerIface: p.peerIface || null, namespace: p.namespace || null,
-            localIface: dir === 'destination' ? h.inputIface : h.outputIface
+            peerIface: p.peerIface || null, namespace: p.namespace || null
           };
         }
         cur.deltaBps += p.deltaBps;
@@ -139,7 +136,7 @@
         var e;
         if (dir === 'destination') {
           if (peerNode) {
-            e = mkEdge(n, peerNode, p.iface, p.peerIface || peerNode.anchorIfaces[0] || '?', p);
+            e = mkEdge(n, peerNode, p.iface, p.peerIface || '', p);
           } else {
             var leaf = mkLeaf(p, 'leaf-' + (++leafSeq), dir);
             nodes[leaf.id] = leaf; order.push(leaf.id);
@@ -147,7 +144,7 @@
           }
         } else {
           if (peerNode) {
-            e = mkEdge(peerNode, n, p.peerIface || peerNode.anchorIfaces[0] || '?', p.iface, p);
+            e = mkEdge(peerNode, n, p.peerIface || '', p.iface, p);
           } else {
             var leaf2 = mkLeaf(p, 'leaf-' + (++leafSeq), dir);
             nodes[leaf2.id] = leaf2; order.push(leaf2.id);
@@ -169,10 +166,10 @@
     nodes[anchor.id] = anchor; order.push(anchor.id);
     var anchorEdge;
     if (dir === 'destination') {
-      anchorEdge = mkEdge(anchor, root, inv.iface, root.anchorIfaces[0] || inv.iface,
+      anchorEdge = mkEdge(anchor, root, inv.iface, inv.iface,
         { deltaBps: inv.deltaBps, peerKind: 'anchor' });
     } else {
-      anchorEdge = mkEdge(root, anchor, root.anchorIfaces[0] || inv.iface, inv.iface,
+      anchorEdge = mkEdge(root, anchor, inv.iface, inv.iface,
         { deltaBps: inv.deltaBps, peerKind: 'anchor' });
     }
     anchorEdge.isAnchor = true;
@@ -328,23 +325,7 @@
       }
     });
 
-    /* 8. iface 一致性檢查 */
-    edges.forEach(function (e) {
-      if (e.isAnchor) return;
-      var to = nodes[e.toId], from = nodes[e.fromId];
-      if (dir === 'destination' && to.kind === 'node' && to.anchorIfaces.length &&
-          e.toIface && to.anchorIfaces.indexOf(e.toIface) < 0) {
-        warnings.push(from.label + ' 宣告的對端 ' + e.toIface + ' 與 ' + to.label +
-          ' 的 inputIface（' + to.anchorIfaces.join(', ') + '）對不上。');
-      }
-      if (dir === 'source' && from.kind === 'node' && from.anchorIfaces.length &&
-          e.fromIface && from.anchorIfaces.indexOf(e.fromIface) < 0) {
-        warnings.push(to.label + ' 宣告的對端 ' + e.fromIface + ' 與 ' + from.label +
-          ' 的 outputIface（' + from.anchorIfaces.join(', ') + '）對不上。');
-      }
-    });
-
-    /* 9. 正規化欄位 */
+    /* 8. 正規化欄位 */
     var minCol = Infinity;
     ids.forEach(function (id) { minCol = Math.min(minCol, nodes[id].col); });
     ids.forEach(function (id) { nodes[id].col -= minCol; });
@@ -375,7 +356,6 @@
   }
 
   function sum(edges) { return edges.reduce(function (s, e) { return s + e.bps; }, 0); }
-  function pushUniq(arr, v) { if (arr.indexOf(v) < 0) arr.push(v); }
 
   global.TraceModel = { build: build, validate: validate, direction: direction, fmtBps: fmtBps, gbps: gbps };
 })(window);

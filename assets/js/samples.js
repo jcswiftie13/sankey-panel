@@ -17,13 +17,13 @@
         pruning: { topN: 3, minShare: 0.10 },
         hops: [
           {
-            switchId: 'sw-edge-a', label: 'Edge A', role: 'switch', inputIface: 'xe-0/0/1',
+            switchId: 'sw-edge-a', label: 'Edge A', role: 'switch',
             outputs: [
               { iface: 'et-0/0/48', deltaBps: G(20), peerKind: 'switch', peerSwitchId: 'sw-core-1', peerIface: 'et-1/0/1' }
             ]
           },
           {
-            switchId: 'sw-core-1', label: 'Core 1', role: 'switch', inputIface: 'et-1/0/1',
+            switchId: 'sw-core-1', label: 'Core 1', role: 'switch',
             outputs: [
               { iface: 'et-1/0/9', deltaBps: G(20), peerKind: 'host', peerId: 'srv-db-07', peerIface: 'eno1' }
             ]
@@ -42,26 +42,26 @@
         pruning: { topN: 3, minShare: 0.10 },
         hops: [
           {
-            switchId: 'sw-edge-a', label: 'Edge A', role: 'switch', inputIface: 'xe-0/0/1',
+            switchId: 'sw-edge-a', label: 'Edge A', role: 'switch',
             outputs: [
               { iface: 'et-0/0/48', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'sw-core-1', peerIface: 'et-1/0/1' },
               { iface: 'et-0/0/49', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'sw-core-1', peerIface: 'et-1/0/2' }
             ]
           },
           {
-            switchId: 'sw-core-1', label: 'Core 1', role: 'switch', inputIface: 'et-1/0/1',
+            switchId: 'sw-core-1', label: 'Core 1', role: 'switch',
             outputs: [
               { iface: 'et-1/0/24', deltaBps: G(9), peerKind: 'switch', peerSwitchId: 'sw-agg-9', peerIface: 'et-9/0/1' }
             ]
           },
           {
-            switchId: 'sw-core-1', label: 'Core 1', role: 'switch', inputIface: 'et-1/0/2',
+            switchId: 'sw-core-1', label: 'Core 1', role: 'switch',
             outputs: [
               { iface: 'et-1/0/24', deltaBps: G(7), peerKind: 'switch', peerSwitchId: 'sw-agg-9', peerIface: 'et-9/0/1' }
             ]
           },
           {
-            switchId: 'sw-agg-9', label: 'Agg 9', role: 'switch', inputIface: 'et-9/0/1',
+            switchId: 'sw-agg-9', label: 'Agg 9', role: 'switch',
             outputs: [
               { iface: 'xe-9/0/12', deltaBps: G(11), peerKind: 'host', peerId: 'srv-cache-02', peerIface: 'bond0' },
               { iface: 'xe-9/0/13', deltaBps: G(5), peerKind: 'host', peerId: 'srv-cache-03', peerIface: 'bond0' }
@@ -84,33 +84,33 @@
         pruning: { topN: 3, minShare: 0.10 },
         hops: [
           {
-            switchId: 'sw-dorm-b3', label: '宿網 B3', role: 'switch', inputIface: 'ae0',
+            switchId: 'sw-dorm-b3', label: '宿網 B3', role: 'switch',
             outputs: [
               { iface: 'et-0/0/50', deltaBps: G(22), peerKind: 'switch', peerSwitchId: 'sw-agg-dorm', peerIface: 'et-2/0/3' }
             ]
           },
           {
-            switchId: 'sw-agg-dorm', label: '宿區匯聚', role: 'switch', inputIface: 'et-2/0/3',
+            switchId: 'sw-agg-dorm', label: '宿區匯聚', role: 'switch',
             outputs: [
               { iface: 'ae10', deltaBps: G(18), peerKind: 'switch', peerSwitchId: 'sw-core-n', peerIface: 'ae1' },
               { iface: 'xe-2/0/7', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'fw-campus', peerIface: 'xe-0/0/0' }
             ]
           },
           {
-            switchId: 'sw-core-n', label: '核心 North', role: 'switch', inputIface: 'ae1',
+            switchId: 'sw-core-n', label: '核心 North', role: 'switch',
             outputs: [
               { iface: 'et-0/0/1', deltaBps: G(12), peerKind: 'router', peerId: 'rtr-tanet', peerIface: 'Te0/1/0' },
               { iface: 'et-0/0/2', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'sw-dc-spine', peerIface: 'et-1/1/1' }
             ]
           },
           {
-            switchId: 'fw-campus', label: '校園防火牆', role: 'switch', inputIface: 'xe-0/0/0',
+            switchId: 'fw-campus', label: '校園防火牆', role: 'switch',
             outputs: [
               { iface: 'xe-0/0/1', deltaBps: G(6), peerKind: 'router', peerId: 'rtr-tanet', peerIface: 'Te0/1/1' }
             ]
           },
           {
-            switchId: 'sw-dc-spine', label: '機房 Spine', role: 'switch', inputIface: 'et-1/1/1',
+            switchId: 'sw-dc-spine', label: '機房 Spine', role: 'switch',
             outputs: [
               { iface: 'et-1/1/9', deltaBps: G(4), peerKind: 'host', peerId: 'srv-nas-01', peerIface: 'ens5f0' }
             ]
@@ -129,7 +129,7 @@
         pruning: { topN: 3, minShare: 0.10 },
         hops: [
           {
-            switchId: 'sw-tor-14', label: 'ToR 14', role: 'switch', inputIface: 'et-0/0/52',
+            switchId: 'sw-tor-14', label: 'ToR 14', role: 'switch',
             otherOutBps: G(9),
             outputs: [
               { iface: 'xe-0/0/1', deltaBps: G(18), peerKind: 'switch', peerSwitchId: 'sw-leaf-3', peerIface: 'et-3/0/1' },
@@ -138,7 +138,7 @@
             ]
           },
           {
-            switchId: 'sw-leaf-3', label: 'Leaf 3', role: 'switch', inputIface: 'et-3/0/1',
+            switchId: 'sw-leaf-3', label: 'Leaf 3', role: 'switch',
             otherOutBps: G(3),
             outputs: [
               { iface: 'xe-3/0/8', deltaBps: G(10), peerKind: 'host', peerId: 'srv-log-01', peerIface: 'bond0' },
@@ -162,21 +162,21 @@
         pruning: { topN: 3, minShare: 0.10 },
         hops: [
           {
-            switchId: 'sw-core-1', label: 'Core 1', role: 'switch', outputIface: 'et-1/0/9',
+            switchId: 'sw-core-1', label: 'Core 1', role: 'switch',
             inputs: [
               { iface: 'et-1/0/1', deltaBps: G(12), peerKind: 'switch', peerSwitchId: 'sw-edge-a', peerIface: 'et-0/0/48' },
               { iface: 'et-1/0/2', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'sw-edge-b', peerIface: 'et-0/0/48' }
             ]
           },
           {
-            switchId: 'sw-edge-a', label: 'Edge A', role: 'switch', outputIface: 'et-0/0/48',
+            switchId: 'sw-edge-a', label: 'Edge A', role: 'switch',
             inputs: [
               { iface: 'xe-0/0/1', deltaBps: G(7), peerKind: 'host', peerId: 'lab-gpu-01', peerIface: 'eno1' },
               { iface: 'xe-0/0/2', deltaBps: G(3), peerKind: 'host', peerId: 'lab-gpu-02', peerIface: 'eno1' }
             ]
           },
           {
-            switchId: 'sw-edge-b', label: 'Edge B', role: 'switch', outputIface: 'et-0/0/48',
+            switchId: 'sw-edge-b', label: 'Edge B', role: 'switch',
             otherInBps: G(2),
             inputs: [
               { iface: 'xe-0/0/5', deltaBps: G(4), peerKind: 'host', peerId: 'backup-relay', peerIface: 'eth0' }
@@ -196,14 +196,14 @@
         pruning: { topN: 3, minShare: 0.10 },
         hops: [
           {
-            switchId: 'sw-tor-k8s', label: 'ToR k8s', role: 'switch', inputIface: 'et-0/0/48',
+            switchId: 'sw-tor-k8s', label: 'ToR k8s', role: 'switch',
             outputs: [
               { iface: 'xe-0/0/11', deltaBps: G(14), peerKind: 'node', peerSwitchId: 'node-w-11', peerIface: 'bond0' },
               { iface: 'xe-0/0/12', deltaBps: G(7), peerKind: 'node', peerSwitchId: 'node-w-12', peerIface: 'bond0' }
             ]
           },
           {
-            switchId: 'node-w-11', label: 'node-w-11', role: 'node', inputIface: 'bond0',
+            switchId: 'node-w-11', label: 'node-w-11', role: 'node',
             otherOutBps: G(2.5),
             outputs: [
               { iface: 'veth3a1f', deltaBps: G(8), peerKind: 'pod', peerId: 'ingest-7d9c', namespace: 'telemetry' },
@@ -211,7 +211,7 @@
             ]
           },
           {
-            switchId: 'node-w-12', label: 'node-w-12', role: 'node', inputIface: 'bond0',
+            switchId: 'node-w-12', label: 'node-w-12', role: 'node',
             otherOutBps: G(1.5),
             outputs: [
               { iface: 'veth5cc7', deltaBps: G(5.5), peerKind: 'pod', peerId: 'ingest-4f11', namespace: 'telemetry' }
@@ -234,7 +234,7 @@
         },
         hops: [
           {
-            switchId: 'core-1', label: 'Core', role: 'switch', inputIface: 'et-0/0/0',
+            switchId: 'core-1', label: 'Core', role: 'switch',
             outputs: [
               { iface: 'et-0/0/1', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-1', peerIface: 'et-1/0/1' },
               { iface: 'et-0/0/2', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-2', peerIface: 'et-1/0/1' },
@@ -245,116 +245,116 @@
             ]
           },
           {
-            switchId: 'bdr-1', label: 'BDR 1', role: 'switch', tier: 'border', inputIface: 'et-1/0/1',
+            switchId: 'bdr-1', label: 'BDR 1', role: 'switch', tier: 'border',
             outputs: [
               { iface: 'et-1/1/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-1', peerIface: 'ae0' },
               { iface: 'et-1/1/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-2', peerIface: 'ae0' },
-              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1' }
+              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1', peerIface: 'et-2/0/1' }
             ]
           },
           {
-            switchId: 'bdr-2', label: 'BDR 2', role: 'switch', tier: 'border', inputIface: 'et-1/0/1',
+            switchId: 'bdr-2', label: 'BDR 2', role: 'switch', tier: 'border',
             outputs: [
               { iface: 'et-1/1/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-1', peerIface: 'ae0' },
               { iface: 'et-1/1/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-2', peerIface: 'ae0' },
-              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2' }
+              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2', peerIface: 'et-2/0/2' }
             ]
           },
           {
-            switchId: 'bdr-3', label: 'BDR 3', role: 'switch', tier: 'border', inputIface: 'et-1/0/1',
+            switchId: 'bdr-3', label: 'BDR 3', role: 'switch', tier: 'border',
             outputs: [
               { iface: 'et-1/1/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-1', peerIface: 'ae0' },
               { iface: 'et-1/1/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-2', peerIface: 'ae0' },
-              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3' }
+              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3', peerIface: 'et-2/0/3' }
             ]
           },
           {
-            switchId: 'dci-1', label: 'DCI 1', role: 'switch', tier: 'border', inputIface: 'ae0',
+            switchId: 'dci-1', label: 'DCI 1', role: 'switch', tier: 'border',
             outputs: [
-              { iface: 'et-9/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-4' },
-              { iface: 'et-9/0/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-5' },
-              { iface: 'et-9/0/3', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-6' }
+              { iface: 'et-9/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-4', peerIface: 'et-1/0/2' },
+              { iface: 'et-9/0/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-5', peerIface: 'et-1/0/2' },
+              { iface: 'et-9/0/3', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-6', peerIface: 'et-1/0/2' }
             ]
           },
           {
-            switchId: 'dci-2', label: 'DCI 2', role: 'switch', tier: 'border', inputIface: 'ae0',
+            switchId: 'dci-2', label: 'DCI 2', role: 'switch', tier: 'border',
             outputs: [
-              { iface: 'et-9/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-4' },
-              { iface: 'et-9/0/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-5' },
-              { iface: 'et-9/0/3', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-6' }
+              { iface: 'et-9/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-4', peerIface: 'et-1/0/3' },
+              { iface: 'et-9/0/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-5', peerIface: 'et-1/0/3' },
+              { iface: 'et-9/0/3', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-6', peerIface: 'et-1/0/3' }
             ]
           },
           {
-            switchId: 'bdr-4', label: 'BDR 4', role: 'switch', tier: 'border', inputIface: 'et-1/0/1',
+            switchId: 'bdr-4', label: 'BDR 4', role: 'switch', tier: 'border',
             outputs: [
-              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1' },
-              { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2' },
-              { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3' }
+              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1', peerIface: 'et-2/0/4' },
+              { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2', peerIface: 'et-2/0/4' },
+              { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3', peerIface: 'et-2/0/4' }
             ]
           },
           {
-            switchId: 'bdr-5', label: 'BDR 5', role: 'switch', tier: 'border', inputIface: 'et-1/0/1',
+            switchId: 'bdr-5', label: 'BDR 5', role: 'switch', tier: 'border',
             outputs: [
-              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1' },
-              { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2' },
-              { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3' }
+              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1', peerIface: 'et-2/0/5' },
+              { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2', peerIface: 'et-2/0/5' },
+              { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3', peerIface: 'et-2/0/5' }
             ]
           },
           {
-            switchId: 'bdr-6', label: 'BDR 6', role: 'switch', tier: 'border', inputIface: 'et-1/0/1',
+            switchId: 'bdr-6', label: 'BDR 6', role: 'switch', tier: 'border',
             outputs: [
-              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1' },
-              { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2' },
-              { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3' }
+              { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1', peerIface: 'et-2/0/6' },
+              { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2', peerIface: 'et-2/0/6' },
+              { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3', peerIface: 'et-2/0/6' }
             ]
           },
           {
-            switchId: 'spn-1', label: 'SPN 1', role: 'switch', inputIface: 'et-2/0/1',
+            switchId: 'spn-1', label: 'SPN 1', role: 'switch',
             outputs: [
-              { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1' },
-              { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2' },
-              { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3' },
-              { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4' }
+              { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1', peerIface: 'et-3/0/1' },
+              { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2', peerIface: 'et-3/0/1' },
+              { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3', peerIface: 'et-3/0/1' },
+              { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4', peerIface: 'et-3/0/1' }
             ]
           },
           {
-            switchId: 'spn-2', label: 'SPN 2', role: 'switch', inputIface: 'et-2/0/1',
+            switchId: 'spn-2', label: 'SPN 2', role: 'switch',
             outputs: [
-              { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1' },
-              { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2' },
-              { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3' },
-              { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4' }
+              { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1', peerIface: 'et-3/0/2' },
+              { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2', peerIface: 'et-3/0/2' },
+              { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3', peerIface: 'et-3/0/2' },
+              { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4', peerIface: 'et-3/0/2' }
             ]
           },
           {
-            switchId: 'spn-3', label: 'SPN 3', role: 'switch', inputIface: 'et-2/0/1',
+            switchId: 'spn-3', label: 'SPN 3', role: 'switch',
             outputs: [
-              { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1' },
-              { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2' },
-              { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3' },
-              { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4' }
+              { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1', peerIface: 'et-3/0/3' },
+              { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2', peerIface: 'et-3/0/3' },
+              { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3', peerIface: 'et-3/0/3' },
+              { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4', peerIface: 'et-3/0/3' }
             ]
           },
           {
-            switchId: 'tor-1', label: 'ToR 1', role: 'switch', inputIface: 'et-3/0/1',
+            switchId: 'tor-1', label: 'ToR 1', role: 'switch',
             outputs: [
               { iface: 'xe-3/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-a-01', peerIface: 'eno1' }
             ]
           },
           {
-            switchId: 'tor-2', label: 'ToR 2', role: 'switch', inputIface: 'et-3/0/1',
+            switchId: 'tor-2', label: 'ToR 2', role: 'switch',
             outputs: [
               { iface: 'xe-3/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-a-02', peerIface: 'eno1' }
             ]
           },
           {
-            switchId: 'tor-3', label: 'ToR 3', role: 'switch', inputIface: 'et-3/0/1',
+            switchId: 'tor-3', label: 'ToR 3', role: 'switch',
             outputs: [
               { iface: 'xe-3/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-a-03', peerIface: 'eno1' }
             ]
           },
           {
-            switchId: 'tor-4', label: 'ToR 4', role: 'switch', inputIface: 'et-3/0/1',
+            switchId: 'tor-4', label: 'ToR 4', role: 'switch',
             outputs: [
               { iface: 'xe-3/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-a-04', peerIface: 'eno1' }
             ]
