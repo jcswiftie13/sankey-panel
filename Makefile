@@ -18,9 +18,9 @@ help:  ## 列出所有 target
 	@echo ""
 	@echo "變數：FILE=<追查 JSON>  KIND=sankey|flow  OUT=<輸出 html>  PORT=$(PORT)"
 
-serve:  ## 起本機 server（只綁 127.0.0.1）
+serve:  ## 起本機 server（只綁 127.0.0.1，不讓瀏覽器快取）
 	@echo "$(URL)"
-	@$(PYTHON) -m http.server $(PORT) --bind $(HOST)
+	@$(PYTHON) tools/serve.py --host $(HOST) --port $(PORT)
 
 open:  ## 起 server 並開瀏覽器
 	@( sleep 1; command -v xdg-open >/dev/null && xdg-open "$(URL)" >/dev/null 2>&1 \
