@@ -129,9 +129,11 @@
         ? '<span class="pill">截斷：前 ' + (model.pruning.topN || '—') + ' 名 / ≥ ' +
           Math.round((model.pruning.minShare || 0) * 100) + '%</span>' : '');
 
+    var hasBack = model.edges.some(function (e) { return e.backward; });
     document.getElementById('legend').innerHTML =
       '<span><i class="lg-cyan"></i>已追查（帶寬＝實際 increment）</span>' +
       '<span><i class="lg-lat"></i>同層互連（同 tier 同欄，右側弧帶，等比）</span>' +
+      (hasBack ? '<span><i class="lg-back"></i>回流（逆著多數流量方向，繞回上游）</span>' : '') +
       '<span><i class="lg-amber"></i>其他輸入（貼左側，高度與帶寬等比）</span>' +
       '<span><i class="lg-rose"></i>其他輸出（截斷／太小，貼右側，高度等比）</span>' +
       '<span><i class="lg-gray"></i>追查終止葉節點（不是又一台 switch）</span>';
@@ -172,7 +174,18 @@
   /* 拖曳時 pointer capture 會把 mouseleave 攔走，高亮與 tooltip 得手動收 */
   function hideTip() {
     document.getElementById('tooltip').hidden = true;
-    if (hoverBand) { hoverBand.setAttribute('fill', 'url(#gband)'); hoverBand = null; }
+    if (hoverBand) { unhighlight(hoverBand); hoverBand = null; }
+  }
+
+  /* 回流帶的 fill 是玫瑰漸層（相鄰欄）或 none（繞外圈的 stroke 迴路），
+     高亮只能動青帶的 fill，還原也得還原成各自原本的值，不能寫死 gband */
+  function highlight(el) {
+    if (el.classList.contains('band-back')) return;
+    el.__origFill = el.getAttribute('fill');
+    el.setAttribute('fill', 'url(#gband-h)');
+  }
+  function unhighlight(el) {
+    if (el.__origFill != null) { el.setAttribute('fill', el.__origFill); el.__origFill = null; }
   }
 
   function bindTips() {
@@ -189,9 +202,10 @@
           '<div class="t-row"><span>實際 increment</span><span>' + M.fmtBps(d.bps) + '</span></div>' +
           '<div class="t-row"><span>可歸因</span><span>' + M.fmtBps(d.attr) + '</span></div>' +
           (d.anchor ? '<div class="t-row"><span>這條是追查起點</span><span></span></div>' : '') +
-          (d.lateral ? '<div class="t-row"><span>同層互連（同 tier）</span><span></span></div>' : '');
+          (d.lateral ? '<div class="t-row"><span>同層互連（同 tier）</span><span></span></div>' : '') +
+          (d.backward ? '<div class="t-row"><span>回流（逆著多數流量方向）</span><span></span></div>' : '');
         tip.hidden = false;
-        el.setAttribute('fill', 'url(#gband-h)');
+        highlight(el);
         hoverBand = el;
       });
       el.addEventListener('mousemove', function (ev) {
@@ -201,7 +215,7 @@
       });
       el.addEventListener('mouseleave', function () {
         tip.hidden = true;
-        el.setAttribute('fill', 'url(#gband)');
+        unhighlight(el);
         if (hoverBand === el) hoverBand = null;
       });
     });

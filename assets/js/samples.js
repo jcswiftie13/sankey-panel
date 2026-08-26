@@ -362,66 +362,70 @@
         ]
       }
     },
-    {
-      key: 'dci-backflow',
-      name: '跨 DC 回流（tier 有環）',
-      desc: '兩個 DC 的 tier 之間有 2G 回打流量繞成環。同 tier 仍鎖同一欄：' +
-        '以流量多數決排欄，逆向的邊畫成走廊內的玫瑰色回流帶。',
-      json: {
-        kind: 'destination',
-        investigation: {
-          switchId: 'core-1', iface: 'et-0/0/1', direction: 'in', deltaBps: G(16),
-          note: 'Core 1 進來 +16 Gbps，跨 DC 之間有回打流量'
-        },
-        hops: [
-          {
-            switchId: 'core-1', label: 'Core 1', role: 'core',
-            outputs: [
-              { iface: 'et-1/0/1', deltaBps: G(8), peerKind: 'switch', peerSwitchId: 'bdr-a1', peerIface: 'et-0/0/1' },
-              { iface: 'et-1/0/2', deltaBps: G(8), peerKind: 'switch', peerSwitchId: 'bdr-a2', peerIface: 'et-0/0/1' }
-            ]
+    (function () {
+      /* 跨層回頭：core → bdr → dci → bdr、core → bdr → spn → tor。
+         bdr 全同 tier；dci 與 spn 同 tier；tor 同 tier。dci 只回打 bdr，
+         跟 bdr→dci/spn 的主流向繞成環 → 多數決排欄，6 條 dci→bdr 畫成回流帶。
+         數字全守恆：每台 bdr in = 4G(core)+1G(dci 回打) = out = 1G(dci)+4G(spn)。 */
+      var hops = [{
+        switchId: 'core-1', label: 'Core 1', role: 'core',
+        outputs: [1, 2, 3, 4, 5, 6].map(function (i) {
+          return { iface: 'et-0/0/' + i, deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-' + i, peerIface: 'et-1/0/1' };
+        })
+      }];
+      var pair = function (i) { return Math.ceil(i / 2); };        /* bdr-1,2→dci-1/spn-1 … */
+      [1, 2, 3, 4, 5, 6].forEach(function (i) {
+        hops.push({
+          switchId: 'bdr-' + i, label: 'BDR ' + i, role: 'border', tier: 'bdr',
+          outputs: [
+            { iface: 'et-2/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-' + pair(i), peerIface: 'ae0' },
+            { iface: 'et-2/0/2', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'spn-' + pair(i), peerIface: 'et-0/0/' + i }
+          ]
+        });
+      });
+      /* dci 回打錯開（dci-1→bdr-3,4；dci-2→bdr-5,6；dci-3→bdr-1,2）：環繞多台而非成對回彈 */
+      [1, 2, 3].forEach(function (j) {
+        var t1 = (j * 2 + 1) > 6 ? (j * 2 + 1) - 6 : (j * 2 + 1);
+        var t2 = (j * 2 + 2) > 6 ? (j * 2 + 2) - 6 : (j * 2 + 2);
+        hops.push({
+          switchId: 'dci-' + j, label: 'DCI ' + j, role: 'switch', tier: 'dci-spn',
+          outputs: [
+            { iface: 'et-9/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-' + t1, peerIface: 'et-1/1/1' },
+            { iface: 'et-9/0/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-' + t2, peerIface: 'et-1/1/1' }
+          ]
+        });
+      });
+      [[1, [[1, 4], [2, 4]]], [2, [[2, 2], [3, 6]]], [3, [[1, 2], [4, 6]]]].forEach(function (s) {
+        hops.push({
+          switchId: 'spn-' + s[0], label: 'SPN ' + s[0], role: 'spine', tier: 'dci-spn',
+          outputs: s[1].map(function (o) {
+            return { iface: 'et-3/0/' + o[0], deltaBps: G(o[1]), peerKind: 'switch', peerSwitchId: 'tor-' + o[0], peerIface: 'et-0/0/' + s[0] };
+          })
+        });
+      });
+      [1, 2, 3, 4].forEach(function (k) {
+        hops.push({
+          switchId: 'tor-' + k, label: 'ToR ' + k, role: 'tor', tier: 'tor',
+          outputs: [
+            { iface: 'xe-0/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-' + k, peerIface: 'eno1' }
+          ]
+        });
+      });
+      return {
+        key: 'dci-uturn',
+        name: '跨層回頭（bdr→dci→bdr）',
+        desc: 'bdr 出去 dci 又繞回 bdr，跟主流向（bdr→spn→tor）繞成環。' +
+          'dci 與 spn 同 tier 鎖同欄，多數決排欄後 6 條 dci→bdr 畫成走廊內的玫瑰色回流帶。',
+        json: {
+          kind: 'destination',
+          investigation: {
+            switchId: 'core-1', iface: 'et-0/0/0', direction: 'in', deltaBps: G(24),
+            note: 'core 進來 +24 Gbps，部分流量經 dci 繞回 bdr 再下去'
           },
-          {
-            switchId: 'bdr-a1', label: 'Border A1', role: 'border', tier: 'dc-a',
-            outputs: [
-              { iface: 'et-0/0/9', deltaBps: G(8), peerKind: 'switch', peerSwitchId: 'spn-b1', peerIface: 'et-0/0/1' }
-            ]
-          },
-          {
-            switchId: 'bdr-a2', label: 'Border A2', role: 'border', tier: 'dc-a',
-            outputs: [
-              { iface: 'et-0/0/9', deltaBps: G(10), peerKind: 'switch', peerSwitchId: 'spn-b2', peerIface: 'et-0/0/1' }
-            ]
-          },
-          {
-            switchId: 'spn-b1', label: 'Spine B1', role: 'spine', tier: 'dc-b',
-            outputs: [
-              { iface: 'et-0/0/7', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'bdr-a2', peerIface: 'et-0/0/2' },
-              { iface: 'et-0/0/8', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'tor-b1', peerIface: 'et-0/0/1' }
-            ]
-          },
-          {
-            switchId: 'spn-b2', label: 'Spine B2', role: 'spine', tier: 'dc-b',
-            outputs: [
-              { iface: 'et-0/0/7', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'tor-b1', peerIface: 'et-0/0/2' },
-              { iface: 'et-0/0/8', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'tor-b2', peerIface: 'et-0/0/1' }
-            ]
-          },
-          {
-            switchId: 'tor-b1', label: 'ToR B1', role: 'tor',
-            outputs: [
-              { iface: 'xe-0/0/12', deltaBps: G(10), peerKind: 'host', peerId: 'srv-web-21', peerIface: 'eno1' }
-            ]
-          },
-          {
-            switchId: 'tor-b2', label: 'ToR B2', role: 'tor',
-            outputs: [
-              { iface: 'xe-0/0/12', deltaBps: G(6), peerKind: 'host', peerId: 'srv-web-22', peerIface: 'eno1' }
-            ]
-          }
-        ]
-      }
-    }
+          hops: hops
+        }
+      };
+    })()
   ];
 
   var byKey = {};
