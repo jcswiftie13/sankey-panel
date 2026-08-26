@@ -39,15 +39,21 @@
     /* 每個節點的 port 槽位。橫向邊（同 tier 同欄互連）兩端都掛右側：
        弧帶整條活在欄右側的間隙，受端若從左邊進就得繞過整個盒子。 */
     nodes.forEach(function (n) {
-      n.leftSlots = n.inEdges.filter(function (e) { return !e.lateral; }).map(function (e) {
+      /* 回流邊（backward）也是 in 掛左緣、out 掛右緣，但槽位排最後（殘差之前）：
+         迴路帶從盒子疊的最下方出入，往下繞出圖外時才不會跨過自己的其他帶。 */
+      n.leftSlots = n.inEdges.filter(function (e) { return !e.lateral && !e.backward; }).map(function (e) {
         return { edge: e, role: 'in', iface: e.toIface, t: thick(e.bps) };
-      });
-      n.rightSlots = n.outEdges.filter(function (e) { return !e.lateral; }).map(function (e) {
+      }).concat(n.inEdges.filter(function (e) { return e.backward; }).map(function (e) {
+        return { edge: e, role: 'in', iface: e.toIface, t: thick(e.bps) };
+      }));
+      n.rightSlots = n.outEdges.filter(function (e) { return !e.lateral && !e.backward; }).map(function (e) {
         return { edge: e, role: 'out', iface: e.fromIface, t: thick(e.bps) };
       }).concat(n.outEdges.filter(function (e) { return e.lateral; }).map(function (e) {
         return { edge: e, role: 'lat-out', iface: e.fromIface, t: thick(e.bps) };
       })).concat(n.inEdges.filter(function (e) { return e.lateral; }).map(function (e) {
         return { edge: e, role: 'lat-in', iface: e.toIface, t: thick(e.bps) };
+      })).concat(n.outEdges.filter(function (e) { return e.backward; }).map(function (e) {
+        return { edge: e, role: 'out', iface: e.fromIface, t: thick(e.bps) };
       }));
       /* 殘差是真的槽位，排在已追查 port 之後（最外側），才會跟它們一起被 place() 置中。
          放最外側而不是插在中間：place() 依順序指派 cy，插中間會把下面所有帶子往下推、
@@ -158,6 +164,22 @@
       });
     });
 
+    /* 回流帶：繞經圖底下方外圍的等寬迴路。source 欄右側走廊下潛、貼圖底水平走、
+       target 欄左側走廊上浮。逐條分 lane 往下疊，垂直段水平錯位，互不重疊。 */
+    var backs = edges.filter(function (e) { return e.backward; });
+    backs.sort(function (a, b) {
+      return (model.nodeMap[b.fromId].col - model.nodeMap[a.fromId].col) || (b.bps - a.bps);
+    });
+    var backY = totalH - PAD_BOTTOM + 40;
+    backs.forEach(function (e, i) {
+      e.backT = Math.max(e.t1, e.t2);
+      e.backY = backY + e.backT / 2;
+      e.backXD = e.x1 + COL_GAP - 30 - i * 14;
+      e.backXU = Math.max(8, e.x2 - 26 - i * 14);
+      backY += e.backT + 16;
+    });
+    if (backs.length) totalH = backY - 16 + PAD_BOTTOM;
+
     return { cols: cols, colX: colX, width: totalW, height: Math.max(totalH, 220), thick: thick };
 
     function stackH(slots) {
@@ -198,6 +220,23 @@
       ' ' + e.x1 + ',' + (e.y1 + s * a) + ' Z';
   }
 
+  /* 回流帶（col 遞減）：source 右緣出來 → 右側走廊下潛 → 貼圖底下方的 lane 水平向左 →
+     target 左側走廊上浮 → 接回左緣。等寬 stroke 路徑（stroke-width＝帶厚），圓角轉彎。 */
+  function backwardRibbon(e) {
+    var r = Math.min(Math.max(14, e.backT), (e.backY - Math.max(e.y1, e.y2)) / 2);
+    var xD = e.backXD, xU = e.backXU, yB = e.backY;
+    return 'M' + e.x1 + ',' + e.y1 +
+      ' L' + (xD - r) + ',' + e.y1 +
+      ' Q' + xD + ',' + e.y1 + ' ' + xD + ',' + (e.y1 + r) +
+      ' L' + xD + ',' + (yB - r) +
+      ' Q' + xD + ',' + yB + ' ' + (xD - r) + ',' + yB +
+      ' L' + (xU + r) + ',' + yB +
+      ' Q' + xU + ',' + yB + ' ' + xU + ',' + (yB - r) +
+      ' L' + xU + ',' + (e.y2 + r) +
+      ' Q' + xU + ',' + e.y2 + ' ' + (xU + r) + ',' + e.y2 +
+      ' L' + e.x2 + ',' + e.y2;
+  }
+
   function render(model) {
     var geo = layout(model);
     var out = [];
@@ -226,8 +265,18 @@
       var meta = {
         from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
         fi: e.fromIface, ti: e.toIface, bps: e.bps, attr: e.attr, anchor: !!e.isAnchor,
-        lateral: e.lateral || undefined      /* stringify 會把 undefined 丟掉：沒 tier 的圖輸出不變 */
+        lateral: e.lateral || undefined,     /* stringify 會把 undefined 丟掉：沒 tier 的圖輸出不變 */
+        backward: e.backward || undefined
       };
+      if (e.backward) {
+        out.push('<path class="band band-back" d="' + backwardRibbon(e) + '" fill="none" ' +
+          'stroke="#fb7185" stroke-opacity=".55" stroke-width="' + e.backT + '" ' +
+          'stroke-linejoin="round" stroke-linecap="butt" ' +
+          'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
+          esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + F(e.bps) + '（回流）') +
+          '</title></path>');
+        return;
+      }
       out.push('<path class="band' + (e.lateral ? ' band-lat' : '') + '" d="' +
         (e.lateral ? lateralRibbon(e, e.bulge) : ribbon(e)) + '" fill="url(#gband)" ' +
         'stroke="#22d3ee" stroke-opacity=".35" stroke-width="1" ' +
@@ -237,10 +286,11 @@
         '</title></path>');
     });
 
-    /* 帶上的數字。橫向弧帶的數字放弧頂，放中點會壓在欄上 */
+    /* 帶上的數字。橫向弧帶的數字放弧頂，回流帶放底部水平段中點，放中點會壓在欄上 */
     model.edges.forEach(function (e) {
-      var mx = e.lateral ? e.x1 + 0.72 * e.bulge : (e.x1 + e.x2) / 2;
-      var my = (e.y1 + e.y2) / 2;
+      var mx = e.backward ? (e.backXD + e.backXU) / 2
+        : e.lateral ? e.x1 + 0.72 * e.bulge : (e.x1 + e.x2) / 2;
+      var my = e.backward ? e.backY - e.backT / 2 - 10 : (e.y1 + e.y2) / 2;
       out.push('<text x="' + mx + '" y="' + (my + 4) + '" text-anchor="middle" class="p-val" ' +
         'style="paint-order:stroke;stroke:#0b1017;stroke-width:3.5px">' + esc(F(e.bps)) + '</text>');
     });

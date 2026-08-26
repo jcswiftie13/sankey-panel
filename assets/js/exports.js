@@ -25,6 +25,10 @@
       var a = model.nodeMap[e.fromId], b = model.nodeMap[e.toId];
       var v = G(e.bps);
       if (v <= 0) return;
+      if (e.backward) {   /* sankey-beta 畫不了環 */
+        L.push('%% 回流帶略過：' + nodeName(a, model) + ' → ' + nodeName(b, model) + '，' + v);
+        return;
+      }
       L.push(q(nodeName(a, model)) + ',' + q(nodeName(b, model)) + ',' + v);
     });
     model.nodes.forEach(function (n) {
@@ -54,7 +58,8 @@
     model.edges.forEach(function (e) {
       var a = model.nodeMap[e.fromId], b = model.nodeMap[e.toId];
       var v = F(e.bps);
-      var lbl = (e.fromIface || '?') + ' → ' + (e.toIface || '?') + '<br/>' + v;
+      var lbl = (e.fromIface || '?') + ' → ' + (e.toIface || '?') + '<br/>' + v +
+        (e.backward ? '<br/>(回流)' : '');
       var arrow = (b.kind === 'leaf') ? '-. "' + lbl + '" .->' : '-- "' + lbl + '" -->';
       L.push('  ' + id(a.id) + ' ' + arrow + ' ' + id(b.id));
     });

@@ -361,6 +361,66 @@
           }
         ]
       }
+    },
+    {
+      key: 'dci-backflow',
+      name: '跨 DC 回流（tier 有環）',
+      desc: '兩個 DC 的 tier 之間有 2G 回打流量繞成環。同 tier 仍鎖同一欄：' +
+        '以流量多數決排欄，逆向的邊畫成繞經圖底外圍的玫瑰色回流帶。',
+      json: {
+        kind: 'destination',
+        investigation: {
+          switchId: 'core-1', iface: 'et-0/0/1', direction: 'in', deltaBps: G(16),
+          note: 'Core 1 進來 +16 Gbps，跨 DC 之間有回打流量'
+        },
+        hops: [
+          {
+            switchId: 'core-1', label: 'Core 1', role: 'core',
+            outputs: [
+              { iface: 'et-1/0/1', deltaBps: G(8), peerKind: 'switch', peerSwitchId: 'bdr-a1', peerIface: 'et-0/0/1' },
+              { iface: 'et-1/0/2', deltaBps: G(8), peerKind: 'switch', peerSwitchId: 'bdr-a2', peerIface: 'et-0/0/1' }
+            ]
+          },
+          {
+            switchId: 'bdr-a1', label: 'Border A1', role: 'border', tier: 'dc-a',
+            outputs: [
+              { iface: 'et-0/0/9', deltaBps: G(8), peerKind: 'switch', peerSwitchId: 'spn-b1', peerIface: 'et-0/0/1' }
+            ]
+          },
+          {
+            switchId: 'bdr-a2', label: 'Border A2', role: 'border', tier: 'dc-a',
+            outputs: [
+              { iface: 'et-0/0/9', deltaBps: G(10), peerKind: 'switch', peerSwitchId: 'spn-b2', peerIface: 'et-0/0/1' }
+            ]
+          },
+          {
+            switchId: 'spn-b1', label: 'Spine B1', role: 'spine', tier: 'dc-b',
+            outputs: [
+              { iface: 'et-0/0/7', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'bdr-a2', peerIface: 'et-0/0/2' },
+              { iface: 'et-0/0/8', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'tor-b1', peerIface: 'et-0/0/1' }
+            ]
+          },
+          {
+            switchId: 'spn-b2', label: 'Spine B2', role: 'spine', tier: 'dc-b',
+            outputs: [
+              { iface: 'et-0/0/7', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'tor-b1', peerIface: 'et-0/0/2' },
+              { iface: 'et-0/0/8', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'tor-b2', peerIface: 'et-0/0/1' }
+            ]
+          },
+          {
+            switchId: 'tor-b1', label: 'ToR B1', role: 'tor',
+            outputs: [
+              { iface: 'xe-0/0/12', deltaBps: G(10), peerKind: 'host', peerId: 'srv-web-21', peerIface: 'eno1' }
+            ]
+          },
+          {
+            switchId: 'tor-b2', label: 'ToR B2', role: 'tor',
+            outputs: [
+              { iface: 'xe-0/0/12', deltaBps: G(6), peerKind: 'host', peerId: 'srv-web-22', peerIface: 'eno1' }
+            ]
+          }
+        ]
+      }
     }
   ];
 

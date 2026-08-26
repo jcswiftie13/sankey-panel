@@ -1,0 +1,54 @@
+{
+  "kind": "destination",
+  "investigation": {
+    "switchId": "core-1", "iface": "et-0/0/1", "direction": "in", "deltaBps": 16000000000,
+    "note": "Core 1 進來 +16 Gbps，跨 DC 之間有回打流量"
+  },
+  "hops": [
+    {
+      "switchId": "core-1", "label": "Core 1", "role": "core",
+      "outputs": [
+        { "iface": "et-1/0/1", "deltaBps": 8000000000, "peerKind": "switch", "peerSwitchId": "bdr-a1", "peerIface": "et-0/0/1" },
+        { "iface": "et-1/0/2", "deltaBps": 8000000000, "peerKind": "switch", "peerSwitchId": "bdr-a2", "peerIface": "et-0/0/1" }
+      ]
+    },
+    {
+      "switchId": "bdr-a1", "label": "Border A1", "role": "border", "tier": "dc-a",
+      "outputs": [
+        { "iface": "et-0/0/9", "deltaBps": 8000000000, "peerKind": "switch", "peerSwitchId": "spn-b1", "peerIface": "et-0/0/1" }
+      ]
+    },
+    {
+      "switchId": "bdr-a2", "label": "Border A2", "role": "border", "tier": "dc-a",
+      "outputs": [
+        { "iface": "et-0/0/9", "deltaBps": 10000000000, "peerKind": "switch", "peerSwitchId": "spn-b2", "peerIface": "et-0/0/1" }
+      ]
+    },
+    {
+      "switchId": "spn-b1", "label": "Spine B1", "role": "spine", "tier": "dc-b",
+      "outputs": [
+        { "iface": "et-0/0/7", "deltaBps": 2000000000, "peerKind": "switch", "peerSwitchId": "bdr-a2", "peerIface": "et-0/0/2" },
+        { "iface": "et-0/0/8", "deltaBps": 6000000000, "peerKind": "switch", "peerSwitchId": "tor-b1", "peerIface": "et-0/0/1" }
+      ]
+    },
+    {
+      "switchId": "spn-b2", "label": "Spine B2", "role": "spine", "tier": "dc-b",
+      "outputs": [
+        { "iface": "et-0/0/7", "deltaBps": 4000000000, "peerKind": "switch", "peerSwitchId": "tor-b1", "peerIface": "et-0/0/2" },
+        { "iface": "et-0/0/8", "deltaBps": 6000000000, "peerKind": "switch", "peerSwitchId": "tor-b2", "peerIface": "et-0/0/1" }
+      ]
+    },
+    {
+      "switchId": "tor-b1", "label": "ToR B1", "role": "tor",
+      "outputs": [
+        { "iface": "xe-0/0/12", "deltaBps": 10000000000, "peerKind": "host", "peerId": "srv-web-21", "peerIface": "eno1" }
+      ]
+    },
+    {
+      "switchId": "tor-b2", "label": "ToR B2", "role": "tor",
+      "outputs": [
+        { "iface": "xe-0/0/12", "deltaBps": 6000000000, "peerKind": "host", "peerId": "srv-web-22", "peerIface": "eno1" }
+      ]
+    }
+  ]
+}
