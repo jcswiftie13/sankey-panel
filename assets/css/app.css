@@ -70,10 +70,14 @@ main{padding:18px 20px 60px;max-width:1880px;margin:0 auto}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend i{width:22px;height:9px;border-radius:2px;display:inline-block}
 .lg-cyan{background:linear-gradient(90deg,var(--cyan),var(--cyan-d))}
-/* 同層互連弧帶：同一把比例尺、略低的填色透明度做區隔，半圓示意馬蹄形 */
+/* 同欄弧帶不是另一種狀態，是已追查在同欄時的畫法：圖例縮排掛在已追查底下 */
+.lg-sub{margin-left:-6px;opacity:.8}
 .lg-lat{background:linear-gradient(90deg,var(--cyan),var(--cyan-d));opacity:.62;
   border-radius:0 99px 99px 0;width:14px}
 .band-lat{fill-opacity:.62}
+/* 馬蹄弧兩端都掛盒子右緣，形狀本身讀不出方向，靠這個三角形指流向。
+   pointer-events:none 是必要的：不然它會擋掉底下 band 的 hover，tooltip 跟高亮都會斷。 */
+.lat-arrow{fill:var(--cyan);pointer-events:none}
 /* hover 高亮交給 CSS：狀態由瀏覽器管，mouseleave 沒觸發（觸控、游標衝出視窗）也不會卡住 */
 .band:hover{fill:url(#gband-h)}
 .band.band-back:hover{fill:url(#gband-back-h)}

@@ -7,8 +7,8 @@
 但不會暗示流量是這台 switch 憑空生出來的——多出來的量一律用「其他輸入／其他輸出」補齊，
 讓圖在視覺上守恆。
 
-只有一種讀圖方式：**平衡 Sankey**。圖上的帶寬一律是實際 increment，
-「有多少能歸因到追查起點」是圖外數字（hop 摘要表格的「可歸因」欄、帶子的 tooltip），
+只有一種讀圖方式：**平衡 Sankey**。圖上與 tooltip 的數字一律是**你實際量到的速率增量 Δ**，
+沒有任何推估值：bps 本身就是「每秒多少 bit」的速率，increment 是這個速率的差，所以數字帶 `+` 號。
 不另外做一張只畫貢獻的圖。
 
 不做的事：不自動偵測 switch／counter、不掃網、沒有帳號與資料庫、不上傳你的 JSON、
@@ -98,7 +98,7 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 | --- | --- | --- | --- |
 | `switchId` | string | ✔ | 必須在 `hops` 裡找得到同一個 `switchId` |
 | `iface` | string | ✔ | 你看到增加的那條 interface |
-| `deltaBps` | number > 0 | ✔ | increment，bps |
+| `deltaBps` | number > 0 | ✔ | 速率增量 Δ，bps |
 | `direction` | `"in"` \| `"out"` | | `in` = 追終點，`out` = 追來源。`kind` 優先 |
 | `note` | string | | 一句話備註，顯示在 CLI 報告 |
 
@@ -119,15 +119,15 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 | `tier` | string（非空） | | 同層標籤。同 `tier` 的 hop **鎖在同一欄**，彼此之間的邊畫成右側弧帶；字串內容自訂，程式只比對相同與否。見下方「同層互連（tier）」 |
 | `outputs` | array of port | 追終點 | 跟下去的出口 |
 | `inputs` | array of port | 追來源 | 往回追的入口 |
-| `otherInBps` | number | | 顯式的其他輸入。不給就由平衡式補 |
-| `otherOutBps` | number | | 顯式的其他輸出。不給就由平衡式補 |
+| `otherInBps` | number ≥ 0 | | 顯式的其他輸入。不給就由平衡式補 |
+| `otherOutBps` | number ≥ 0 | | 顯式的其他輸出。不給就由平衡式補 |
 
 ### port（`outputs[]` / `inputs[]` 的元素）
 
 | 欄位 | 型別 | 必填 | 說明 |
 | --- | --- | --- | --- |
 | `iface` | string | ✔ | 本機這一側的 interface |
-| `deltaBps` | number ≥ 0 | ✔ | 這條的 increment，bps |
+| `deltaBps` | number ≥ 0 | ✔ | 這條的速率增量 Δ，bps |
 | `peerSwitchId` | string | | 對端 switch／node 的 id |
 | `peerId` | string | | 對端不是 switch 時用（host / router / pod） |
 | `peerIface` | string | | 對端那一側的 interface。對端 iface 只由這裡決定，沒填就留空、不猜 |
@@ -220,17 +220,20 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 | hops[i].outputs[j] 不是物件。 | port 陣列裡混了別的東西 |
 | hops[i].outputs[j].iface 必填。 | port 沒給 interface 名 |
 | hops[i].outputs[j].deltaBps 必須是非負數。 | port 的量不是數字或是負數 |
+| hops[i].otherInBps 必須是非負數（bps）。 | 給了負數或非數字；負殘差會讓色塊算出負高度、SVG 破圖 |
+| hops[i].otherOutBps 必須是非負數（bps）。 | 同上 |
 | investigation.switchId「X」在 hops 裡找不到。 | 起點那台沒有出現在 `hops`，通常是 id 打錯或大小寫不一致 |
 
 （`inputs` 的訊息一樣，只是把 `outputs` 換成 `inputs`。）
 
 另外有幾種**警告**，不會擋著不畫，會列在圖下方：
 
-- `顯式的 otherInBps/otherOutBps 對不上` — 兩個都給了但湊不出平衡式，圖照你給的顯式值畫
+- `otherInBps／otherOutBps 兩個都給了但湊不出平衡式` — 圖照你給的顯式值畫，那台的左右兩疊
+  色塊厚度就不會相等。訊息會把兩邊算式攤開、指出哪邊多多少；拿掉其中一個讓平衡式自動補就會守恆
 - `拓樸疑似有環` — hops 兜出了環，欄位順序會不準
 - `同一台在不同 hop 給了不同 tier` — 同 `switchId` 的 hop 標了兩種 tier，採用先出現的
-- `tier 分組後拓樸有環` — tier 讓群組之間繞成環（甲群 → 乙 → 甲群），忽略 tier 退回最長路徑排欄
-- `tier「X」內部有環` — 同 tier 內 a→b→a，環上的量無法完整歸因
+- `逆著多數流量方向` — 兩群之間雙向都有流量，總量小的方向畫成回流帶、不參與排欄
+- `群組間仍繞成環` — 環繞過三群以上，移除環上流量最小的那個方向破環
 
 ### 同層互連（tier）
 
@@ -238,7 +241,9 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 互連下游的機器會被推到右邊一欄，同一層被拆成兩欄。把同層的 hop 都標同一個 `tier` 就能鎖回同欄：
 
 - 同 `tier` 的機器整群視為一個節點跑最長路徑，欄位順序仍由拓樸自動推，**不用宣告層級編號**；tier 內部的邊不參與排欄。沒標 `tier` 的 hop 行為完全不變。
-- tier 內部的邊畫成**欄右側的弧帶**（往右凸再折回），厚度與青帶共用同一把比例尺；守恆與可歸因量照常經過這些邊。
+- tier 內部的邊畫成**欄右側的弧帶**（往右凸再折回），厚度與青帶共用同一把比例尺，守恆照常經過。
+  它不是另一種狀態，就是一條已追查的帶，只是兩端排在同一欄才改畫成馬蹄形；馬蹄形讀不出方向，
+  所以弧的終點端有個**箭頭指流向**。
 - 範例見 `samples/dci-tier.json`（網頁上的「同層互連（tier）」）。
 
 ## 追查方向
@@ -271,7 +276,7 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 
 ## 畫法（目前生效的定案）
 
-- 青色長帶＝有跟下去的 uplink／追查路徑，帶寬用實際 increment。
+- 青色長帶＝有跟下去的 uplink／追查路徑，帶寬用**速率增量 Δ**，數字帶 `+` 號。
 - 殘差不進走廊：不畫成穿越別台的長色帶，也不做盒子內底部 chips。
 - 殘差貼在該台外側的虛線色塊：其他輸入在左、其他輸出在右；**高度跟 Gbps 等比，
   跟青帶共用同一把比例尺**（`maxVal` 也把殘差算進去），標籤與數量寫在色塊旁。
@@ -311,7 +316,7 @@ Makefile                   跑起來與驗證的入口（make help）
 index.html                 版面與五個分頁
 assets/css/app.css
 assets/js/samples.js       六個內建範例（純資料）
-assets/js/model.js         驗證、合併 hop、算殘差與可歸因量
+assets/js/model.js         驗證、合併 hop、算殘差
 assets/js/render.js        SVG Sankey、等比殘差色塊、終止小卡、hop 摘要
 assets/js/zoom.js          圖的縮放與平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
 assets/js/exports.js       Mermaid sankey-beta / flowchart

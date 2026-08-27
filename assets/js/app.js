@@ -124,15 +124,16 @@
       '<span class="desc">' + R.esc(desc) + '</span>' +
       '<span class="pill">' + R.esc(dirName) + '</span>' +
       '<span class="pill">' + R.esc(inv.switchId + ' ' + inv.iface + ' ' +
-        (model.dir === 'destination' ? 'in' : 'out') + ' +' + M.fmtBps(inv.deltaBps)) + '</span>' +
+        (model.dir === 'destination' ? 'in' : 'out') + ' ' + M.fmtDelta(inv.deltaBps)) + '</span>' +
       (model.pruning && (model.pruning.topN || model.pruning.minShare)
         ? '<span class="pill">截斷：前 ' + (model.pruning.topN || '—') + ' 名 / ≥ ' +
           Math.round((model.pruning.minShare || 0) * 100) + '%</span>' : '');
 
     var hasBack = model.edges.some(function (e) { return e.backward; });
+    var hasLat = model.edges.some(function (e) { return e.lateral; });
     document.getElementById('legend').innerHTML =
-      '<span><i class="lg-cyan"></i>已追查（帶寬＝實際 increment）</span>' +
-      '<span><i class="lg-lat"></i>同層互連（同 tier 同欄，右側弧帶，等比）</span>' +
+      '<span><i class="lg-cyan"></i>已追查（帶寬＝速率增量 Δ，bps）</span>' +
+      (hasLat ? '<span class="lg-sub"><i class="lg-lat"></i>└ 同欄互連畫成右側弧帶，箭頭指流向</span>' : '') +
       (hasBack ? '<span><i class="lg-back"></i>回流（逆著多數流量方向，繞回上游）</span>' : '') +
       '<span><i class="lg-amber"></i>其他輸入（貼左側，高度與帶寬等比）</span>' +
       '<span><i class="lg-rose"></i>其他輸出（截斷／太小，貼右側，高度等比）</span>' +
@@ -185,10 +186,8 @@
         tip.innerHTML = '<b>' + R.esc(d.from) + ' → ' + R.esc(d.to) + '</b>' +
           '<div class="t-row"><span>出口 iface</span><span>' + R.esc(d.fi || '—') + '</span></div>' +
           '<div class="t-row"><span>入口 iface</span><span>' + R.esc(d.ti || '—') + '</span></div>' +
-          '<div class="t-row"><span>實際 increment</span><span>' + M.fmtBps(d.bps) + '</span></div>' +
-          '<div class="t-row"><span>可歸因</span><span>' + M.fmtBps(d.attr) + '</span></div>' +
+          '<div class="t-row"><span>速率增量 Δ</span><span>' + M.fmtDelta(d.bps) + '</span></div>' +
           (d.anchor ? '<div class="t-row"><span>這條是追查起點</span><span></span></div>' : '') +
-          (d.lateral ? '<div class="t-row"><span>同層互連（同 tier）</span><span></span></div>' : '') +
           (d.backward ? '<div class="t-row"><span>回流（逆著多數流量方向）</span><span></span></div>' : '');
         tip.hidden = false;
       });
