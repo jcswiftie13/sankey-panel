@@ -48,16 +48,33 @@ python3 -m http.server 8765 --bind 127.0.0.1
 載入的檔案只在瀏覽器裡讀（`FileReader`），不會送到任何地方。內容存在 `localStorage`，
 重新整理還在；按 JSON 分頁的「還原範例」就清掉。
 
-分頁與範例狀態在 query string，控制項是真的 `<a href>`：
+分頁、範例與顯示門檻的狀態在 query string，分頁與範例的控制項是真的 `<a href>`：
 
 ```
-index.html?sample=campus&tab=chart
+index.html?sample=campus&tab=chart&min=1500000000
 ```
 
 | 參數 | 值 |
 | --- | --- |
 | `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s`（`custom` = 你載入的那份） |
 | `tab` | `chart` `json` `mermaid-sankey` `mermaid-flow` `notes` |
+| `min` | 顯示門檻（bps 整數）。省略或 `0` ＝ 不過濾 |
+
+### 顯示門檻
+
+控制列的「顯示門檻」填一個整數（單位 bps，旁邊即時翻成 Gbps／Mbps／kbps），
+圖上就只留速率增量**大於**這個值的帶子。追一條 10G 的主幹時，這是把幾 Mbps
+的雜訊帶清掉的開關。
+
+- 濾掉的量**不會消失**，會併進該台的其他輸入／其他輸出，所以
+  「已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出」照樣成立。
+- 一台 switch 濾完身上一條帶都不剩，就**整台不顯示**。
+- 追查起點那條**永遠保留**——濾掉它整張圖就沒有錨了。
+- 殘差色塊本身不受門檻管，照舊只看該台的讀數誤差門檻。
+- 圖下方會有一則警告寫出隱藏了幾條帶、幾台、總共多少量。
+- 這是**顯示**用的門檻，跟 JSON 裡的 `pruning.topN` / `pruning.minShare`
+  是兩件事：那兩個是宣告「上游已經截斷過」的 metadata，程式不拿它們過濾。
+- CLI（`tools/trace_sankey.py`）沒有對應的旗標，只有網頁版有。
 
 ## 看圖：縮放與平移
 
@@ -316,12 +333,12 @@ Makefile                   跑起來與驗證的入口（make help）
 index.html                 版面與五個分頁
 assets/css/app.css
 assets/js/samples.js       六個內建範例（純資料）
-assets/js/model.js         驗證、合併 hop、算殘差
+assets/js/model.js         驗證、合併 hop、顯示門檻過濾、算殘差
 assets/js/render.js        SVG Sankey、等比殘差色塊、終止小卡、hop 摘要
 assets/js/zoom.js          圖的縮放與平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
 assets/js/exports.js       Mermaid sankey-beta / flowchart
-assets/js/app.js           query string、分頁、開檔／拖放、JSON 編輯器、tooltip、
-                           縮放按鈕與快捷鍵、圖區高度
+assets/js/app.js           query string、分頁、開檔／拖放、JSON 編輯器、顯示門檻、
+                           tooltip、縮放按鈕與快捷鍵、圖區高度
 samples/*.json             範例 JSON（CLI 也吃同一份）
 tools/trace_sankey.py      CLI：文字報告 / Mermaid / plotly
 ```
