@@ -31,6 +31,18 @@
     <p class="ctl-note">也可以把 <code>.json</code> 直接拖進這個頁面。純本機讀取，不上傳、不進資料庫。</p>
   </section>
   <section class="ctl">
+    <h2>顯示門檻</h2>
+    <div class="min-row">
+      <input type="number" id="minBps" min="0" step="1" inputmode="numeric"
+             placeholder="0" aria-describedby="minBpsHint">
+      <span class="unit">bps</span>
+      <span id="minBpsHint" class="unit-hint">不過濾</span>
+      <button id="minClear" class="btn">清除</button>
+    </div>
+    <p class="ctl-note">只畫速率增量大於這個值的帶子。濾掉的量併進該台的其他輸入／其他輸出，
+      圖照樣守恆；一台所有帶子都在門檻以下就整台不顯示。追查起點那條永遠保留。</p>
+  </section>
+  <section class="ctl">
     <h2>範例展示</h2>
     <div class="chips" id="sampleChips"></div>
     <p class="ctl-note">內建示範資料，用來看圖長什麼樣子，不是你的追查結果。</p>
@@ -128,6 +140,10 @@
         <li>殘差<b>不進走廊</b>：不畫成穿越別台的長色帶，也不做盒子內底部 chips。</li>
         <li>殘差貼在該台<b>外側的虛線色塊</b>：其他輸入在左、其他輸出在右。<b>高度跟 Gbps 等比，與青帶共用同一把比例尺</b>；標籤與數量寫在色塊旁。有追查與沒追查的比例才看得出來。</li>
         <li>殘差是盒子左右 port 疊裡的<b>真槽位</b>，跟已追查 port 一起排版。同一台左右兩側的<b>色塊厚度總和相等</b>；但每列有最小高度與間距，兩疊的<b>總高度不會剛好一樣</b>——守恆看色塊厚度，不是看疊起來的總高度。</li>
+        <li><b>顯示門檻</b>：控制列填一個 bps 整數，圖上只留增量大於它的帶子。濾掉的量不會消失，
+          會併進該台的其他輸入／其他輸出，守恆照舊；濾完身上一條帶都不剩的機器整台不顯示。
+          追查起點那條不受門檻影響——濾掉它整張圖就沒有錨了。殘差色塊本身也不受門檻管，
+          照舊只看讀數誤差門檻。</li>
         <li>小於該台自己讀數誤差（已知 in 與已追查 out 取大者的 0.5% ＋ 1 bps）的殘差不畫，免得浮點雜訊長出一塊。圖、hop 摘要、Mermaid 同一個門檻。</li>
         <li>盒子裡<b>只畫已追查 port</b>。殘差不用斜線填滿整台 switch，免得看起來像另一台機器。</li>
         <li><b>追查終止葉節點</b>：灰色虛線小卡，寫「追查終止」「未再往下追」加 iface 與帶寬。不是又一台 switch。</li>
@@ -161,7 +177,7 @@ python3 tools/trace_sankey.py trace.json --plotly out.html</pre>
 <div id="dropHint" class="drop-hint" hidden><div class="drop-box">把追查 JSON 放開，就畫這一份</div></div>
 
 <footer class="foot">
-  <span>不登入、不進資料庫、不抓 counter、不掃網。檔案只在瀏覽器裡讀。分頁與範例狀態都在 query string：<code>?sample=&amp;tab=</code>。圖可以滾輪縮放、拖曳平移（縮放不進網址）。</span>
+  <span>不登入、不進資料庫、不抓 counter、不掃網。檔案只在瀏覽器裡讀。分頁、範例與顯示門檻都在 query string：<code>?sample=&amp;tab=&amp;min=</code>。圖可以滾輪縮放、拖曳平移（縮放不進網址）。</span>
   <noscript class="noscript">JS 沒載入時，範例與分頁還是能切（都是真的連結）；開檔、拖放、JSON 編輯器需要 JS。</noscript>
 </footer>
 

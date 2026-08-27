@@ -14,7 +14,7 @@
   var LS_KEY = 'trace-sankey/custom';
   var LS_NAME = 'trace-sankey/custom-name';
 
-  var state = { sample: S.defaultKey, tab: 'chart' };
+  var state = { sample: S.defaultKey, tab: 'chart', min: 0 };
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
@@ -25,10 +25,17 @@
     var s = p.get('sample'), t = p.get('tab');
     if (s && (S.byKey[s] || s === 'custom')) state.sample = s;
     if (t && TABS.some(function (x) { return x.key === t; })) state.tab = t;
+    state.min = cleanMin(p.get('min'));
+  }
+  /* 負數、小數、亂打的字一律當 0（不過濾），不要讓門檻自己變成一個錯誤來源 */
+  function cleanMin(v) {
+    var n = Math.floor(Number(v));
+    return isFinite(n) && n > 0 ? n : 0;
   }
   function href(patch) {
     var next = Object.assign({}, state, patch);
-    return '?sample=' + encodeURIComponent(next.sample) + '&tab=' + encodeURIComponent(next.tab);
+    return '?sample=' + encodeURIComponent(next.sample) + '&tab=' + encodeURIComponent(next.tab) +
+      (next.min > 0 ? '&min=' + next.min : '');
   }
 
   /* 載入來源：有檔名＝從檔案來的，沒有＝編輯器貼的 */
@@ -107,7 +114,7 @@
       return;
     }
 
-    var model = M.build(cur.doc);
+    var model = M.build(cur.doc, { minBps: state.min });
     if (!model.ok) {
       meta.innerHTML = '<span class="title">' + R.esc(name) + '</span>';
       chart.innerHTML = '<div class="empty"><b>追查 JSON 不合契約</b>' +
@@ -127,7 +134,12 @@
         (model.dir === 'destination' ? 'in' : 'out') + ' ' + M.fmtDelta(inv.deltaBps)) + '</span>' +
       (model.pruning && (model.pruning.topN || model.pruning.minShare)
         ? '<span class="pill">截斷：前 ' + (model.pruning.topN || '—') + ' 名 / ≥ ' +
-          Math.round((model.pruning.minShare || 0) * 100) + '%</span>' : '');
+          Math.round((model.pruning.minShare || 0) * 100) + '%</span>' : '') +
+      (state.min > 0
+        ? '<span class="pill">顯示門檻：&gt; ' + R.esc(M.fmtBps(state.min)) +
+          '（隱藏 ' + model.filtered.edges + ' 條帶' +
+          (model.filteredNodes.length ? '、' + model.filteredNodes.length + ' 台' : '') +
+          '）</span>' : '');
 
     var hasBack = model.edges.some(function (e) { return e.backward; });
     var hasLat = model.edges.some(function (e) { return e.lateral; });
@@ -143,7 +155,7 @@
     setCode(model);
 
     /* 同一份資料重畫（例如只是切分頁回來）就沿用既有 SVG，保住縮放狀態 */
-    var key = state.sample + '\n' + (cur.raw || '');
+    var key = state.sample + '\n' + state.min + '\n' + (cur.raw || '');
     if (key !== lastKey || !chart.querySelector('svg')) {
       chart.innerHTML = R.render(model);
       bindTips();
@@ -203,6 +215,41 @@
     });
   }
 
+  /* ---------- 顯示門檻 ---------- */
+  /* 打字時網址用 replaceState：每個字元推一筆歷史會讓上一頁完全沒法用。
+     提示文字不 debounce（打字就要跟著跳），重畫才 debounce。 */
+  var minTimer = null;
+  function minHint(v) {
+    var el = document.getElementById('minBpsHint');
+    if (el) el.textContent = v > 0 ? '＝ ' + M.fmtBps(v) : '不過濾';
+  }
+  function setMin(v, immediate) {
+    minHint(v);
+    /* 先取消待辦再比對：打了一個字又刪掉時值會回到 state.min，這時若直接 return
+       會留下一個待辦的舊值，200ms 後把已經刪掉的門檻套上去 */
+    if (minTimer) { clearTimeout(minTimer); minTimer = null; }
+    if (v === state.min) return;
+    var apply = function () {
+      minTimer = null;
+      state.min = v;
+      history.replaceState(null, '', href({}));
+      chips(); draw();
+    };
+    if (immediate) apply(); else minTimer = setTimeout(apply, 200);
+  }
+  var minInput = document.getElementById('minBps');
+  minInput.addEventListener('input', function () { setMin(cleanMin(minInput.value), false); });
+  /* change（離開欄位／按 Enter）順便把亂打的內容正規化成真正生效的值 */
+  minInput.addEventListener('change', function () {
+    var v = cleanMin(minInput.value);
+    minInput.value = v > 0 ? String(v) : '';
+    setMin(v, true);
+  });
+  document.getElementById('minClear').addEventListener('click', function () {
+    minInput.value = '';
+    setMin(0, true);
+  });
+
   /* ---------- 導覽（有 JS 就不換頁） ---------- */
   document.addEventListener('click', function (ev) {
     var a = ev.target.closest ? ev.target.closest('a[data-nav]') : null;
@@ -212,14 +259,16 @@
     history.pushState(null, '', href({}));
     chips(); draw();
   });
-  window.addEventListener('popstate', function () { readQuery(); chips(); draw(); });
+  window.addEventListener('popstate', function () {
+    readQuery(); syncMin(); chips(); draw();
+  });
 
   /* ---------- 套用一份 JSON（開檔與編輯器共用同一條驗證路徑） ---------- */
   function applyRaw(raw, sourceName) {
     var doc;
     try { doc = JSON.parse(raw); }
     catch (e) { return { ok: false, msg: 'JSON 語法錯誤：' + e.message }; }
-    var built = M.build(doc);
+    var built = M.build(doc, { minBps: state.min });
     if (!built.ok) return { ok: false, msg: '不合契約：' + built.errors.join(' / ') };
     lsSet(LS_KEY, raw);
     if (sourceName) lsSet(LS_NAME, sourceName); else lsDel(LS_NAME);
@@ -417,5 +466,10 @@
     ev.preventDefault();
   });
 
-  readQuery(); chips(); draw();
+  function syncMin() {
+    minInput.value = state.min > 0 ? String(state.min) : '';
+    minHint(state.min);
+  }
+
+  readQuery(); syncMin(); chips(); draw();
 })();

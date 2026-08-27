@@ -117,7 +117,7 @@
   }
 
   /* ---------- 建圖 ---------- */
-  function build(doc) {
+  function build(doc, opts) {
     var errs = validate(doc);
     if (errs.length) return { ok: false, errors: errs };
 
@@ -125,6 +125,10 @@
     var inv = doc.investigation;
     var pruning = doc.pruning || {};
     var warnings = [];
+    /* 顯示門檻（bps）：只留增量大於它的帶子。0 ＝ 不過濾，行為與沒有這個功能時完全一樣。
+       濾掉的量記在 dropIn／dropOut，步驟 6 併進殘差，每台照樣守恆。 */
+    var minBps = Math.max(0, Number(opts && opts.minBps) || 0);
+    var dropIn = {}, dropOut = {}, filteredCount = 0, filteredBps = 0;
 
     /* 1. 依 switchId 合併 hop（雙 uplink 匯入核心 = 一個盒子） */
     var nodes = {}, order = [];
@@ -213,11 +217,27 @@
         var peerKey = p.peerSwitchId || p.peerId;
         var peerNode = peerKey && nodes[peerKey] ? nodes[peerKey] : null;
         /* namespace 標在盒上只有葉卡與 hop 級 ns 兩條路；對端接進 hops 後
-           port 上的標註只剩帶的 tooltip 看得到 */
+           port 上的標註只剩帶的 tooltip 看得到。
+           這則是在講輸入 JSON 標錯位置，跟畫不畫得出來無關，所以排在門檻之前——
+           不然調一下門檻就少一則提醒，同一份檔案的診斷會飄。 */
         if (peerNode && p.namespace) {
           warnings.push(n.label + ' 的 port「' + (p.iface || peerKey) + '」標了 namespace「' + p.namespace +
             '」，但對端 ' + peerNode.label + ' 已是 hop，這個標註只會出現在帶的 tooltip、不會標在盒上；' +
             '請改標在該 hop 上。');
+        }
+        /* 沒過門檻：不建邊也不建 leaf——先濾再建，才不會留下沒有邊的孤兒葉卡片。
+           pod 葉的 ns 邊也一併不生（它接在建葉之後），ns 終點不會多出沒有來源的節點。
+           量記到兩端節點頭上，等步驟 6 併進其他輸入／其他輸出。 */
+        if (minBps > 0 && !(p.deltaBps > minBps)) {
+          filteredCount++; filteredBps += p.deltaBps;
+          if (dir === 'destination') {
+            dropOut[n.id] = (dropOut[n.id] || 0) + p.deltaBps;
+            if (peerNode) dropIn[peerNode.id] = (dropIn[peerNode.id] || 0) + p.deltaBps;
+          } else {
+            dropIn[n.id] = (dropIn[n.id] || 0) + p.deltaBps;
+            if (peerNode) dropOut[peerNode.id] = (dropOut[peerNode.id] || 0) + p.deltaBps;
+          }
+          return;
         }
         var e, podLeaf = null;
         if (dir === 'destination') {
@@ -278,6 +298,27 @@
       nodes[e.fromId].outEdges.push(e);
       nodes[e.toId].inEdges.push(e);
     });
+
+    /* 4b. 過門檻後身上一條邊都不剩的整台不顯示。leaf 只在留邊時才建，anchor 與 root 都
+       掛著 anchorEdge，所以移掉孤立節點不會再孤立出別的，掃一輪就夠。一定要排在步驟 5
+       之前：排欄與正規化都吃 order，留著不存在的節點會多出空欄。 */
+    var filteredNodes = [];
+    if (minBps > 0) {
+      order = order.filter(function (id) {
+        var n = nodes[id];
+        if (n.inEdges.length || n.outEdges.length) return true;
+        filteredNodes.push(n.label);
+        delete nodes[id];
+        return false;
+      });
+    }
+    if (filteredCount) {
+      warnings.push('顯示門檻 > ' + fmtBps(minBps) + '：隱藏 ' + filteredCount + ' 條帶（共 ' +
+        fmtBps(filteredBps) + '）' +
+        (filteredNodes.length ? '，其中 ' + filteredNodes.length + ' 台整台不顯示（' +
+          filteredNodes.join('、') + '）' : '') +
+        '；這些量已併進其他輸入／其他輸出，每台仍然守恆。');
+    }
 
     /* 5. 欄位（最長路徑），封包方向左到右。
        同 tier 的節點視為一個超級節點：整群共用一個欄位，彼此之間的邊不參與排欄，
@@ -433,6 +474,11 @@
     ids.forEach(function (id) {
       var n = nodes[id];
       if (n.kind !== 'node') return;
+      /* 門檻濾掉的量先併進顯式殘差再算。沒顯式給值的（null）不用碰：tracedIn／tracedOut
+         已經因為邊被拿掉而變小，下面的平衡式會自動把缺口補成殘差。顯式值不加就會誤觸
+         「兩個都給又湊不出平衡式」那則警告。 */
+      if (num(n.otherInBps)) n.otherInBps += dropIn[id] || 0;
+      if (num(n.otherOutBps)) n.otherOutBps += dropOut[id] || 0;
       n.tracedIn = sum(n.inEdges);
       n.tracedOut = sum(n.outEdges);
       var left = n.tracedIn, right = n.tracedOut;
@@ -483,6 +529,8 @@
     var list = ids.map(function (id) { return nodes[id]; });
     return {
       ok: true, dir: dir, investigation: inv, pruning: pruning,
+      minBps: minBps, filtered: { edges: filteredCount, bps: filteredBps },
+      filteredNodes: filteredNodes,
       nodes: list, nodeMap: nodes, edges: edges, anchorEdge: anchorEdge,
       root: root, warnings: warnings,
       maxCol: list.reduce(function (m, n) { return Math.max(m, n.col); }, 0)
