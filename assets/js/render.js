@@ -1,7 +1,9 @@
-/* SVG Sankey 繪製：青帶＝已追查、殘差＝盒子外側與帶寬等比的虛線色塊、終止＝灰虛線小卡。 */
+/* SVG Sankey 繪製：青帶＝已追查、殘差＝盒子外側與帶寬等比的虛線色塊、終止＝灰虛線小卡。
+   帶上的數字一律是實際量測到的速率增量，沒有推估值。 */
 (function (global) {
   'use strict';
   var F = global.TraceModel.fmtBps;
+  var D = global.TraceModel.fmtDelta;
 
   var NODE_W = 208, LEAF_W = 178, ANCHOR_W = 152;
   var HEADER_H = 36, ROW_H = 24, ROW_GAP = 9, BODY_PAD = 12, BODY_MIN = 26;
@@ -282,13 +284,12 @@
     model.edges.forEach(function (e) {
       var meta = {
         from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
-        fi: e.fromIface, ti: e.toIface, bps: e.bps, attr: e.attr, anchor: !!e.isAnchor,
-        lateral: e.lateral || undefined,     /* stringify 會把 undefined 丟掉：沒 tier 的圖輸出不變 */
-        backward: e.backward || undefined
+        fi: e.fromIface, ti: e.toIface, bps: e.bps, anchor: !!e.isAnchor,
+        backward: e.backward || undefined     /* stringify 會把 undefined 丟掉：沒回流的圖輸出不變 */
       };
       if (e.backward) {
         var backTitle = '<title>' +
-          esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + F(e.bps) + '（回流）') +
+          esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + D(e.bps) + '（回流）') +
           '</title>';
         if (e.backNear) {
           /* 相鄰欄回流：整條活在兩欄之間的走廊，反向的一般帶 */
@@ -308,9 +309,17 @@
         (e.lateral ? lateralRibbon(e, e.bulge) : ribbon(e)) + '" fill="url(#gband)" ' +
         'stroke="#22d3ee" stroke-opacity=".35" stroke-width="1" ' +
         'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
-        esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + F(e.bps) +
-          (e.lateral ? '（同層互連）' : '')) +
+        esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + D(e.bps)) +
         '</title></path>');
+      /* 馬蹄弧一定終止在 target 右緣、且是朝 -x 進來的，所以固定一個朝左的三角形
+         就永遠指對方向，不用算路徑切線。兄弟節點而非包在 band 裡：包起來會打斷
+         .band:hover 與 querySelectorAll('.band') 的 tooltip 綁定。 */
+      if (e.lateral) {
+        var as = Math.max(5, Math.min(9, e.t2 / 2));   /* 細帶也看得見，粗帶不誇張 */
+        out.push('<path class="lat-arrow" d="M' + (e.x2 + 4 + as * 2) + ',' + (e.y2 - as) +
+          ' L' + (e.x2 + 4) + ',' + e.y2 +
+          ' L' + (e.x2 + 4 + as * 2) + ',' + (e.y2 + as) + ' Z"/>');
+      }
     });
 
     /* 帶上的數字。橫向弧帶的數字放弧頂，回流帶放底部水平段中點，放中點會壓在欄上 */
@@ -319,7 +328,7 @@
         : e.lateral ? e.x1 + 0.72 * e.bulge : (e.x1 + e.x2) / 2;
       var my = (e.backward && !e.backNear) ? e.backY - e.backT / 2 - 10 : (e.y1 + e.y2) / 2;
       out.push('<text x="' + mx + '" y="' + (my + 4) + '" text-anchor="middle" class="p-val" ' +
-        'style="paint-order:stroke;stroke:#0b1017;stroke-width:3.5px">' + esc(F(e.bps)) + '</text>');
+        'style="paint-order:stroke;stroke:#0b1017;stroke-width:3.5px">' + esc(D(e.bps)) + '</text>');
     });
 
     /* 盒子 */
@@ -408,7 +417,7 @@
     s.push('<text class="leaf-stop" style="fill:#22d3ee" x="' + (n.x + 12) + '" y="' + (n.y + 18) + '">追查起點</text>');
     s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 36) + '">' + esc(inv.iface) + '</text>');
     s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + (n.y + 52) + '">' +
-      esc(n.dirLabel) + ' 方向 · ' + esc(F(inv.deltaBps)) + '</text>');
+      esc(n.dirLabel) + ' 方向 · ' + esc(D(inv.deltaBps)) + '</text>');
     s.push('</g>');
     return s.join('');
   }
@@ -441,21 +450,18 @@
 
   /* ---------- 圖外資訊：hop 數字摘要 ---------- */
   function summary(model) {
-    var dir = model.dir;
     var rows = model.nodes.filter(function (n) { return n.kind === 'node'; })
       .sort(function (a, b) { return a.col - b.col; });
     var h = ['<h3>hop 數字摘要（圖外資訊）</h3><div class="tbl-wrap"><table><thead><tr>',
       '<th>hop</th><th>追查輸入</th><th>出口增加</th><th class="c-amber">其他進</th>',
-      '<th class="c-rose">其他出</th><th class="c-cyan">可歸因</th></tr></thead><tbody>'];
+      '<th class="c-rose">其他出</th></tr></thead><tbody>'];
     rows.forEach(function (n) {
-      var known = dir === 'destination' ? n.tracedIn : n.tracedIn;
       h.push('<tr><td>' + esc(n.label) + ' <span class="c-dim">' + esc(n.id) + '</span>' +
         (n.hopCount > 1 ? ' <span class="c-dim">(合併 ' + n.hopCount + ' hop)</span>' : '') + '</td>' +
-        '<td class="num">' + F(known) + '</td>' +
+        '<td class="num">' + F(n.tracedIn) + '</td>' +
         '<td class="num">' + F(n.tracedOut) + '</td>' +
         '<td class="num c-amber">' + (resIn(n) ? '+' + F(n.otherIn) : '—') + '</td>' +
-        '<td class="num c-rose">' + (resOut(n) ? F(n.otherOut) : '—') + '</td>' +
-        '<td class="num c-cyan">' + F(dir === 'destination' ? n.attrOut : n.attrIn) + '</td></tr>');
+        '<td class="num c-rose">' + (resOut(n) ? F(n.otherOut) : '—') + '</td></tr>');
     });
     h.push('</tbody></table></div>');
     h.push('<p class="warn">平衡式：已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出。</p>');

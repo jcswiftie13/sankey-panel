@@ -5,13 +5,11 @@ Reads a trace JSON (same contract as the web app), merges hops that belong to
 the same switch, solves the per-hop residual so the picture conserves flow, and
 then prints a text report, emits Mermaid, or renders an interactive Plotly page.
 
-Bandwidths are always the actual increment; the gap is carried by per-hop
+Bandwidths are always the actual measured increment -- a delta of the bps
+rate, never an estimate. The gap is carried by per-hop
 other-in / other-out, so every hop balances:
 
     known in + other in  ==  traced out + other out
-
-How much of that is attributable to the investigated counter is reported as a
-number next to the graph, never as a second set of bandwidths.
 
 Usage:
     python3 tools/trace_sankey.py samples/classic.json
@@ -56,7 +54,6 @@ class Edge:
     peer_kind: str | None = None
     namespace: str | None = None
     is_anchor: bool = False
-    attr: float = 0.0
     lateral: bool = False
     dropped: bool = False       # excluded from column layout by cycle-breaking
     backward: bool = False      # final columns run right-to-left: drawn as backflow
@@ -69,7 +66,6 @@ class Node:
     kind: str = "node"          # node | leaf | anchor
     role: str = "switch"        # switch | node | pod | leaf | anchor
     tier: str | None = None
-    sub_order: int = 0
     hop_count: int = 0
     namespace: str | None = None
     iface: str | None = None
@@ -83,8 +79,6 @@ class Node:
     traced_out: float = 0.0
     other_in: float = 0.0
     other_out: float = 0.0
-    attr_in: float = 0.0
-    attr_out: float = 0.0
 
 
 class TraceError(ValueError):
@@ -170,7 +164,6 @@ class Trace:
         self._anchor()
         self._columns()
         self._residuals()
-        self._attribute()
 
     # -- 1. same switchId appearing twice (dual uplink) becomes one box ------ #
     def _merge_hops(self) -> None:
@@ -382,45 +375,6 @@ class Trace:
         for e in self.edges:
             e.lateral = self.nodes[e.from_id].col == self.nodes[e.to_id].col
             e.backward = self.nodes[e.from_id].col > self.nodes[e.to_id].col
-        self._tier_sub_order()
-
-    # Topological order inside each tier group, so the attribution sweep visits
-    # producers before consumers when columns tie.
-    def _tier_sub_order(self) -> None:
-        groups: dict[str, list[str]] = {}
-        for i, n in self.nodes.items():
-            if n.tier is not None:
-                groups.setdefault(n.tier, []).append(i)
-        for tier, members in groups.items():
-            if len(members) < 2:
-                continue
-            in_group = set(members)
-            indeg = {i: 0 for i in members}
-            adj: dict[str, list[str]] = {i: [] for i in members}
-            for e in self.edges:
-                if e.from_id in in_group and e.to_id in in_group:
-                    adj[e.from_id].append(e.to_id)
-                    indeg[e.to_id] += 1
-            queue = [i for i in members if indeg[i] == 0]
-            seq = 0
-            popped: set[str] = set()
-            while queue:
-                cur = queue.pop(0)
-                popped.add(cur)
-                self.nodes[cur].sub_order = seq
-                seq += 1
-                for m in adj[cur]:
-                    indeg[m] -= 1
-                    if indeg[m] == 0:
-                        queue.append(m)
-            if seq < len(members):
-                self.warnings.append(
-                    f"tier {tier!r} has an internal cycle; "
-                    "flow on the cycle cannot be fully attributed")
-                for i in members:
-                    if i not in popped:
-                        self.nodes[i].sub_order = seq
-                        seq += 1
 
     # -- 5. residuals -------------------------------------------------------- #
     def _residuals(self) -> None:
@@ -433,9 +387,15 @@ class Trace:
             if oi is not None and oo is not None:
                 gap = (n.traced_in + oi) - (n.traced_out + oo)
                 if abs(gap) > max(n.traced_in, n.traced_out) * 0.005 + 1:
+                    side = "left" if gap > 0 else "right"
                     self.warnings.append(
-                        f"{n.label}: explicit otherInBps/otherOutBps do not balance "
-                        f"(off by {fmt_bps(gap)}); drawing the explicit values")
+                        f"{n.label}: otherInBps and otherOutBps are both given but do not "
+                        f"balance -- traced in {fmt_bps(n.traced_in)} + other in {fmt_bps(oi)} "
+                        f"= {fmt_bps(n.traced_in + oi)}, traced out {fmt_bps(n.traced_out)} "
+                        f"+ other out {fmt_bps(oo)} = {fmt_bps(n.traced_out + oo)}, "
+                        f"{side} side is {fmt_bps(abs(gap))} bigger; drawing the explicit "
+                        f"values, so this hop's two stacks will not be equally thick. "
+                        f"Drop one of them and the balance equation fills it in.")
             elif oo is not None:
                 oi = max(0.0, n.traced_out + oo - n.traced_in)
             elif oi is not None:
@@ -444,64 +404,6 @@ class Trace:
                 d = n.traced_out - n.traced_in
                 oi, oo = max(0.0, d), max(0.0, -d)
             n.other_in, n.other_out = oi or 0.0, oo or 0.0
-
-    # -- 6. attribution back to the investigated counter --------------------- #
-    def _attribute(self) -> None:
-        # Sweep in topological order of the DAG left after cycle-breaking:
-        # backflow (dropped) edges are excluded, so the flow they carry is not
-        # re-distributed downstream (that would amplify around the cycle).
-        indeg = {i: 0 for i in self.nodes}
-        adj: dict[str, list[str]] = {i: [] for i in self.nodes}
-        for e in self.edges:
-            if e.dropped:
-                continue
-            adj[e.from_id].append(e.to_id)
-            indeg[e.to_id] += 1
-
-        def key(i: str) -> tuple[int, int]:
-            return (self.nodes[i].col, self.nodes[i].sub_order)
-
-        ready = sorted((i for i in self.nodes if indeg[i] == 0), key=key)
-        topo: list[str] = []
-        while ready:
-            cur = ready.pop(0)
-            topo.append(cur)
-            for m in adj[cur]:
-                indeg[m] -= 1
-                if indeg[m] == 0:
-                    ready.append(m)
-            ready.sort(key=key)   # ties keep the old (col, sub_order) order
-        if len(topo) < len(self.nodes):   # intra-tier cycle; warned already
-            seen = set(topo)
-            topo += sorted((i for i in self.nodes if i not in seen), key=key)
-        topo_idx = {i: k for k, i in enumerate(topo)}
-
-        self.anchor_edge.attr = float(self.inv["deltaBps"])
-        seq = topo if self.dir == "destination" else list(reversed(topo))
-        for i in seq:
-            n = self.nodes[i]
-            if n.kind != "node":
-                continue
-            if self.dir == "destination":
-                got = sum(e.attr for e in n.in_edges)
-                denom = n.traced_out + n.other_out
-                n.attr_in = got
-                n.attr_out = got * (n.traced_out / denom) if denom > 0 else 0.0
-                for e in n.out_edges:
-                    e.attr = got * (e.bps / denom) if denom > 0 else 0.0
-            else:
-                got = sum(e.attr for e in n.out_edges)
-                denom = n.traced_in + n.other_in
-                n.attr_out = got
-                n.attr_in = got * (n.traced_in / denom) if denom > 0 else 0.0
-                for e in n.in_edges:
-                    e.attr = got * (e.bps / denom) if denom > 0 else 0.0
-        lost = sum(e.attr for e in self.edges
-                   if (e.dropped or e.backward) and topo_idx[e.from_id] > topo_idx[e.to_id])
-        if lost > 1:
-            self.warnings.append(
-                f"backflow carries {fmt_bps(lost)} of attributable traffic back "
-                "upstream; not re-distributed to avoid amplifying around the cycle")
 
     # -- helpers ------------------------------------------------------------- #
     def hop_nodes(self) -> list[Node]:
@@ -530,7 +432,6 @@ def report(t: Trace) -> str:
     for n in t.hop_nodes():
         merged = f"  (merged {n.hop_count} hops)" if n.hop_count > 1 else ""
         role = f" [{n.role}]" if n.role != "switch" else ""
-        anchored = "in" if t.dir == "destination" else "out"
         L.append("")
         L.append(f"hop {n.col}  {n.label} <{n.id}>{role}{merged}")
 
@@ -562,18 +463,14 @@ def report(t: Trace) -> str:
         bal_l = n.traced_in + n.other_in
         bal_r = n.traced_out + n.other_out
         L.append(f"    balance      {fmt_bps(bal_l)} in  ==  {fmt_bps(bal_r)} out")
-        L.append(f"    attributable {fmt_bps(n.attr_out if t.dir == 'destination' else n.attr_in)}"
-                 f"  (of the traced {anchored} increment)")
 
     L.append("")
     L.append("-" * 74)
-    L.append(f"{'hop':<26}{'traced in':>12}{'traced out':>13}{'other in':>11}{'other out':>11}{'attributable':>14}")
+    L.append(f"{'hop':<26}{'traced in':>12}{'traced out':>13}{'other in':>11}{'other out':>11}")
     for n in t.hop_nodes():
-        attr = n.attr_out if t.dir == "destination" else n.attr_in
         L.append(f"{n.label[:24]:<26}{fmt_bps(n.traced_in):>12}{fmt_bps(n.traced_out):>13}"
                  f"{('+' + fmt_bps(n.other_in)) if n.other_in else '-':>11}"
-                 f"{fmt_bps(n.other_out) if n.other_out else '-':>11}"
-                 f"{fmt_bps(attr):>14}")
+                 f"{fmt_bps(n.other_out) if n.other_out else '-':>11}")
     for w in t.warnings:
         L.append(f"! {w}")
     return "\n".join(L)
@@ -772,7 +669,6 @@ def main(argv: list[str] | None = None) -> int:
                 "mergedHops": n.hop_count,
                 "tracedInBps": n.traced_in, "tracedOutBps": n.traced_out,
                 "otherInBps": n.other_in, "otherOutBps": n.other_out,
-                "attributableBps": n.attr_out if t.dir == "destination" else n.attr_in,
             } for n in t.hop_nodes()],
             "warnings": t.warnings,
         }, ensure_ascii=False, indent=2))

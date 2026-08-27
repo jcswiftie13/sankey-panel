@@ -1,4 +1,4 @@
-/* 追查 JSON -> 圖模型：合併同一台 switch、算殘差、算可歸因量。 */
+/* 追查 JSON -> 圖模型：合併同一台 switch、算殘差。圖上一律是實際量測值，不做推估攤分。 */
 (function (global) {
   'use strict';
 
@@ -10,6 +10,8 @@
     if (a >= 1e3) return round(n / 1e3) + ' kbps';
     return round(n) + ' bps';
   }
+  /* 值是「速率的差」，不是絕對速率：帶號顯示，讀者才不會當成當下吞吐量。 */
+  function fmtDelta(bps) { return (Number(bps) > 0 ? '+' : '') + fmtBps(bps); }
   function round(v) {
     var r = Math.round(v * 100) / 100;
     return String(r);
@@ -47,6 +49,12 @@
         if (h.tier != null && (typeof h.tier !== 'string' || !h.tier)) {
           errs.push('hops[' + i + '].tier 必須是非空字串。');
         }
+        /* 負的殘差會讓 thick() 算出負高度，SVG 直接破圖：擋在驗證這一關 */
+        ['otherInBps', 'otherOutBps'].forEach(function (k) {
+          if (h[k] != null && (!num(h[k]) || h[k] < 0)) {
+            errs.push('hops[' + i + '].' + k + ' 必須是非負數（bps）。');
+          }
+        });
         ['outputs', 'inputs'].forEach(function (k) {
           if (h[k] == null) return;
           if (!Array.isArray(h[k])) { errs.push('hops[' + i + '].' + k + ' 必須是陣列。'); return; }
@@ -297,12 +305,14 @@
       e.backward = nodes[e.fromId].col > nodes[e.toId].col;
     });
 
-    /* 5b. 同欄的邊＝tier 內的橫向互連，render 畫成右側弧帶 */
+    /* 5f. 同欄的邊＝tier 內的橫向互連，render 畫成右側弧帶 */
     edges.forEach(function (e) {
       e.lateral = nodes[e.fromId].col === nodes[e.toId].col;
     });
 
-    /* 5c. tier 群內的拓樸子順序：歸因遍歷同欄平手時，得先算生產者再算消費者 */
+    /* 5g. tier 群內的拓樸子順序。這不是給算式用的，是給排版用的：
+       只被同欄餵的節點（dci 這種）沒有跨欄父節點可以對齊，render 靠 subOrder
+       把生產者排在消費者上面，同欄弧帶才不會互相穿過。見 render.js 的 __pref。 */
     ids.forEach(function (id) { nodes[id].subOrder = 0; });
     var tierMembers = {};
     ids.forEach(function (id) {
@@ -325,10 +335,9 @@
         nodes[cur].subOrder = seq++;
         adj[cur].forEach(function (m) { if (--indeg[m] === 0) queue.push(m); });
       }
-      if (seq < members.length) {
-        warnings.push('tier「' + t + '」內部有環，環上的量無法完整歸因。');
-        members.forEach(function (id) { if (!popped[id]) nodes[id].subOrder = seq++; });
-      }
+      /* tier 內部有環（a→b→a）就排不完。不再警告——沒有歸因要算了，剩下的影響
+         只是那幾台的上下順序沒有唯一解；照發現順序補完，至少是穩定的。 */
+      members.forEach(function (id) { if (!popped[id]) nodes[id].subOrder = seq++; });
     });
 
     /* 6. 每台的守恆與殘差 */
@@ -343,7 +352,11 @@
       if (num(oi) && num(oo)) {
         var gap = (left + oi) - (right + oo);
         if (Math.abs(gap) > eps) {
-          warnings.push(n.label + '：顯式的 otherInBps/otherOutBps 對不上（差 ' + fmtBps(gap) + '），圖照顯式值畫。');
+          warnings.push(n.label + '：otherInBps／otherOutBps 兩個都給了但湊不出平衡式 —— ' +
+            '已追查 in ' + fmtBps(left) + ' ＋ 其他輸入 ' + fmtBps(oi) + ' ＝ ' + fmtBps(left + oi) + '，' +
+            '已追查 out ' + fmtBps(right) + ' ＋ 其他輸出 ' + fmtBps(oo) + ' ＝ ' + fmtBps(right + oo) + '，' +
+            (gap > 0 ? '左邊多 ' : '右邊多 ') + fmtBps(Math.abs(gap)) + '。' +
+            '圖照顯式值畫，這台的左右色塊厚度不會相等；拿掉其中一個讓平衡式自動補就會守恆。');
         }
       } else if (num(oo)) {
         oi = Math.max(0, right + oo - left);
@@ -360,80 +373,15 @@
       n.resEps = eps;        /* 圖上小於這個值的殘差不畫，見 render.js 的 resIn/resOut */
     });
 
-    /* 7. 可歸因量：從追查起點往下（或往回）依比例分配。
-       遍歷順序用「破環後 DAG 的拓樸序」而不是單純的 (col, subOrder)：
-       回流帶（dropped）的邊不進拓樸序，它分到的量不再往下攤，避免循環放大。 */
-    var indegN = {}, adjN = {};
-    ids.forEach(function (id) { indegN[id] = 0; adjN[id] = []; });
-    edges.forEach(function (e) {
-      if (e.dropped) return;
-      adjN[e.fromId].push(e.toId); indegN[e.toId]++;
-    });
-    function byColSub(a, b) {
-      return (nodes[a].col - nodes[b].col) || (nodes[a].subOrder - nodes[b].subOrder);
-    }
-    var topo = [], inTopo = {};
-    var ready = ids.filter(function (id) { return indegN[id] === 0; }).sort(byColSub);
-    while (ready.length) {
-      var tcur = ready.shift();
-      topo.push(tcur); inTopo[tcur] = true;
-      adjN[tcur].forEach(function (m) { if (--indegN[m] === 0) ready.push(m); });
-      ready.sort(byColSub);   /* 平手時維持與舊版一致的 (col, subOrder) 順序 */
-    }
-    if (topo.length < ids.length) {   /* tier 內部有環時排不完，5c 已有 warning */
-      topo = topo.concat(ids.filter(function (id) { return !inTopo[id]; }).sort(byColSub));
-    }
-    var topoIdx = {};
-    topo.forEach(function (id, i) { topoIdx[id] = i; });
-
-    edges.forEach(function (e) { e.attr = 0; });
-    if (dir === 'destination') {
-      anchorEdge.attr = inv.deltaBps;
-      topo.forEach(function (id) {
-        var n = nodes[id];
-        if (n.kind !== 'node') return;
-        var inAttr = n.inEdges.reduce(function (s, e) { return s + e.attr; }, 0);
-        var denom = n.tracedOut + n.otherOut;
-        n.attrIn = inAttr;
-        n.attrOut = denom > 0 ? inAttr * (n.tracedOut / denom) : 0;
-        n.outEdges.forEach(function (e) {
-          e.attr = denom > 0 ? inAttr * (e.bps / denom) : 0;
-        });
-      });
-    } else {
-      anchorEdge.attr = inv.deltaBps;
-      topo.slice().reverse().forEach(function (id) {
-        var n = nodes[id];
-        if (n.kind !== 'node') return;
-        var outAttr = n.outEdges.reduce(function (s, e) { return s + e.attr; }, 0);
-        var denom = n.tracedIn + n.otherIn;
-        n.attrOut = outAttr;
-        n.attrIn = denom > 0 ? outAttr * (n.tracedIn / denom) : 0;
-        n.inEdges.forEach(function (e) {
-          e.attr = denom > 0 ? outAttr * (e.bps / denom) : 0;
-        });
-      });
-    }
-    /* 接收端在拓樸序上比來源端早的邊（回流帶），分到的量已無法再往下攤 */
-    var lostAttr = 0;
-    edges.forEach(function (e) {
-      if ((e.dropped || e.backward) && topoIdx[e.fromId] > topoIdx[e.toId]) lostAttr += e.attr;
-    });
-    if (lostAttr > 1) {
-      warnings.push('回流帶累計 ' + fmtBps(lostAttr) +
-        ' 的可歸因量流回上游，為避免循環放大不再往下攤分，僅顯示在回流帶上。');
-    }
-
     ids.forEach(function (id) {
       var n = nodes[id];
       if (n.kind === 'leaf') {
         var e = dir === 'destination' ? n.inEdges[0] : n.outEdges[0];
         n.bps = e ? e.bps : 0;
-        n.attr = e ? e.attr : 0;
       }
     });
 
-    /* 8. 正規化欄位 */
+    /* 7. 正規化欄位 */
     var minCol = Infinity;
     ids.forEach(function (id) { minCol = Math.min(minCol, nodes[id].col); });
     ids.forEach(function (id) { nodes[id].col -= minCol; });
@@ -449,7 +397,7 @@
     function mkEdge(a, b, fromIface, toIface, p) {
       return {
         fromId: a.id, toId: b.id, fromIface: fromIface || '', toIface: toIface || '',
-        bps: p.deltaBps, attr: 0, peerKind: p.peerKind || null, namespace: p.namespace || null
+        bps: p.deltaBps, peerKind: p.peerKind || null, namespace: p.namespace || null
       };
     }
     function mkLeaf(p, id, d) {
@@ -465,5 +413,8 @@
 
   function sum(edges) { return edges.reduce(function (s, e) { return s + e.bps; }, 0); }
 
-  global.TraceModel = { build: build, validate: validate, direction: direction, fmtBps: fmtBps, gbps: gbps };
+  global.TraceModel = {
+    build: build, validate: validate, direction: direction,
+    fmtBps: fmtBps, fmtDelta: fmtDelta, gbps: gbps
+  };
 })(window);
