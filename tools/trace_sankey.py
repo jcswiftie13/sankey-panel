@@ -58,6 +58,8 @@ class Edge:
     is_anchor: bool = False
     attr: float = 0.0
     lateral: bool = False
+    dropped: bool = False       # excluded from column layout by cycle-breaking
+    backward: bool = False      # final columns run right-to-left: drawn as backflow
 
 
 @dataclass
@@ -265,10 +267,103 @@ class Trace:
     def _columns(self) -> None:
         group_of = {i: (f"t:{n.tier}" if n.tier is not None else f"n:{i}")
                     for i, n in self.nodes.items()}
-        gcol = {g: 0 for g in group_of.values()}
-        for _ in range(len(gcol) + 2):
+        groups = list(dict.fromkeys(group_of.values()))
+
+        def glabel(g: str) -> str:
+            return f"tier {g[2:]!r}" if g.startswith("t:") else self.nodes[g[2:]].label
+
+        # 4a. total flow per direction between groups
+        gflow: dict[tuple[str, str], float] = {}
+        for e in self.edges:
+            ga, gb = group_of[e.from_id], group_of[e.to_id]
+            if ga == gb:
+                continue
+            gflow[(ga, gb)] = gflow.get((ga, gb), 0.0) + e.bps
+
+        # 4b. both directions present between two groups = a cycle. Majority
+        # vote by flow: the smaller direction is drawn as backflow and excluded
+        # from column layout, so tiers are never abandoned. Ties keep the
+        # first-seen group upstream (deterministic).
+        dropped: set[tuple[str, str]] = set()
+        for k in list(gflow):
+            rk = (k[1], k[0])
+            if rk not in gflow or k in dropped or rk in dropped:
+                continue
+            loser = k
+            if gflow[k] > gflow[rk] or (
+                    gflow[k] == gflow[rk] and groups.index(k[0]) < groups.index(k[1])):
+                loser = rk
+            dropped.add(loser)
+            winner = (loser[1], loser[0])
+            self.warnings.append(
+                f"{glabel(loser[0])} -> {glabel(loser[1])} goes against the majority "
+                f"flow ({fmt_bps(gflow[loser])} vs {fmt_bps(gflow[winner])}); "
+                "drawn as backflow, excluded from column layout")
+
+        # 4c. majority vote is pairwise; a cycle through 3+ groups may remain.
+        # Only edges inside a strongly connected component of size > 1 are
+        # really on a cycle (Kahn leftovers would also net everything
+        # downstream of the cycle); greedily drop the smallest-flow one.
+        def scc_of(live: list[tuple[str, str]]) -> tuple[dict[str, int], list[int]]:
+            adj: dict[str, list[str]] = {g: [] for g in groups}
+            radj: dict[str, list[str]] = {g: [] for g in groups}
+            for ga, gb in live:
+                adj[ga].append(gb)
+                radj[gb].append(ga)
+            seen: set[str] = set()
+            post: list[str] = []
+
+            def dfs(g: str) -> None:
+                seen.add(g)
+                for h in adj[g]:
+                    if h not in seen:
+                        dfs(h)
+                post.append(g)
+
+            for g in groups:
+                if g not in seen:
+                    dfs(g)
+            comp: dict[str, int] = {}
+            size: list[int] = []
+            for s in reversed(post):
+                if s in comp:
+                    continue
+                cur = len(size)
+                size.append(0)
+                stack = [s]
+                while stack:
+                    v = stack.pop()
+                    if v in comp:
+                        continue
+                    comp[v] = cur
+                    size[cur] += 1
+                    stack.extend(w for w in radj[v] if w not in comp)
+            return comp, size
+
+        while True:
+            live = [k for k in gflow if k not in dropped]
+            comp, size = scc_of(live)
+            cyclic = [k for k in live
+                      if comp[k[0]] == comp[k[1]] and size[comp[k[0]]] > 1]
+            if not cyclic:
+                break
+            victim = min(cyclic, key=lambda k: gflow[k])
+            dropped.add(victim)
+            self.warnings.append(
+                "group graph still cyclic; dropping its smallest-flow edge "
+                f"{glabel(victim[0])} -> {glabel(victim[1])} ({fmt_bps(gflow[victim])}); "
+                "drawn as backflow")
+
+        # 4d. longest path on the now-acyclic group graph
+        for e in self.edges:
+            ga, gb = group_of[e.from_id], group_of[e.to_id]
+            e.dropped = ga != gb and (ga, gb) in dropped
+        gcol = {g: 0 for g in groups}
+        for _ in range(len(groups) + 2):
             moved = False
             for e in self.edges:
+                if e.dropped:
+                    continue
                 ga, gb = group_of[e.from_id], group_of[e.to_id]
                 if ga == gb:
                     continue
@@ -276,28 +371,17 @@ class Trace:
                     gcol[gb] = gcol[ga] + 1
                     moved = True
             if not moved:
-                for i, n in self.nodes.items():
-                    n.col = gcol[group_of[i]]
                 break
         else:
-            self.warnings.append("tier grouping made the topology cyclic; "
-                                 "ignoring tiers and using plain longest-path columns")
-            for _ in range(len(self.order) + 2):
-                moved = False
-                for e in self.edges:
-                    a, b = self.nodes[e.from_id], self.nodes[e.to_id]
-                    if b.col < a.col + 1:
-                        b.col = a.col + 1
-                        moved = True
-                if not moved:
-                    break
-            else:
-                self.warnings.append("topology looks cyclic; column order may be off")
+            self.warnings.append("topology looks cyclic; column order may be off")
+        for i, n in self.nodes.items():
+            n.col = gcol[group_of[i]]
         low = min(n.col for n in self.nodes.values())
         for n in self.nodes.values():
             n.col -= low
         for e in self.edges:
             e.lateral = self.nodes[e.from_id].col == self.nodes[e.to_id].col
+            e.backward = self.nodes[e.from_id].col > self.nodes[e.to_id].col
         self._tier_sub_order()
 
     # Topological order inside each tier group, so the attribution sweep visits
@@ -363,9 +447,37 @@ class Trace:
 
     # -- 6. attribution back to the investigated counter --------------------- #
     def _attribute(self) -> None:
+        # Sweep in topological order of the DAG left after cycle-breaking:
+        # backflow (dropped) edges are excluded, so the flow they carry is not
+        # re-distributed downstream (that would amplify around the cycle).
+        indeg = {i: 0 for i in self.nodes}
+        adj: dict[str, list[str]] = {i: [] for i in self.nodes}
+        for e in self.edges:
+            if e.dropped:
+                continue
+            adj[e.from_id].append(e.to_id)
+            indeg[e.to_id] += 1
+
+        def key(i: str) -> tuple[int, int]:
+            return (self.nodes[i].col, self.nodes[i].sub_order)
+
+        ready = sorted((i for i in self.nodes if indeg[i] == 0), key=key)
+        topo: list[str] = []
+        while ready:
+            cur = ready.pop(0)
+            topo.append(cur)
+            for m in adj[cur]:
+                indeg[m] -= 1
+                if indeg[m] == 0:
+                    ready.append(m)
+            ready.sort(key=key)   # ties keep the old (col, sub_order) order
+        if len(topo) < len(self.nodes):   # intra-tier cycle; warned already
+            seen = set(topo)
+            topo += sorted((i for i in self.nodes if i not in seen), key=key)
+        topo_idx = {i: k for k, i in enumerate(topo)}
+
         self.anchor_edge.attr = float(self.inv["deltaBps"])
-        ids = sorted(self.nodes, key=lambda i: (self.nodes[i].col, self.nodes[i].sub_order))
-        seq = ids if self.dir == "destination" else list(reversed(ids))
+        seq = topo if self.dir == "destination" else list(reversed(topo))
         for i in seq:
             n = self.nodes[i]
             if n.kind != "node":
@@ -384,6 +496,12 @@ class Trace:
                 n.attr_in = got * (n.traced_in / denom) if denom > 0 else 0.0
                 for e in n.in_edges:
                     e.attr = got * (e.bps / denom) if denom > 0 else 0.0
+        lost = sum(e.attr for e in self.edges
+                   if (e.dropped or e.backward) and topo_idx[e.from_id] > topo_idx[e.to_id])
+        if lost > 1:
+            self.warnings.append(
+                f"backflow carries {fmt_bps(lost)} of attributable traffic back "
+                "upstream; not re-distributed to avoid amplifying around the cycle")
 
     # -- helpers ------------------------------------------------------------- #
     def hop_nodes(self) -> list[Node]:
@@ -434,6 +552,8 @@ def report(t: Trace) -> str:
                 note = "  [STOP: not followed further]"
             elif peer.kind == "anchor":
                 note = "  [investigated counter]"
+            if e.backward:
+                note += "  [backflow]"
             ns = f" ns/{peer.namespace}" if peer.namespace else ""
             L.append(f"      -> {e.from_iface:<14} {fmt_bps(e.bps):>12}  to {peer.label}{ns}{note}")
         if n.other_out > 0:
@@ -482,6 +602,10 @@ def mermaid_sankey(t: Trace) -> str:
         v = gbps(e.bps)
         if v <= 0:
             continue
+        if e.backward:   # sankey-beta cannot draw cycles
+            L.append(f"%% backflow skipped: {_name(t, t.nodes[e.from_id])}"
+                     f" -> {_name(t, t.nodes[e.to_id])}, {v}")
+            continue
         L.append(f"{_q(_name(t, t.nodes[e.from_id]))},{_q(_name(t, t.nodes[e.to_id]))},{v}")
     for n in t.hop_nodes():
         if n.other_in > 0:
@@ -511,6 +635,8 @@ def mermaid_flow(t: Trace) -> str:
     for e in t.edges:
         a, b = t.nodes[e.from_id], t.nodes[e.to_id]
         lbl = f'{e.from_iface or "?"} -> {e.to_iface or "?"}<br/>{fmt_bps(e.bps)}'
+        if e.backward:
+            lbl += "<br/>(backflow)"
         arrow = f'-. "{lbl}" .->' if b.kind == "leaf" else f'-- "{lbl}" -->'
         L.append(f"  {nid(a.id)} {arrow} {nid(b.id)}")
     for n in t.hop_nodes():

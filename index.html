@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Switch Interface Increment 追查 Sankey</title>
-<link rel="stylesheet" href="assets/css/app.css">
+<!-- ?v= 是給快取用的：改完 js/css 就把版本號 +1，瀏覽器才不會拿舊的
+     （make serve 已經送 no-store，但 file:// 直接開沒有 header 可送） -->
+<link rel="stylesheet" href="assets/css/app.css?v=2">
 </head>
 <body>
 <header class="topbar">
@@ -111,7 +113,7 @@
       <ul>
         <li>同 <code>tier</code> 的機器<b>鎖在同一欄</b>；欄位順序照舊由拓樸自動推（整群視為一個節點跑最長路徑，tier 內部的邊不參與排欄）。沒標的 hop 完全照舊。</li>
         <li>tier 內部的邊畫成<b>欄右側的弧帶</b>：往右凸再折回，厚度與青帶共用同一把比例尺。守恆、可歸因量都照常經過這些邊。</li>
-        <li>tier 標到讓群組之間繞成環（甲群 → 乙 → 甲群）時會警告並忽略 tier 退回最長路徑；tier <b>內部</b>有環（a→b→a）時環上的量無法完整歸因，也會警告。</li>
+        <li>群組之間繞成環（甲群 → 乙 → 甲群）也<b>不會放棄 tier</b>：兩群之間看哪個方向總流量大，以多數方向排欄；逆向的邊畫成<b>玫瑰色回流帶</b>——只跨一欄的回流直接反向畫在兩欄之間的走廊裡（跟一般帶一樣短），跨兩欄以上的才繞經圖底外圍。回流帶分到的可歸因量不再往下攤（避免繞環放大），數量列在警告裡。tier <b>內部</b>有環（a→b→a）時環上的量無法完整歸因，也會警告。</li>
       </ul>
       <p>每層只跟前 N 名或佔比 ≥ 門檻（預設前 3 名 / ≥ 10%）時：</p>
       <ul>
@@ -162,11 +164,11 @@ python3 tools/trace_sankey.py trace.json --plotly out.html</pre>
   <noscript class="noscript">JS 沒載入時，範例與分頁還是能切（都是真的連結）；開檔、拖放、JSON 編輯器需要 JS。</noscript>
 </footer>
 
-<script src="assets/js/samples.js"></script>
-<script src="assets/js/model.js"></script>
-<script src="assets/js/render.js"></script>
-<script src="assets/js/zoom.js"></script>
-<script src="assets/js/exports.js"></script>
-<script src="assets/js/app.js"></script>
+<script src="assets/js/samples.js?v=2"></script>
+<script src="assets/js/model.js?v=2"></script>
+<script src="assets/js/render.js?v=2"></script>
+<script src="assets/js/zoom.js?v=2"></script>
+<script src="assets/js/exports.js?v=2"></script>
+<script src="assets/js/app.js?v=2"></script>
 </body>
 </html>

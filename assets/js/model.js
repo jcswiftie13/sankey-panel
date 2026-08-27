@@ -193,33 +193,109 @@
       groupOf[id] = g;
       if (groupIds.indexOf(g) < 0) groupIds.push(g);
     });
+    /* 5a. 聚合群組間每個方向的總流量 */
+    var gflow = {};
+    edges.forEach(function (e) {
+      var ga = groupOf[e.fromId], gb = groupOf[e.toId];
+      if (ga === gb) return;
+      var k = ga + '\u0000' + gb;
+      gflow[k] = (gflow[k] || 0) + e.bps;
+    });
+    function groupLabel(g) {
+      return g.charAt(0) === 't' ? 'tier「' + g.slice(2) + '」' : nodes[g.slice(2)].label;
+    }
+
+    /* 5b. 兩群之間雙向都有流量＝繞成環。流量多數決：總量小的方向整組退出排欄，
+       畫成回流帶——tier 永遠鎖同一欄，不再整個放棄。平手時保留先出現的群當上游。 */
+    var gdropped = {};
+    Object.keys(gflow).forEach(function (k) {
+      var p = k.split('\u0000'), rk = p[1] + '\u0000' + p[0];
+      if (gflow[rk] == null || gdropped[k] || gdropped[rk]) return;
+      var loser = k;
+      if (gflow[k] > gflow[rk] ||
+          (gflow[k] === gflow[rk] && groupIds.indexOf(p[0]) < groupIds.indexOf(p[1]))) {
+        loser = rk;
+      }
+      gdropped[loser] = true;
+      var lp = loser.split('\u0000');
+      warnings.push(groupLabel(lp[0]) + ' → ' + groupLabel(lp[1]) + ' 逆著多數流量方向（' +
+        fmtBps(gflow[loser]) + '，對向 ' + fmtBps(gflow[lp[1] + '\u0000' + lp[0]]) +
+        '），畫成回流帶，不參與排欄。');
+    });
+
+    /* 5c. 多數決只看成對的兩群，繞經三群以上的環可能還在：
+       反覆移除環上（SCC 內）總流量最小的群組邊，每輪至少移一條，必然終止。 */
+    function sccOf(live) {
+      var adj = {}, radj = {};
+      groupIds.forEach(function (g) { adj[g] = []; radj[g] = []; });
+      live.forEach(function (k) {
+        var p = k.split('\u0000');
+        adj[p[0]].push(p[1]); radj[p[1]].push(p[0]);
+      });
+      var seen = {}, post = [];
+      groupIds.forEach(function dfs(g) {
+        if (seen[g]) return;
+        seen[g] = true;
+        adj[g].forEach(dfs);
+        post.push(g);
+      });
+      var id = {}, size = [];
+      for (var i = post.length - 1; i >= 0; i--) {
+        if (id[post[i]] != null) continue;
+        var cur = size.length;
+        size.push(0);
+        var stack = [post[i]];
+        while (stack.length) {
+          var v = stack.pop();
+          if (id[v] != null) continue;
+          id[v] = cur; size[cur]++;
+          radj[v].forEach(function (w) { if (id[w] == null) stack.push(w); });
+        }
+      }
+      return { id: id, size: size };
+    }
+    for (;;) {
+      var live = Object.keys(gflow).filter(function (k) { return !gdropped[k]; });
+      /* 兩端同屬一個大小 >1 的強連通分量（SCC）的邊才真的在環上——
+         光看 Kahn 排不進誰會把環的「下游」也圈進來，誤刪無辜的邊 */
+      var scc = sccOf(live);
+      var victim = null;
+      live.forEach(function (k) {
+        var p = k.split('\u0000');
+        if (scc.id[p[0]] === scc.id[p[1]] && scc.size[scc.id[p[0]]] > 1 &&
+            (victim == null || gflow[k] < gflow[victim])) victim = k;
+      });
+      if (victim == null) break;
+      gdropped[victim] = true;
+      var vp = victim.split('\u0000');
+      warnings.push('群組間仍繞成環，移除其中流量最小的 ' + groupLabel(vp[0]) + ' → ' +
+        groupLabel(vp[1]) + '（' + fmtBps(gflow[victim]) + '）破環，該方向畫成回流帶。');
+    }
+
+    /* 5d. 標記退出排欄的邊，在破環後的群組 DAG 上跑最長路徑（保證收斂） */
+    edges.forEach(function (e) {
+      var ga = groupOf[e.fromId], gb = groupOf[e.toId];
+      e.dropped = ga !== gb && !!gdropped[ga + '\u0000' + gb];
+    });
     var gcol = {};
     groupIds.forEach(function (g) { gcol[g] = 0; });
-    var converged = false;
     for (var gpass = 0; gpass < groupIds.length + 2; gpass++) {
       var gmoved = false;
       edges.forEach(function (e) {
+        if (e.dropped) return;
         var ga = groupOf[e.fromId], gb = groupOf[e.toId];
         if (ga === gb) return;
         if (gcol[gb] < gcol[ga] + 1) { gcol[gb] = gcol[ga] + 1; gmoved = true; }
       });
-      if (!gmoved) { converged = true; break; }
+      if (!gmoved) break;
     }
-    if (converged) {
-      ids.forEach(function (id) { nodes[id].col = gcol[groupOf[id]]; });
-    } else {
-      warnings.push('tier 分組後拓樸有環，忽略 tier 改用最長路徑排欄。');
-      ids.forEach(function (id) { nodes[id].col = 0; });
-      for (var pass = 0; pass < ids.length + 2; pass++) {
-        var moved = false;
-        edges.forEach(function (e) {
-          var a = nodes[e.fromId], b = nodes[e.toId];
-          if (b.col < a.col + 1) { b.col = a.col + 1; moved = true; }
-        });
-        if (!moved) break;
-      }
-      if (pass >= ids.length + 2) warnings.push('拓樸疑似有環，欄位順序可能不準。');
-    }
+    if (gpass >= groupIds.length + 2) warnings.push('拓樸疑似有環，欄位順序可能不準。');
+    ids.forEach(function (id) { nodes[id].col = gcol[groupOf[id]]; });
+
+    /* 5e. 排完欄仍逆向（col 遞減）的邊畫成回流帶 */
+    edges.forEach(function (e) {
+      e.backward = nodes[e.fromId].col > nodes[e.toId].col;
+    });
 
     /* 5b. 同欄的邊＝tier 內的橫向互連，render 畫成右側弧帶 */
     edges.forEach(function (e) {
@@ -284,14 +360,36 @@
       n.resEps = eps;        /* 圖上小於這個值的殘差不畫，見 render.js 的 resIn/resOut */
     });
 
-    /* 7. 可歸因量：從追查起點往下（或往回）依比例分配 */
-    var byCol = ids.slice().sort(function (a, b) {
-      return (nodes[a].col - nodes[b].col) || (nodes[a].subOrder - nodes[b].subOrder);
+    /* 7. 可歸因量：從追查起點往下（或往回）依比例分配。
+       遍歷順序用「破環後 DAG 的拓樸序」而不是單純的 (col, subOrder)：
+       回流帶（dropped）的邊不進拓樸序，它分到的量不再往下攤，避免循環放大。 */
+    var indegN = {}, adjN = {};
+    ids.forEach(function (id) { indegN[id] = 0; adjN[id] = []; });
+    edges.forEach(function (e) {
+      if (e.dropped) return;
+      adjN[e.fromId].push(e.toId); indegN[e.toId]++;
     });
+    function byColSub(a, b) {
+      return (nodes[a].col - nodes[b].col) || (nodes[a].subOrder - nodes[b].subOrder);
+    }
+    var topo = [], inTopo = {};
+    var ready = ids.filter(function (id) { return indegN[id] === 0; }).sort(byColSub);
+    while (ready.length) {
+      var tcur = ready.shift();
+      topo.push(tcur); inTopo[tcur] = true;
+      adjN[tcur].forEach(function (m) { if (--indegN[m] === 0) ready.push(m); });
+      ready.sort(byColSub);   /* 平手時維持與舊版一致的 (col, subOrder) 順序 */
+    }
+    if (topo.length < ids.length) {   /* tier 內部有環時排不完，5c 已有 warning */
+      topo = topo.concat(ids.filter(function (id) { return !inTopo[id]; }).sort(byColSub));
+    }
+    var topoIdx = {};
+    topo.forEach(function (id, i) { topoIdx[id] = i; });
+
     edges.forEach(function (e) { e.attr = 0; });
     if (dir === 'destination') {
       anchorEdge.attr = inv.deltaBps;
-      byCol.forEach(function (id) {
+      topo.forEach(function (id) {
         var n = nodes[id];
         if (n.kind !== 'node') return;
         var inAttr = n.inEdges.reduce(function (s, e) { return s + e.attr; }, 0);
@@ -304,7 +402,7 @@
       });
     } else {
       anchorEdge.attr = inv.deltaBps;
-      byCol.slice().reverse().forEach(function (id) {
+      topo.slice().reverse().forEach(function (id) {
         var n = nodes[id];
         if (n.kind !== 'node') return;
         var outAttr = n.outEdges.reduce(function (s, e) { return s + e.attr; }, 0);
@@ -316,6 +414,16 @@
         });
       });
     }
+    /* 接收端在拓樸序上比來源端早的邊（回流帶），分到的量已無法再往下攤 */
+    var lostAttr = 0;
+    edges.forEach(function (e) {
+      if ((e.dropped || e.backward) && topoIdx[e.fromId] > topoIdx[e.toId]) lostAttr += e.attr;
+    });
+    if (lostAttr > 1) {
+      warnings.push('回流帶累計 ' + fmtBps(lostAttr) +
+        ' 的可歸因量流回上游，為避免循環放大不再往下攤分，僅顯示在回流帶上。');
+    }
+
     ids.forEach(function (id) {
       var n = nodes[id];
       if (n.kind === 'leaf') {
