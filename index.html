@@ -73,8 +73,8 @@
       <div class="contract-body">
         <p><b>必要</b>：<code>investigation</code>（<code>switchId</code>、<code>iface</code>、<code>direction</code>、<code>deltaBps</code>）、<code>hops</code>（非空，每筆有 <code>switchId</code>）。</p>
         <p><b>選填</b>：<code>kind</code>（<code>destination</code> / <code>source</code>）、<code>pruning.topN</code>、<code>pruning.minShare</code>。</p>
-        <p><b>hop</b>：<code>label</code>、<code>role</code>（<code>switch</code> / <code>node</code> / <code>pod</code>）、<code>tier</code>（非空字串；同 tier 的 hop 鎖同一欄，彼此之間的邊畫成右側弧帶）、<code>otherInBps</code>、<code>otherOutBps</code>。追終點用 <code>outputs</code>；追來源用 <code>inputs</code>。</p>
-        <p><b>port</b>：<code>iface</code>、<code>deltaBps</code>、<code>peerKind</code>、<code>peerId</code> / <code>peerSwitchId</code>、<code>peerIface</code>、<code>namespace</code>。</p>
+        <p><b>hop</b>：<code>label</code>、<code>role</code>（自由字串；繪製只認 <code>node</code> 虛線盒與 <code>pod</code>，其他值畫一般 switch）、<code>namespace</code>（role 為 pod 的中繼 hop 標 ns）、<code>tier</code>（非空字串；同 tier 的 hop 鎖同一欄，彼此之間的邊畫成右側弧帶）、<code>otherInBps</code>、<code>otherOutBps</code>。追終點用 <code>outputs</code>；追來源用 <code>inputs</code>。</p>
+        <p><b>port</b>：<code>iface</code>（switch hop 必填；<code>role:"node"|"pod"</code> 的 hop 可省略，但要給 <code>peerSwitchId</code> 或 <code>peerId</code>）、<code>deltaBps</code>、<code>peerKind</code>（自由字串註記，唯一有語意的值是 <code>pod</code>）、<code>peerId</code> / <code>peerSwitchId</code>、<code>peerIface</code>、<code>namespace</code>（有給就顯示；同 ns 的 pod 葉相鄰排列共用色條）。</p>
       </div>
     </details>
   </section>
@@ -131,7 +131,8 @@
         <li>小於該台自己讀數誤差（已知 in 與已追查 out 取大者的 0.5% ＋ 1 bps）的殘差不畫，免得浮點雜訊長出一塊。圖、hop 摘要、Mermaid 同一個門檻。</li>
         <li>盒子裡<b>只畫已追查 port</b>。殘差不用斜線填滿整台 switch，免得看起來像另一台機器。</li>
         <li><b>追查終止葉節點</b>：灰色虛線小卡，寫「追查終止」「未再往下追」加 iface 與帶寬。不是又一台 switch。</li>
-        <li><b>k8s</b>：同一條 Sankey 接下去，switch → node（虛線盒）→ pod（葉，標 namespace/name）。node 用同一套截斷，沒跟的 pod 併成該 node 的其他輸出。不一開始把上百個 pod 畫成細帶。</li>
+        <li><b>k8s</b>：同一條 Sankey 接下去，switch → node（天藍虛線盒）→ pod（天藍虛線葉卡）。k8s 內部沒有 switch interface，node/pod hop 的 port 可省略 <code>iface</code>。每層都是選填：node 可以當葉（沒列 pod 就整台併成其他輸出）、pod 可以沒 namespace。node 用同一套截斷。不一開始把上百個 pod 畫成細帶。</li>
+        <li><b>namespace 不是節點</b>：流量「經過」node 到 pod，pod「屬於」ns——ns 不是流量路徑上的實體，不畫成盒子、不加假流量邊。同 ns 的 pod 在欄內<b>相鄰排列</b>、左緣掛同色 ns 色條（色盤依首次出現順序循環），彙總數字在圖下方的「namespace 流量小計」表。</li>
         <li>hop 數字摘要放圖下方，是圖外資訊，不是盒子內標籤。</li>
       </ul>
       <h3>5. 平衡 Sankey 怎麼讀</h3>
@@ -164,11 +165,11 @@ python3 tools/trace_sankey.py trace.json --plotly out.html</pre>
   <noscript class="noscript">JS 沒載入時，範例與分頁還是能切（都是真的連結）；開檔、拖放、JSON 編輯器需要 JS。</noscript>
 </footer>
 
-<script src="assets/js/samples.js?v=2"></script>
-<script src="assets/js/model.js?v=2"></script>
-<script src="assets/js/render.js?v=2"></script>
+<script src="assets/js/samples.js?v=3"></script>
+<script src="assets/js/model.js?v=3"></script>
+<script src="assets/js/render.js?v=3"></script>
 <script src="assets/js/zoom.js?v=2"></script>
-<script src="assets/js/exports.js?v=2"></script>
-<script src="assets/js/app.js?v=2"></script>
+<script src="assets/js/exports.js?v=3"></script>
+<script src="assets/js/app.js?v=3"></script>
 </body>
 </html>

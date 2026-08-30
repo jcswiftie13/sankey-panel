@@ -49,19 +49,42 @@
         if (h.tier != null && (typeof h.tier !== 'string' || !h.tier)) {
           errs.push('hops[' + i + '].tier 必須是非空字串。');
         }
+        /* role 是自由字串（samples 拿 core/border 等當註記），只驗型別不驗列舉；
+           繪製只認 node 與 pod，其他值畫成一般 switch 盒。 */
+        ['role', 'namespace'].forEach(function (k) {
+          if (h[k] != null && (typeof h[k] !== 'string' || !h[k])) {
+            errs.push('hops[' + i + '].' + k + ' 必須是非空字串。');
+          }
+        });
         /* 負的殘差會讓 thick() 算出負高度，SVG 直接破圖：擋在驗證這一關 */
         ['otherInBps', 'otherOutBps'].forEach(function (k) {
           if (h[k] != null && (!num(h[k]) || h[k] < 0)) {
             errs.push('hops[' + i + '].' + k + ' 必須是非負數（bps）。');
           }
         });
+        /* k8s node/pod 內部沒有 switch interface：這兩種 hop 的 port 允許省略 iface。
+           用 hop 的 role 判定而不是 port 的 peerKind——這個約束屬於設備型別，
+           switch 上就算接的是 pod 也一定有自己的 iface，照 peerKind 豁免會漏。 */
+        var ifaceOpt = h.role === 'node' || h.role === 'pod';
         ['outputs', 'inputs'].forEach(function (k) {
           if (h[k] == null) return;
           if (!Array.isArray(h[k])) { errs.push('hops[' + i + '].' + k + ' 必須是陣列。'); return; }
           h[k].forEach(function (p, j) {
             if (!p || typeof p !== 'object') { errs.push('hops[' + i + '].' + k + '[' + j + '] 不是物件。'); return; }
-            if (!p.iface) errs.push('hops[' + i + '].' + k + '[' + j + '].iface 必填。');
+            if (!p.iface) {
+              if (!ifaceOpt) {
+                errs.push('hops[' + i + '].' + k + '[' + j + '].iface 必填。');
+              } else if (!p.peerSwitchId && !p.peerId) {
+                /* 沒 iface 又沒 peer，合併鍵與葉標籤都沒著落 */
+                errs.push('hops[' + i + '].' + k + '[' + j + '] 省略 iface 時必須給 peerSwitchId 或 peerId。');
+              }
+            }
             if (!num(p.deltaBps) || p.deltaBps < 0) errs.push('hops[' + i + '].' + k + '[' + j + '].deltaBps 必須是非負數。');
+            ['peerKind', 'namespace'].forEach(function (f) {
+              if (p[f] != null && (typeof p[f] !== 'string' || !p[f])) {
+                errs.push('hops[' + i + '].' + k + '[' + j + '].' + f + ' 必須是非空字串。');
+              }
+            });
           });
         });
       });
@@ -93,7 +116,7 @@
       if (!n) {
         n = nodes[h.switchId] = {
           id: h.switchId, label: h.label || h.switchId, role: h.role || 'switch',
-          kind: 'node', hopCount: 0, tier: null,
+          kind: 'node', hopCount: 0, tier: null, namespace: null,
           portsOut: {}, portsIn: {}, otherInBps: null, otherOutBps: null,
           inEdges: [], outEdges: [], col: 0
         };
@@ -102,6 +125,7 @@
       n.hopCount++;
       if (h.label) n.label = h.label;
       if (h.role) n.role = h.role;
+      if (h.namespace) n.namespace = h.namespace;   /* pod 列進 hops 當中繼時標 ns */
       if (h.tier) {
         if (n.tier == null) n.tier = h.tier;
         else if (n.tier !== h.tier) {
@@ -115,14 +139,24 @@
       var side = dir === 'destination' ? 'outputs' : 'inputs';
       var bag = dir === 'destination' ? n.portsOut : n.portsIn;
       (h[side] || []).forEach(function (p) {
-        var key = p.iface + '|' + (p.peerSwitchId || p.peerId || '');
+        /* iface 在 k8s hop 上可省略（驗證保證此時必有 peer），空字串照樣組鍵：
+           同 peer 才會合併，不同 peer 不會撞 */
+        var key = (p.iface || '') + '|' + (p.peerSwitchId || p.peerId || '');
         var cur = bag[key];
         if (!cur) {
           cur = bag[key] = {
-            iface: p.iface, deltaBps: 0, peerKind: p.peerKind || null,
+            iface: p.iface || '', deltaBps: 0, peerKind: p.peerKind || null,
             peerId: p.peerId || null, peerSwitchId: p.peerSwitchId || null,
             peerIface: p.peerIface || null, namespace: p.namespace || null
           };
+        } else {
+          /* 同一個 port 拆在多個 hop 寫時只累加流量；標註欄位採先到值，不同就明講 */
+          ['peerKind', 'namespace'].forEach(function (f) {
+            if (cur[f] && p[f] && cur[f] !== p[f]) {
+              warnings.push(n.label + ' 的 port「' + (cur.iface || key) + '」在不同 hop 給了不同 ' +
+                f + '（' + cur[f] + '、' + p[f] + '），採用先出現的 ' + cur[f] + '。');
+            }
+          });
         }
         cur.deltaBps += p.deltaBps;
       });
@@ -141,12 +175,19 @@
         var p = bag[k];
         var peerKey = p.peerSwitchId || p.peerId;
         var peerNode = peerKey && nodes[peerKey] ? nodes[peerKey] : null;
+        /* namespace 標在盒上只有葉卡與 hop 級 ns 兩條路；對端接進 hops 後
+           port 上的標註只剩帶的 tooltip 看得到 */
+        if (peerNode && p.namespace) {
+          warnings.push(n.label + ' 的 port「' + (p.iface || peerKey) + '」標了 namespace「' + p.namespace +
+            '」，但對端 ' + peerNode.label + ' 已是 hop，這個標註只會出現在帶的 tooltip、不會標在盒上；' +
+            '請改標在該 hop 上。');
+        }
         var e;
         if (dir === 'destination') {
           if (peerNode) {
             e = mkEdge(n, peerNode, p.iface, p.peerIface || '', p);
           } else {
-            var leaf = mkLeaf(p, 'leaf-' + (++leafSeq), dir);
+            var leaf = mkLeaf(p, 'leaf-' + (++leafSeq));
             nodes[leaf.id] = leaf; order.push(leaf.id);
             e = mkEdge(n, leaf, p.iface, p.peerIface || '', p);
           }
@@ -154,7 +195,7 @@
           if (peerNode) {
             e = mkEdge(peerNode, n, p.peerIface || '', p.iface, p);
           } else {
-            var leaf2 = mkLeaf(p, 'leaf-' + (++leafSeq), dir);
+            var leaf2 = mkLeaf(p, 'leaf-' + (++leafSeq));
             nodes[leaf2.id] = leaf2; order.push(leaf2.id);
             e = mkEdge(leaf2, n, p.peerIface || '', p.iface, p);
           }
@@ -400,11 +441,11 @@
         bps: p.deltaBps, peerKind: p.peerKind || null, namespace: p.namespace || null
       };
     }
-    function mkLeaf(p, id, d) {
+    function mkLeaf(p, id) {
       return {
         id: id, kind: 'leaf', role: p.peerKind === 'pod' ? 'pod' : 'leaf',
-        label: p.peerId || p.peerSwitchId || (d === 'destination' ? p.iface : p.iface),
-        iface: p.peerIface || p.iface, localIface: p.iface,
+        label: p.peerId || p.peerSwitchId || p.iface || '(未命名)',
+        iface: p.peerIface || p.iface || '', localIface: p.iface || '',
         peerKind: p.peerKind || null, namespace: p.namespace || null,
         inEdges: [], outEdges: [], col: 0
       };

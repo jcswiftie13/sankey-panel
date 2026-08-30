@@ -1,0 +1,71 @@
+{
+  "kind": "source",
+  "investigation": {
+    "switchId": "sw-tor-k8s",
+    "iface": "et-0/0/48",
+    "direction": "out",
+    "deltaBps": 18000000000,
+    "note": "ToR uplink 出量 +18G，追是哪些 pod 打出來的"
+  },
+  "hops": [
+    {
+      "switchId": "sw-tor-k8s",
+      "label": "ToR k8s",
+      "role": "switch",
+      "inputs": [
+        {
+          "iface": "xe-0/0/21",
+          "deltaBps": 12000000000,
+          "peerKind": "node",
+          "peerSwitchId": "node-w-21",
+          "peerIface": "bond0"
+        },
+        {
+          "iface": "xe-0/0/22",
+          "deltaBps": 6000000000,
+          "peerKind": "node",
+          "peerSwitchId": "node-w-22",
+          "peerIface": "bond0"
+        }
+      ]
+    },
+    {
+      "switchId": "node-w-21",
+      "label": "node-w-21",
+      "role": "node",
+      "inputs": [
+        {
+          "deltaBps": 7000000000,
+          "peerKind": "pod",
+          "peerId": "web-6f8d",
+          "namespace": "frontend"
+        },
+        {
+          "deltaBps": 3000000000,
+          "peerKind": "pod",
+          "peerId": "cache-1",
+          "namespace": "frontend"
+        },
+        {
+          "deltaBps": 2000000000,
+          "peerKind": "pod",
+          "peerId": "batch-9k"
+        }
+      ]
+    },
+    {
+      "switchId": "node-w-22",
+      "label": "node-w-22",
+      "role": "node",
+      "inputs": [
+        {
+          "iface": "veth71aa",
+          "deltaBps": 6000000000,
+          "peerKind": "pod",
+          "peerId": "job-runner-5c",
+          "namespace": "batch"
+        }
+      ]
+    }
+  ]
+}

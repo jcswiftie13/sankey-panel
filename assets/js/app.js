@@ -187,6 +187,7 @@
           '<div class="t-row"><span>出口 iface</span><span>' + R.esc(d.fi || '—') + '</span></div>' +
           '<div class="t-row"><span>入口 iface</span><span>' + R.esc(d.ti || '—') + '</span></div>' +
           '<div class="t-row"><span>速率增量 Δ</span><span>' + M.fmtDelta(d.bps) + '</span></div>' +
+          (d.ns ? '<div class="t-row"><span>namespace</span><span>ns/' + R.esc(d.ns) + '</span></div>' : '') +
           (d.anchor ? '<div class="t-row"><span>這條是追查起點</span><span></span></div>' : '') +
           (d.backward ? '<div class="t-row"><span>回流（逆著多數流量方向）</span><span></span></div>' : '');
         tip.hidden = false;

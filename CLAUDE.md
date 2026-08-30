@@ -51,7 +51,7 @@ repo 名 `sankey-panel` 只是倉庫名）。使用情境：你在某台 switch 
 ```
 index.html            單頁應用：版面 + 五個分頁（圖 / JSON / Mermaid Sankey / Mermaid Flowchart / 畫法說明）
 assets/css/app.css    全部樣式：CSS 變數色票、SVG text class、hover 高亮、圖例、響應式
-assets/js/samples.js  8 個內建範例（純資料；最後一個 dci-uturn 是 IIFE 程式化產生）
+assets/js/samples.js  9 個內建範例（純資料；最後一個 dci-uturn 是 IIFE 程式化產生）
 assets/js/model.js    JSON 驗證 → 合併 hop → 建邊 → 排欄/破環 → 殘差    → TraceModel
 assets/js/render.js   版面計算 + SVG 字串組裝 + hop 摘要表               → TraceRender
 assets/js/zoom.js     縮放平移（只改 <g class="zoom-layer"> 的 transform）→ TraceZoom
@@ -105,11 +105,15 @@ app.js `draw()` 的重要順序約束：
   "pruning": { "topN": 3, "minShare": 0.1 },// 選填，純註記
   "hops": [{
     "switchId": "...",                      // 必填；同 id 多次出現 → 合併成一個盒子（hopCount++）
-    "label": "...", "role": "switch|node|pod",  // 選填；role:"node" 畫虛線盒（k8s node）、"pod" 是葉
+    "label": "...", "role": "node",         // 選填非空字串；繪製只認 "node"(天藍虛線盒)與 "pod"(中繼 pod)，
+                                            //   其他值（samples 用 core/border 等當註記）畫成一般 switch
+    "namespace": "kube-system",             // 選填非空字串；role:"pod" 的中繼 hop 標所屬 ns
     "tier": "border",                       // 選填非空字串；同 tier 鎖同一欄（見 §6 排欄）
     "otherInBps": 0, "otherOutBps": 0,      // 選填，必須 ≥ 0；不給就由平衡式自動補
-    "outputs": [ /* 追終點模式用 */ ],       // port: iface(必填)、deltaBps(必填≥0)、
-    "inputs":  [ /* 追來源模式用 */ ]        //       peerSwitchId / peerId、peerIface、peerKind、namespace
+    "outputs": [ /* 追終點模式用 */ ],       // port: iface(switch hop 必填；role node/pod 的 hop 可省略，
+    "inputs":  [ /* 追來源模式用 */ ]        //   但要給 peerSwitchId/peerId)、deltaBps(必填≥0)、
+                                            //   peerSwitchId / peerId、peerIface、peerKind(自由字串，
+                                            //   只有 "pod" 有語意→pod 葉)、namespace(有給就顯示)
   }]
 }
 ```
@@ -221,10 +225,14 @@ Mermaid Sankey 輸出會遺失回流量、不守恆，這是已知限制不是 b
 1. **`samples/*.json` 與 `assets/js/samples.js` 是重複維護的同一批資料**：網頁只讀 samples.js，
    CLI/make check 只讀 samples/。改一邊忘了另一邊不會有任何警告。
 2. 顯式給了 `otherInBps` 和 `otherOutBps` 但湊不出平衡式時，圖照顯式值畫、該台不守恆，只警告不擋。
-3. `role` 欄位**沒有被驗證**：render 只認 `'node'`（虛線盒）與 `'pod'`，其他值（samples 實際用了
-   `core`/`border`/`spine`/`tor`）一律當一般 switch 畫。README 說 role 是 switch|node|pod，與實情不符。
-4. 多數決平手時依 hops 陣列出現順序決勝；tier 衝突先到先贏——結果依賴輸入順序（但確定性）。
-5. `model.js` `mkLeaf` 裡有個死三元式：`(d === 'destination' ? p.iface : p.iface)` 兩分支相同。
+3. `role` 是**刻意的自由字串**（只驗「給了就非空字串」）：繪製只認 `'node'` 與 `'pod'`，其他值
+   （samples 實際用了 `core`/`border`/`spine`/`tor` 當註記）一律當一般 switch 畫、不發警告
+   （內建範例自己就會觸發，警告會變噪音）。
+4. 多數決平手時依 hops 陣列出現順序決勝；tier 衝突先到先贏；port 合併時 peerKind/namespace
+   衝突也採先到值（有警告）——結果依賴輸入順序（但確定性）。
+5. **namespace 分組只作用於 pod 葉**（`kind:'leaf' && role:'pod' && namespace`）：render 的
+   欄內排序讓同 ns 相鄰、槽位跟著對端 y 重排；中繼 pod（列進 hops）的 ns 只是盒副標。
+   ns 色盤 5 色依首次出現順序取用、超過循環，同一份 JSON 內顏色穩定、跨檔案不保證。
 6. `colCaption` 用 `col[0].col` 印「第 N 跳」，destination 模式下 anchor 佔 col 0，
    第一台 switch 顯示「第 1 跳」——編號不從 0 開始。
 7. 規模上限：`stress/05-huge.json`（1365 台、5.4 萬個 SVG 元素）滾輪每格約 130ms；
