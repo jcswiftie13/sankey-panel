@@ -117,6 +117,12 @@ def validate(doc: Any) -> list[str]:
             tier = h.get("tier")
             if tier is not None and (not isinstance(tier, str) or not tier):
                 errs.append(f"hops[{i}].tier must be a non-empty string")
+            # explicit negative residuals would flow straight into other_in/other_out
+            # and break conservation; reject them here, mirroring model.js
+            for key in ("otherInBps", "otherOutBps"):
+                v = h.get(key)
+                if v is not None and (not isinstance(v, (int, float)) or v < 0):
+                    errs.append(f"hops[{i}].{key} must be a non-negative number of bps")
             for key in ("outputs", "inputs"):
                 ports = h.get(key)
                 if ports is None:

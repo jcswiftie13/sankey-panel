@@ -19,7 +19,7 @@
 純靜態，沒有 build step，只需要 `python3`。
 
 ```bash
-git clone <repo> && cd sankey-trace
+git clone <repo> && cd sankey-panel
 
 make serve                    # http://127.0.0.1:8765/index.html
 make open                     # 順便開瀏覽器
@@ -56,7 +56,7 @@ index.html?sample=campus&tab=chart
 
 | 參數 | 值 |
 | --- | --- |
-| `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s`（`custom` = 你載入的那份） |
+| `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s` `dci-tier` `dci-uturn`（`custom` = 你載入的那份） |
 | `tab` | `chart` `json` `mermaid-sankey` `mermaid-flow` `notes` |
 
 ## 看圖：縮放與平移
@@ -315,13 +315,16 @@ cat trace.json | python3 tools/trace_sankey.py -           # 吃 stdin
 Makefile                   跑起來與驗證的入口（make help）
 index.html                 版面與五個分頁
 assets/css/app.css
-assets/js/samples.js       六個內建範例（純資料）
+assets/js/samples.js       八個內建範例（純資料）
 assets/js/model.js         驗證、合併 hop、算殘差
 assets/js/render.js        SVG Sankey、等比殘差色塊、終止小卡、hop 摘要
 assets/js/zoom.js          圖的縮放與平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
 assets/js/exports.js       Mermaid sankey-beta / flowchart
 assets/js/app.js           query string、分頁、開檔／拖放、JSON 編輯器、tooltip、
                            縮放按鈕與快捷鍵、圖區高度
-samples/*.json             範例 JSON（CLI 也吃同一份）
+samples/*.json             範例 JSON（CLI 也吃同一份；make check 會全部跑一次）
+stress/                    縮放平移的壓力測試資料與產生器（刻意不放 samples/，
+                           免得 make check 被超大檔拖慢）
+tools/serve.py             開發用 server：送 no-store、不回 304，改完 js/css 不會拿到舊檔
 tools/trace_sankey.py      CLI：文字報告 / Mermaid / plotly
 ```
