@@ -107,13 +107,14 @@ app.js `draw()` 的重要順序約束：
     "switchId": "...",                      // 必填；同 id 多次出現 → 合併成一個盒子（hopCount++）
     "label": "...", "role": "node",         // 選填非空字串；繪製只認 "node"(天藍虛線盒)與 "pod"(中繼 pod)，
                                             //   其他值（samples 用 core/border 等當註記）畫成一般 switch
-    "namespace": "kube-system",             // 選填非空字串；role:"pod" 的中繼 hop 標所屬 ns
+    "namespace": "kube-system",             // role:"pod" 的中繼 hop 必填、其餘選填非空字串
     "tier": "border",                       // 選填非空字串；同 tier 鎖同一欄（見 §6 排欄）
     "otherInBps": 0, "otherOutBps": 0,      // 選填，必須 ≥ 0；不給就由平衡式自動補
     "outputs": [ /* 追終點模式用 */ ],       // port: iface(switch hop 必填；role node/pod 的 hop 可省略，
     "inputs":  [ /* 追來源模式用 */ ]        //   但要給 peerSwitchId/peerId)、deltaBps(必填≥0)、
                                             //   peerSwitchId / peerId、peerIface、peerKind(自由字串，
-                                            //   只有 "pod" 有語意→pod 葉)、namespace(有給就顯示)
+                                            //   只有 "pod" 有語意→pod 中繼卡＋自動匯進 ns 終點)、
+                                            //   namespace(peerKind:"pod" 且對端不在 hops 時必填)
   }]
 }
 ```
@@ -136,6 +137,9 @@ app.js `draw()` 的重要順序約束：
    （衝突只發警告）；`otherInBps/otherOutBps` 累加。
 2. **建邊**：**一律照封包方向左→右**。destination 模式讀 `outputs`、`mkEdge(n, peer)`；
    source 模式讀 `inputs`、`mkEdge(peer, n)`（方向反接，畫布方向不變）。對端不在 hops → `mkLeaf`。
+   **pod 葉再自動接一條到 ns 終點節點**（`nsFor`；`kind:'leaf'`+`role:'ns'`、id `ns-N` 流水號、
+   全圖同 ns 合一個），pod→ns 邊值＝pod 自己的 deltaBps（重新分組非推估）；source 模式反接
+   （ns→pod，ns 落最左）。proxy pod（列進 hops 的 role:"pod"）**不接** ns，接了會重複計量。
 3. **錨卡** `__anchor__`：destination 接 root 左邊、source 接 root 右邊；`anchorEdge.isAnchor = true`。
 4. **掛邊**：`e.id = 'e'+i`，push 進節點的 `outEdges/inEdges`。
 5. **排欄**（最複雜的區塊，5a–5g）：
@@ -230,11 +234,14 @@ Mermaid Sankey 輸出會遺失回流量、不守恆，這是已知限制不是 b
    （內建範例自己就會觸發，警告會變噪音）。
 4. 多數決平手時依 hops 陣列出現順序決勝；tier 衝突先到先贏；port 合併時 peerKind/namespace
    衝突也採先到值（有警告）——結果依賴輸入順序（但確定性）。
-5. **namespace 分組只作用於 pod 葉**（`kind:'leaf' && role:'pod' && namespace`）：render 的
-   欄內排序讓同 ns 相鄰、槽位跟著對端 y 重排；中繼 pod（列進 hops）的 ns 只是盒副標。
-   ns 色盤 5 色依首次出現順序取用、超過循環，同一份 JSON 內顏色穩定、跨檔案不保證。
+5. **ns 分組與 ns 終點只作用於 pod 卡**（`kind:'leaf' && role:'pod'`；validate 保證它必有 ns）：
+   render 的欄內排序讓同 ns 相鄰、槽位跟著對端 y 重排（node 與 ns 終點兩側都重排）；
+   pod 流量自動匯進 `role:'ns'` 的終點節點（見 §6 步驟 2）。中繼 pod（列進 hops）的 ns
+   只是盒副標、不接 ns 終點。ns 色盤 5 色依首次出現順序取用、超過循環，
+   同一份 JSON 內顏色穩定、跨檔案不保證。
 6. `colCaption` 用 `col[0].col` 印「第 N 跳」，destination 模式下 anchor 佔 col 0，
-   第一台 switch 顯示「第 1 跳」——編號不從 0 開始。
+   第一台 switch 顯示「第 1 跳」——編號不從 0 開始。source 模式 ns 終點佔 col 0 時，
+   pod 欄從「第 1 跳」起算——同樣是相對欄號、不是輸入裡的跳數。
 7. 規模上限：`stress/05-huge.json`（1365 台、5.4 萬個 SVG 元素）滾輪每格約 130ms；
    超深樹會把幾千個葉直堆成一欄（viewBox 高 42 萬）。要撐這種量需要視野裁剪（未做）。
 8. `app.js` 以 `setCode('')` 靠 falsy 走清空分支（參數名其實是 `model`），可讀性差但是刻意的現狀。

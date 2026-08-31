@@ -188,9 +188,10 @@
 
     {
       key: 'k8s',
-      name: 'Switch → Node → Pod',
-      desc: '同一條 Sankey 接下去。node 是虛線盒、pod 是葉，同 namespace 的 pod 相鄰排列共用色條。' +
-        'k8s hop 的 port 可省略 iface；node 也能當葉（沒列 pod 就整台補成其他輸出）。',
+      name: 'Switch → Node → Pod → NS',
+      desc: '同一條 Sankey 接下去。node 是虛線盒、pod 是中繼小卡，流量匯進 namespace 終點——' +
+        'telemetry 跨兩台 node 的 pod 合進同一個 ns 節點。k8s hop 的 port 可省略 iface；' +
+        'node 也能當葉（沒列 pod 就整台補成其他輸出）。',
       json: {
         kind: 'destination',
         investigation: { switchId: 'sw-tor-k8s', iface: 'et-0/0/48', direction: 'in', deltaBps: G(30) },
@@ -218,7 +219,7 @@
             switchId: 'node-w-12', label: 'node-w-12', role: 'node',
             outputs: [
               { deltaBps: G(5.5), peerKind: 'pod', peerId: 'ingest-4f11', namespace: 'telemetry' },
-              { deltaBps: G(2.5), peerKind: 'pod', peerId: 'debug-shell' }
+              { deltaBps: G(2.5), peerKind: 'pod', peerId: 'debug-shell', namespace: 'debug' }
             ]
           },
           /* node 當葉：沒列 pod，進來的 5G 由平衡式補成其他輸出 */
@@ -229,8 +230,8 @@
 
     {
       key: 'k8s-source',
-      name: 'Pod → Node → Switch（追來源）',
-      desc: '追來源方向的 k8s：pod 在最左欄，frontend 兩個 pod 相鄰分組；' +
+      name: 'NS → Pod → Node → Switch（追來源）',
+      desc: '追來源方向的 k8s：namespace 終點在最左欄，batch 兩個 pod 跨 node 匯進同一個 ns；' +
         'node-w-21 的 port 全省略 iface。',
       json: {
         kind: 'source',
@@ -251,7 +252,7 @@
             inputs: [
               { deltaBps: G(7), peerKind: 'pod', peerId: 'web-6f8d', namespace: 'frontend' },
               { deltaBps: G(3), peerKind: 'pod', peerId: 'cache-1', namespace: 'frontend' },
-              { deltaBps: G(2), peerKind: 'pod', peerId: 'batch-9k' }
+              { deltaBps: G(2), peerKind: 'pod', peerId: 'batch-9k', namespace: 'batch' }
             ]
           },
           {

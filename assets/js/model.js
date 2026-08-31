@@ -43,6 +43,12 @@
     if (!Array.isArray(doc.hops) || doc.hops.length === 0) {
       errs.push('hops 必須是非空陣列。');
     } else {
+      /* 先掃一遍收集 switchId（鍵加前綴，避開 __proto__ 之類的原型鍵）：
+         peerKind:"pod" 的 namespace 必填規則要看對端會不會接成 hop */
+      var hopIds = {};
+      doc.hops.forEach(function (h) {
+        if (h && typeof h === 'object' && h.switchId) hopIds['k:' + h.switchId] = true;
+      });
       doc.hops.forEach(function (h, i) {
         if (!h || typeof h !== 'object') { errs.push('hops[' + i + '] 不是物件。'); return; }
         if (!h.switchId) errs.push('hops[' + i + '].switchId 必填。');
@@ -56,6 +62,10 @@
             errs.push('hops[' + i + '].' + k + ' 必須是非空字串。');
           }
         });
+        /* pod 一定屬於某個 namespace（ns 是自動推導的終點節點，缺了鏈就斷） */
+        if (h.role === 'pod' && !h.namespace) {
+          errs.push('hops[' + i + '] 的 role 為 "pod" 時 namespace 必填。');
+        }
         /* 負的殘差會讓 thick() 算出負高度，SVG 直接破圖：擋在驗證這一關 */
         ['otherInBps', 'otherOutBps'].forEach(function (k) {
           if (h[k] != null && (!num(h[k]) || h[k] < 0)) {
@@ -85,6 +95,13 @@
                 errs.push('hops[' + i + '].' + k + '[' + j + '].' + f + ' 必須是非空字串。');
               }
             });
+            /* 即將畫成 pod 葉的 port 必須帶 ns。對端接進 hops 的 proxy pod 豁免——
+               那時 ns 該標在該 hop 上，標在 port 上反而觸發「請改標在該 hop」警告 */
+            var pk = p.peerSwitchId || p.peerId;
+            if (p.peerKind === 'pod' && !p.namespace && !(pk && hopIds['k:' + pk])) {
+              errs.push('hops[' + i + '].' + k + '[' + j + '] 的 peerKind 為 "pod" 時 namespace 必填' +
+                '（pod 一定屬於某個 namespace）。');
+            }
           });
         });
       });
@@ -168,6 +185,26 @@
 
     /* 2. 邊：一律照封包方向（左 -> 右） */
     var edges = [], leafSeq = 0;
+    /* namespace 終點節點：每個 pod 葉自動再接一條邊到所屬 ns，全圖同 ns 合一個節點，
+       「這個 ns 總共多少流量」直接在圖上讀。pod→ns 的值就是 pod 自己的量測 deltaBps
+       ——同一筆數字的重新分組，不是推估攤分。只有終點 pod 葉會接：proxy pod
+       （列進 hops 的 role:"pod"）的流量已流向自己的 outputs，再接 ns 會重複計量破壞守恆。
+       dedup 表鍵加前綴避開 __proto__；節點 id 用流水號——ns 名是自由字串，
+       直接當 nodeMap 鍵會撞原型鍵或使用者的 switchId。 */
+    var nsBag = {}, nsSeq = 0;
+    function nsFor(name) {
+      var k = 'k:' + name, ns = nsBag[k];
+      if (!ns) {
+        ns = nsBag[k] = {
+          id: 'ns-' + (++nsSeq), kind: 'leaf', role: 'ns',
+          label: name, namespace: name, inEdges: [], outEdges: [], col: 0
+        };
+        nodes[ns.id] = ns; order.push(ns.id);
+      }
+      return ns;
+    }
+    /* 注意：forEach 只迭代呼叫當下就存在的元素，迭代中 push 進 order 的葉／ns 節點
+       不會被回頭處理（它們沒有 portsOut，被迭代到會炸）。不要改成讀 live length 的迴圈。 */
     order.forEach(function (id) {
       var n = nodes[id];
       var bag = dir === 'destination' ? n.portsOut : n.portsIn;
@@ -182,7 +219,7 @@
             '」，但對端 ' + peerNode.label + ' 已是 hop，這個標註只會出現在帶的 tooltip、不會標在盒上；' +
             '請改標在該 hop 上。');
         }
-        var e;
+        var e, podLeaf = null;
         if (dir === 'destination') {
           if (peerNode) {
             e = mkEdge(n, peerNode, p.iface, p.peerIface || '', p);
@@ -190,6 +227,7 @@
             var leaf = mkLeaf(p, 'leaf-' + (++leafSeq));
             nodes[leaf.id] = leaf; order.push(leaf.id);
             e = mkEdge(n, leaf, p.iface, p.peerIface || '', p);
+            podLeaf = leaf;
           }
         } else {
           if (peerNode) {
@@ -198,9 +236,19 @@
             var leaf2 = mkLeaf(p, 'leaf-' + (++leafSeq));
             nodes[leaf2.id] = leaf2; order.push(leaf2.id);
             e = mkEdge(leaf2, n, p.peerIface || '', p.iface, p);
+            podLeaf = leaf2;
           }
         }
         edges.push(e);
+        /* pod 葉再接一條到 ns 終點（validate 保證終點 pod 必有 ns）。
+           追來源模式方向反接（ns → pod），畫布仍照封包方向、ns 落在最左。 */
+        if (podLeaf && podLeaf.role === 'pod') {
+          var nsNode = nsFor(podLeaf.namespace);
+          var nsP = { deltaBps: p.deltaBps, peerKind: 'ns', namespace: podLeaf.namespace };
+          edges.push(dir === 'destination'
+            ? mkEdge(podLeaf, nsNode, '', '', nsP)
+            : mkEdge(nsNode, podLeaf, '', '', nsP));
+        }
       });
     });
 
@@ -416,7 +464,12 @@
 
     ids.forEach(function (id) {
       var n = nodes[id];
-      if (n.kind === 'leaf') {
+      if (n.kind !== 'leaf') return;
+      if (n.role === 'ns') {
+        /* ns 終點是多對一匯流：加總該方向所有 pod 邊 */
+        n.bps = sum(dir === 'destination' ? n.inEdges : n.outEdges);
+      } else {
+        /* 其他葉只有一條邊。pod 葉的 ns 邊掛在另一側，這裡取的仍是 switch/node 那條 */
         var e = dir === 'destination' ? n.inEdges[0] : n.outEdges[0];
         n.bps = e ? e.bps : 0;
       }

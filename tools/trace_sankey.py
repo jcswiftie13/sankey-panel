@@ -108,6 +108,9 @@ def validate(doc: Any) -> list[str]:
     if not isinstance(hops, list) or not hops:
         errs.append("hops must be a non-empty array")
     else:
+        # collect switchIds up front: the peerKind "pod" namespace rule below
+        # depends on whether the peer resolves to a hop
+        hop_ids = {h.get("switchId") for h in hops if isinstance(h, dict) and h.get("switchId")}
         for i, h in enumerate(hops):
             if not isinstance(h, dict):
                 errs.append(f"hops[{i}] is not an object")
@@ -123,6 +126,10 @@ def validate(doc: Any) -> list[str]:
                 v = h.get(key)
                 if v is not None and (not isinstance(v, str) or not v):
                     errs.append(f"hops[{i}].{key} must be a non-empty string")
+            # a pod always belongs to a namespace (the ns sink node is derived
+            # from it; without one the chain would dangle), mirroring model.js
+            if h.get("role") == "pod" and not h.get("namespace"):
+                errs.append(f'hops[{i}] with role "pod" requires namespace')
             # explicit negative residuals would flow straight into other_in/other_out
             # and break conservation; reject them here, mirroring model.js
             for key in ("otherInBps", "otherOutBps"):
@@ -158,6 +165,14 @@ def validate(doc: Any) -> list[str]:
                         v = p.get(f)
                         if v is not None and (not isinstance(v, str) or not v):
                             errs.append(f"hops[{i}].{key}[{j}].{f} must be a non-empty string")
+                    # a port about to become a pod leaf must carry a namespace;
+                    # a proxy pod that resolves to a hop is exempt -- its ns
+                    # belongs on that hop (a port ns there only warns)
+                    peer_key = p.get("peerSwitchId") or p.get("peerId")
+                    if (p.get("peerKind") == "pod" and not p.get("namespace")
+                            and not (peer_key and peer_key in hop_ids)):
+                        errs.append(f'hops[{i}].{key}[{j}] with peerKind "pod" requires '
+                                    "namespace (a pod always belongs to one)")
     return errs
 
 
@@ -245,6 +260,13 @@ class Trace:
     # -- 2. edges, always in packet direction ------------------------------- #
     def _link(self) -> None:
         leaf_seq = 0
+        # namespace sink nodes: every pod leaf gets one extra edge into its ns
+        # (one node per ns across the whole graph). The pod->ns value is the
+        # pod's own measured deltaBps regrouped, not an estimate. Proxy pods
+        # listed in hops never link here -- their traffic already flows to
+        # their own outputs; an ns edge would double-count it.
+        ns_nodes: dict[str, Node] = {}
+        ns_seq = 0
         for sid in list(self.order):
             node = self.nodes[sid]
             for p in self.ports.get(sid, {}).values():
@@ -257,6 +279,7 @@ class Trace:
                         f"{node.label} port {p.get('iface') or peer_key!r} carries namespace "
                         f"{p['namespace']!r} but peer {peer.label} is a hop; it will not be "
                         "shown -- put the namespace on that hop instead")
+                pod_leaf = None
                 if peer is None:
                     leaf_seq += 1
                     peer = Node(
@@ -268,6 +291,8 @@ class Trace:
                     )
                     self.nodes[peer.id] = peer
                     self.order.append(peer.id)
+                    if peer.role == "pod":
+                        pod_leaf = peer
                 if self.dir == "destination":
                     e = Edge(node.id, peer.id, p.get("iface") or "",
                              p.get("peerIface") or "",
@@ -277,6 +302,24 @@ class Trace:
                              p.get("peerIface") or "",
                              p.get("iface") or "", p["deltaBps"], p.get("peerKind"), p.get("namespace"))
                 self.edges.append(e)
+                # pod leaves link on into their ns sink (validate guarantees the
+                # namespace). Source traces reverse the edge so the ns lands
+                # leftmost, still following packet direction on the canvas.
+                if pod_leaf is not None:
+                    ns = ns_nodes.get(pod_leaf.namespace)
+                    if ns is None:
+                        ns_seq += 1
+                        ns = ns_nodes[pod_leaf.namespace] = Node(
+                            id=f"ns-{ns_seq}", kind="leaf", role="ns",
+                            label=pod_leaf.namespace, namespace=pod_leaf.namespace)
+                        self.nodes[ns.id] = ns
+                        self.order.append(ns.id)
+                    if self.dir == "destination":
+                        self.edges.append(Edge(pod_leaf.id, ns.id, "", "",
+                                               p["deltaBps"], "ns", pod_leaf.namespace))
+                    else:
+                        self.edges.append(Edge(ns.id, pod_leaf.id, "", "",
+                                               p["deltaBps"], "ns", pod_leaf.namespace))
 
     # -- 3. the investigated counter itself ---------------------------------- #
     def _anchor(self) -> None:
@@ -485,9 +528,12 @@ def report(t: Trace) -> str:
         for e in n.in_edges:
             peer = t.nodes[e.from_id]
             note = "  [investigated counter]" if peer.kind == "anchor" else ""
+            # source traces have the pods upstream: print their ns here too,
+            # symmetric with the out-edge lines below
+            ns_in = f" ns/{peer.namespace}" if peer.namespace else ""
             # the web page just drops the line when iface is empty; a text table
             # needs the '-' placeholder to keep its columns aligned
-            L.append(f"      <- {e.to_iface or '-':<14} {fmt_bps(e.bps):>12}  from {peer.label}{note}")
+            L.append(f"      <- {e.to_iface or '-':<14} {fmt_bps(e.bps):>12}  from {peer.label}{ns_in}{note}")
         if n.other_in > 0:
             L.append(f"      +  other in     {fmt_bps(n.other_in):>12}  (other uplinks / untraced sources)")
 
@@ -497,7 +543,8 @@ def report(t: Trace) -> str:
             peer = t.nodes[e.to_id]
             note = ""
             if peer.kind == "leaf":
-                note = "  [STOP: not followed further]"
+                # pods are pass-through now (they link on into their ns sink)
+                note = "  [pod]" if peer.role == "pod" else "  [STOP: not followed further]"
             elif peer.kind == "anchor":
                 note = "  [investigated counter]"
             if e.backward:
@@ -510,6 +557,24 @@ def report(t: Trace) -> str:
         bal_l = n.traced_in + n.other_in
         bal_r = n.traced_out + n.other_out
         L.append(f"    balance      {fmt_bps(bal_l)} in  ==  {fmt_bps(bal_r)} out")
+
+    # namespace sinks: pods are pass-through, the per-ns totals live here.
+    # The pod->ns edges never show in the hop lines above (both ends are
+    # leaves), so this block is the only place they surface in the report.
+    ns_sinks = [n for n in t.nodes.values() if n.role == "ns"]
+    if ns_sinks:
+        def ns_edges(n: Node) -> list[Edge]:
+            return n.in_edges if t.dir == "destination" else n.out_edges
+
+        L.append("")
+        L.append("namespace totals (sinks)")
+        for n in sorted(ns_sinks, key=lambda n: -sum(e.bps for e in ns_edges(n))):
+            edges = ns_edges(n)
+            pods = ", ".join(
+                t.nodes[e.from_id if t.dir == "destination" else e.to_id].label
+                for e in edges)
+            L.append(f"  ns/{n.label:<22} {fmt_bps(sum(e.bps for e in edges)):>12}"
+                     f"  {len(edges)} pod(s): {pods}")
 
     L.append("")
     L.append("-" * 74)
@@ -534,6 +599,10 @@ def _q(s: str) -> str:
 def _name(t: Trace, n: Node) -> str:
     if n.kind == "anchor":
         return f"TRACE START {t.inv['iface']}"
+    # the ns sink IS the namespace: a suffix would read "telemetry (telemetry)";
+    # the ns/ prefix also keeps it clear of a same-named pod
+    if n.role == "ns":
+        return f"ns/{n.label}"
     # leaf and hop-level namespace (a pod acting as a hop) get the same suffix
     if n.namespace:
         return f"{n.label} ({n.namespace})"
@@ -581,11 +650,20 @@ def mermaid_flow(t: Trace) -> str:
                 cls = ""
             L.append(f'  {nid(n.id)}["{label}"]{cls}')
         elif n.kind == "leaf":
-            v = n.in_edges[0] if t.dir == "destination" else n.out_edges[0]
-            val = fmt_bps(v.bps) if v else "0"
-            ns = f"<br/>ns/{n.namespace}" if n.namespace else ""
-            pod = "<br/>pod" if n.role == "pod" else ""
-            L.append(f'  {nid(n.id)}("STOP<br/>{n.label}{ns}{pod}<br/>{val}<br/>not followed"):::leaf')
+            if n.role == "ns":
+                edges = n.in_edges if t.dir == "destination" else n.out_edges
+                L.append(f'  {nid(n.id)}(["ns/{n.label}<br/>'
+                         f'{fmt_bps(sum(e.bps for e in edges))}<br/>STOP"]):::nsleaf')
+            elif n.role == "pod":
+                # pods are pass-through now: no STOP wording, k8s family style
+                v = n.in_edges[0] if t.dir == "destination" else n.out_edges[0]
+                val = fmt_bps(v.bps) if v else "0"
+                L.append(f'  {nid(n.id)}["{n.label}<br/>ns/{n.namespace}<br/>pod<br/>{val}"]:::k8spod')
+            else:
+                v = n.in_edges[0] if t.dir == "destination" else n.out_edges[0]
+                val = fmt_bps(v.bps) if v else "0"
+                ns = f"<br/>ns/{n.namespace}" if n.namespace else ""
+                L.append(f'  {nid(n.id)}("STOP<br/>{n.label}{ns}<br/>{val}<br/>not followed"):::leaf')
         else:
             L.append(f'  {nid(n.id)}(["TRACE START<br/>{t.inv["iface"]}<br/>{fmt_bps(t.inv["deltaBps"])}"]):::anchor')
     for e in t.edges:
@@ -610,10 +688,13 @@ def mermaid_flow(t: Trace) -> str:
         "  classDef root stroke:#22d3ee,stroke-width:2px;",
         "  classDef k8snode stroke:#7dd3fc,stroke-dasharray:6 4;",
     ]
-    # only when a pod acts as a hop (the always-on classDefs predate this one;
-    # keeping existing outputs byte-identical)
-    if any(n.kind == "node" and n.role == "pod" and not n.is_root for n in t.nodes.values()):
+    # only when a pod is present -- as a hop or a leaf (the always-on classDefs
+    # predate this one; keeping existing outputs byte-identical)
+    if any(n.role == "pod" and not (n.kind == "node" and n.is_root) for n in t.nodes.values()):
         L.append("  classDef k8spod stroke:#7dd3fc,stroke-dasharray:2 3;")
+    # ns sinks likewise: only k8s graphs grow this line
+    if any(n.role == "ns" for n in t.nodes.values()):
+        L.append("  classDef nsleaf stroke:#a78bfa,color:#a78bfa;")
     L += [
         "  classDef leaf stroke:#94a3b8,stroke-dasharray:5 4,color:#94a3b8;",
         "  classDef anchor stroke:#22d3ee,stroke-dasharray:4 3;",
@@ -649,11 +730,24 @@ def plotly_html(t: Trace, out_path: str) -> str:
     lcolor: list[str] = []
     ltext: list[str] = []
 
+    # mirror of NS_COLORS in render.js: first-appearance order, cycling
+    ns_palette = ["#a78bfa", "#34d399", "#facc15", "#60a5fa", "#f472b6"]
+    ns_color: dict[str, str] = {}
+    for n in t.nodes.values():
+        if n.namespace and n.namespace not in ns_color:
+            ns_color[n.namespace] = ns_palette[len(ns_color) % len(ns_palette)]
+
     for n in t.nodes.values():
         if n.kind == "node":
             idx(n.id, n.label, "#7dd3fc" if n.role == "node" else "#22d3ee")
         elif n.kind == "leaf":
-            idx(n.id, f"{n.label} (stop)", "#94a3b8")
+            if n.role == "ns":
+                idx(n.id, f"ns/{n.label}", ns_color.get(n.namespace, "#a78bfa"))
+            elif n.role == "pod":
+                # pods are pass-through, not stops: k8s family colour
+                idx(n.id, n.label, "#7dd3fc")
+            else:
+                idx(n.id, f"{n.label} (stop)", "#94a3b8")
         else:
             idx(n.id, f"start {t.inv['iface']}", "#22d3ee")
 
@@ -740,6 +834,19 @@ def main(argv: list[str] | None = None) -> int:
                 row["namespace"] = n.namespace
             return row
 
+        # ns sinks get their own top-level list (pods stay in leaves); the key
+        # only appears on k8s traces so non-k8s --json stays byte-identical
+        ns_rows = []
+        for n in t.nodes.values():
+            if n.role != "ns":
+                continue
+            edges = n.in_edges if t.dir == "destination" else n.out_edges
+            ns_rows.append({
+                "namespace": n.label,
+                "bps": sum(e.bps for e in edges),
+                "pods": [t.nodes[e.from_id if t.dir == "destination" else e.to_id].label
+                         for e in edges],
+            })
         print(json.dumps({
             "dir": t.dir,
             "hops": [{
@@ -750,7 +857,9 @@ def main(argv: list[str] | None = None) -> int:
                 "otherInBps": n.other_in, "otherOutBps": n.other_out,
             } for n in t.hop_nodes()],
             # leaves used to be missing entirely, silently dropping namespaces
-            "leaves": [leaf_row(n) for n in t.nodes.values() if n.kind == "leaf"],
+            "leaves": [leaf_row(n) for n in t.nodes.values()
+                       if n.kind == "leaf" and n.role != "ns"],
+            **({"namespaces": ns_rows} if ns_rows else {}),
             "warnings": t.warnings,
         }, ensure_ascii=False, indent=2))
     elif not args.plotly:
