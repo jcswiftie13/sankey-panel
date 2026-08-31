@@ -4,7 +4,7 @@
     "switchId": "sw-tor-k8s",
     "iface": "et-0/0/48",
     "direction": "in",
-    "deltaBps": 24000000000
+    "deltaBps": 30000000000
   },
   "pruning": {
     "topN": 3,
@@ -25,10 +25,24 @@
         },
         {
           "iface": "xe-0/0/12",
-          "deltaBps": 7000000000,
+          "deltaBps": 8000000000,
           "peerKind": "node",
           "peerSwitchId": "node-w-12",
           "peerIface": "bond0"
+        },
+        {
+          "iface": "xe-0/0/13",
+          "deltaBps": 5000000000,
+          "peerKind": "node",
+          "peerSwitchId": "node-w-13",
+          "peerIface": "bond0"
+        },
+        {
+          "iface": "xe-0/0/20",
+          "deltaBps": 3000000000,
+          "peerKind": "host",
+          "peerId": "srv-log-01",
+          "peerIface": "eno1"
         }
       ]
     },
@@ -58,16 +72,24 @@
       "switchId": "node-w-12",
       "label": "node-w-12",
       "role": "node",
-      "otherOutBps": 1500000000,
       "outputs": [
         {
-          "iface": "veth5cc7",
           "deltaBps": 5500000000,
           "peerKind": "pod",
           "peerId": "ingest-4f11",
           "namespace": "telemetry"
+        },
+        {
+          "deltaBps": 2500000000,
+          "peerKind": "pod",
+          "peerId": "debug-shell"
         }
       ]
+    },
+    {
+      "switchId": "node-w-13",
+      "label": "node-w-13",
+      "role": "node"
     }
   ]
 }

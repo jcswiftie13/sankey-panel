@@ -189,17 +189,20 @@
     {
       key: 'k8s',
       name: 'Switch → Node → Pod',
-      desc: '同一條 Sankey 接下去。node 是虛線盒，pod 是葉。沒跟的 pod 併成該 node 的其他輸出。',
+      desc: '同一條 Sankey 接下去。node 是虛線盒、pod 是葉，同 namespace 的 pod 相鄰排列共用色條。' +
+        'k8s hop 的 port 可省略 iface；node 也能當葉（沒列 pod 就整台補成其他輸出）。',
       json: {
         kind: 'destination',
-        investigation: { switchId: 'sw-tor-k8s', iface: 'et-0/0/48', direction: 'in', deltaBps: G(24) },
+        investigation: { switchId: 'sw-tor-k8s', iface: 'et-0/0/48', direction: 'in', deltaBps: G(30) },
         pruning: { topN: 3, minShare: 0.10 },
         hops: [
           {
             switchId: 'sw-tor-k8s', label: 'ToR k8s', role: 'switch',
             outputs: [
               { iface: 'xe-0/0/11', deltaBps: G(14), peerKind: 'node', peerSwitchId: 'node-w-11', peerIface: 'bond0' },
-              { iface: 'xe-0/0/12', deltaBps: G(7), peerKind: 'node', peerSwitchId: 'node-w-12', peerIface: 'bond0' }
+              { iface: 'xe-0/0/12', deltaBps: G(8), peerKind: 'node', peerSwitchId: 'node-w-12', peerIface: 'bond0' },
+              { iface: 'xe-0/0/13', deltaBps: G(5), peerKind: 'node', peerSwitchId: 'node-w-13', peerIface: 'bond0' },
+              { iface: 'xe-0/0/20', deltaBps: G(3), peerKind: 'host', peerId: 'srv-log-01', peerIface: 'eno1' }
             ]
           },
           {
@@ -211,10 +214,50 @@
             ]
           },
           {
+            /* k8s node 的 port 沒有 switch iface：iface 省略，靠 peerId 認 port */
             switchId: 'node-w-12', label: 'node-w-12', role: 'node',
-            otherOutBps: G(1.5),
             outputs: [
-              { iface: 'veth5cc7', deltaBps: G(5.5), peerKind: 'pod', peerId: 'ingest-4f11', namespace: 'telemetry' }
+              { deltaBps: G(5.5), peerKind: 'pod', peerId: 'ingest-4f11', namespace: 'telemetry' },
+              { deltaBps: G(2.5), peerKind: 'pod', peerId: 'debug-shell' }
+            ]
+          },
+          /* node 當葉：沒列 pod，進來的 5G 由平衡式補成其他輸出 */
+          { switchId: 'node-w-13', label: 'node-w-13', role: 'node' }
+        ]
+      }
+    },
+
+    {
+      key: 'k8s-source',
+      name: 'Pod → Node → Switch（追來源）',
+      desc: '追來源方向的 k8s：pod 在最左欄，frontend 兩個 pod 相鄰分組；' +
+        'node-w-21 的 port 全省略 iface。',
+      json: {
+        kind: 'source',
+        investigation: {
+          switchId: 'sw-tor-k8s', iface: 'et-0/0/48', direction: 'out', deltaBps: G(18),
+          note: 'ToR uplink 出量 +18G，追是哪些 pod 打出來的'
+        },
+        hops: [
+          {
+            switchId: 'sw-tor-k8s', label: 'ToR k8s', role: 'switch',
+            inputs: [
+              { iface: 'xe-0/0/21', deltaBps: G(12), peerKind: 'node', peerSwitchId: 'node-w-21', peerIface: 'bond0' },
+              { iface: 'xe-0/0/22', deltaBps: G(6), peerKind: 'node', peerSwitchId: 'node-w-22', peerIface: 'bond0' }
+            ]
+          },
+          {
+            switchId: 'node-w-21', label: 'node-w-21', role: 'node',
+            inputs: [
+              { deltaBps: G(7), peerKind: 'pod', peerId: 'web-6f8d', namespace: 'frontend' },
+              { deltaBps: G(3), peerKind: 'pod', peerId: 'cache-1', namespace: 'frontend' },
+              { deltaBps: G(2), peerKind: 'pod', peerId: 'batch-9k' }
+            ]
+          },
+          {
+            switchId: 'node-w-22', label: 'node-w-22', role: 'node',
+            inputs: [
+              { iface: 'veth71aa', deltaBps: G(6), peerKind: 'pod', peerId: 'job-runner-5c', namespace: 'batch' }
             ]
           }
         ]

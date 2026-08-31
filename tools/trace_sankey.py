@@ -117,12 +117,22 @@ def validate(doc: Any) -> list[str]:
             tier = h.get("tier")
             if tier is not None and (not isinstance(tier, str) or not tier):
                 errs.append(f"hops[{i}].tier must be a non-empty string")
+            # role is a free-form string (samples use core/border/... as notes);
+            # only "node" and "pod" change rendering, others draw as plain switches
+            for key in ("role", "namespace"):
+                v = h.get(key)
+                if v is not None and (not isinstance(v, str) or not v):
+                    errs.append(f"hops[{i}].{key} must be a non-empty string")
             # explicit negative residuals would flow straight into other_in/other_out
             # and break conservation; reject them here, mirroring model.js
             for key in ("otherInBps", "otherOutBps"):
                 v = h.get(key)
                 if v is not None and (not isinstance(v, (int, float)) or v < 0):
                     errs.append(f"hops[{i}].{key} must be a non-negative number of bps")
+            # k8s node/pod hops have no switch interfaces: their ports may omit
+            # iface. Decided by the hop's role, not the port's peerKind -- a
+            # switch always has its own iface even when the peer is a pod.
+            iface_opt = h.get("role") in ("node", "pod")
             for key in ("outputs", "inputs"):
                 ports = h.get(key)
                 if ports is None:
@@ -135,10 +145,19 @@ def validate(doc: Any) -> list[str]:
                         errs.append(f"hops[{i}].{key}[{j}] is not an object")
                         continue
                     if not p.get("iface"):
-                        errs.append(f"hops[{i}].{key}[{j}].iface is required")
+                        if not iface_opt:
+                            errs.append(f"hops[{i}].{key}[{j}].iface is required")
+                        elif not p.get("peerSwitchId") and not p.get("peerId"):
+                            # without iface or peer there is no merge key or leaf label
+                            errs.append(f"hops[{i}].{key}[{j}] omitting iface requires "
+                                        "peerSwitchId or peerId")
                     v = p.get("deltaBps")
                     if not isinstance(v, (int, float)) or v < 0:
                         errs.append(f"hops[{i}].{key}[{j}].deltaBps must be >= 0")
+                    for f in ("peerKind", "namespace"):
+                        v = p.get(f)
+                        if v is not None and (not isinstance(v, str) or not v):
+                            errs.append(f"hops[{i}].{key}[{j}].{f} must be a non-empty string")
     return errs
 
 
@@ -187,6 +206,8 @@ class Trace:
                 n.label = h["label"]
             if h.get("role"):
                 n.role = h["role"]
+            if h.get("namespace"):        # a pod listed in hops carries its own ns
+                n.namespace = h["namespace"]
             if h.get("tier"):
                 if n.tier is None:
                     n.tier = h["tier"]
@@ -200,13 +221,23 @@ class Trace:
                     setattr(n, attr, cur + float(h[key]))
             side = "outputs" if self.dir == "destination" else "inputs"
             for p in h.get(side) or []:
-                pk = f"{p['iface']}|{p.get('peerSwitchId') or p.get('peerId') or ''}"
+                # iface may be omitted on k8s hops (validate guarantees a peer
+                # then); an empty iface still forms a distinct key per peer
+                pk = f"{p.get('iface') or ''}|{p.get('peerSwitchId') or p.get('peerId') or ''}"
+                existed = pk in self.ports[sid]
                 slot = self.ports[sid].setdefault(pk, {
-                    "iface": p["iface"], "deltaBps": 0.0,
+                    "iface": p.get("iface") or "", "deltaBps": 0.0,
                     "peerKind": p.get("peerKind"), "peerId": p.get("peerId"),
                     "peerSwitchId": p.get("peerSwitchId"), "peerIface": p.get("peerIface"),
                     "namespace": p.get("namespace"),
                 })
+                if existed:
+                    # only deltaBps accumulates; annotations keep the first value
+                    for f in ("peerKind", "namespace"):
+                        if slot[f] and p.get(f) and slot[f] != p[f]:
+                            self.warnings.append(
+                                f"{n.label} port {slot['iface'] or pk!r}: different {f} across "
+                                f"hops ({slot[f]!r} vs {p[f]!r}); keeping the first {slot[f]!r}")
                 slot["deltaBps"] += float(p["deltaBps"])
         if self.inv["switchId"] not in self.nodes:
             raise TraceError(f"investigation.switchId {self.inv['switchId']!r} not found in hops")
@@ -219,25 +250,32 @@ class Trace:
             for p in self.ports.get(sid, {}).values():
                 peer_key = p.get("peerSwitchId") or p.get("peerId")
                 peer = self.nodes.get(peer_key) if peer_key else None
+                if peer is not None and p.get("namespace"):
+                    # namespace only shows on leaf cards; once the peer resolves
+                    # to a hop the port annotation is never drawn
+                    self.warnings.append(
+                        f"{node.label} port {p.get('iface') or peer_key!r} carries namespace "
+                        f"{p['namespace']!r} but peer {peer.label} is a hop; it will not be "
+                        "shown -- put the namespace on that hop instead")
                 if peer is None:
                     leaf_seq += 1
                     peer = Node(
                         id=f"leaf-{leaf_seq}", kind="leaf",
                         role="pod" if p.get("peerKind") == "pod" else "leaf",
-                        label=p.get("peerId") or p.get("peerSwitchId") or p["iface"],
+                        label=p.get("peerId") or p.get("peerSwitchId") or p.get("iface") or "(unnamed)",
                         namespace=p.get("namespace"),
-                        iface=p.get("peerIface") or p["iface"],
+                        iface=p.get("peerIface") or p.get("iface") or "",
                     )
                     self.nodes[peer.id] = peer
                     self.order.append(peer.id)
                 if self.dir == "destination":
-                    e = Edge(node.id, peer.id, p["iface"],
+                    e = Edge(node.id, peer.id, p.get("iface") or "",
                              p.get("peerIface") or "",
                              p["deltaBps"], p.get("peerKind"), p.get("namespace"))
                 else:
                     e = Edge(peer.id, node.id,
                              p.get("peerIface") or "",
-                             p["iface"], p["deltaBps"], p.get("peerKind"), p.get("namespace"))
+                             p.get("iface") or "", p["deltaBps"], p.get("peerKind"), p.get("namespace"))
                 self.edges.append(e)
 
     # -- 3. the investigated counter itself ---------------------------------- #
@@ -438,15 +476,18 @@ def report(t: Trace) -> str:
     for n in t.hop_nodes():
         merged = f"  (merged {n.hop_count} hops)" if n.hop_count > 1 else ""
         role = f" [{n.role}]" if n.role != "switch" else ""
+        ns = f" ns/{n.namespace}" if n.namespace else ""
         L.append("")
-        L.append(f"hop {n.col}  {n.label} <{n.id}>{role}{merged}")
+        L.append(f"hop {n.col}  {n.label} <{n.id}>{role}{ns}{merged}")
 
         tag_in = "  <- investigated counter" if (t.dir == "destination" and n.is_root) else ""
         L.append(f"    in   traced {fmt_bps(n.traced_in):>12}{tag_in}")
         for e in n.in_edges:
             peer = t.nodes[e.from_id]
             note = "  [investigated counter]" if peer.kind == "anchor" else ""
-            L.append(f"      <- {e.to_iface:<14} {fmt_bps(e.bps):>12}  from {peer.label}{note}")
+            # the web page just drops the line when iface is empty; a text table
+            # needs the '-' placeholder to keep its columns aligned
+            L.append(f"      <- {e.to_iface or '-':<14} {fmt_bps(e.bps):>12}  from {peer.label}{note}")
         if n.other_in > 0:
             L.append(f"      +  other in     {fmt_bps(n.other_in):>12}  (other uplinks / untraced sources)")
 
@@ -462,7 +503,7 @@ def report(t: Trace) -> str:
             if e.backward:
                 note += "  [backflow]"
             ns = f" ns/{peer.namespace}" if peer.namespace else ""
-            L.append(f"      -> {e.from_iface:<14} {fmt_bps(e.bps):>12}  to {peer.label}{ns}{note}")
+            L.append(f"      -> {e.from_iface or '-':<14} {fmt_bps(e.bps):>12}  to {peer.label}{ns}{note}")
         if n.other_out > 0:
             L.append(f"      +  other out    {fmt_bps(n.other_out):>12}  (pruned / too small / over topN)")
 
@@ -493,7 +534,8 @@ def _q(s: str) -> str:
 def _name(t: Trace, n: Node) -> str:
     if n.kind == "anchor":
         return f"TRACE START {t.inv['iface']}"
-    if n.kind == "leaf" and n.namespace:
+    # leaf and hop-level namespace (a pod acting as a hop) get the same suffix
+    if n.namespace:
         return f"{n.label} ({n.namespace})"
     return n.label
 
@@ -525,19 +567,34 @@ def mermaid_flow(t: Trace) -> str:
     L = ["flowchart LR"]
     for n in sorted(t.nodes.values(), key=lambda n: n.col):
         if n.kind == "node":
-            label = f"{n.label}<br/>{n.id}" + (f"<br/>merged {n.hop_count} hops" if n.hop_count > 1 else "")
-            cls = ":::k8snode" if n.role == "node" else (":::root" if n.is_root else "")
+            label = (f"{n.label}<br/>{n.id}"
+                     + (f"<br/>merged {n.hop_count} hops" if n.hop_count > 1 else "")
+                     + (f"<br/>ns/{n.namespace}" if n.role == "pod" and n.namespace else ""))
+            # root identity wins over the k8s style, matching the web renderer
+            if n.is_root:
+                cls = ":::root"
+            elif n.role == "node":
+                cls = ":::k8snode"
+            elif n.role == "pod":
+                cls = ":::k8spod"
+            else:
+                cls = ""
             L.append(f'  {nid(n.id)}["{label}"]{cls}')
         elif n.kind == "leaf":
             v = n.in_edges[0] if t.dir == "destination" else n.out_edges[0]
             val = fmt_bps(v.bps) if v else "0"
             ns = f"<br/>ns/{n.namespace}" if n.namespace else ""
-            L.append(f'  {nid(n.id)}("STOP<br/>{n.label}{ns}<br/>{val}<br/>not followed"):::leaf')
+            pod = "<br/>pod" if n.role == "pod" else ""
+            L.append(f'  {nid(n.id)}("STOP<br/>{n.label}{ns}{pod}<br/>{val}<br/>not followed"):::leaf')
         else:
             L.append(f'  {nid(n.id)}(["TRACE START<br/>{t.inv["iface"]}<br/>{fmt_bps(t.inv["deltaBps"])}"]):::anchor')
     for e in t.edges:
         a, b = t.nodes[e.from_id], t.nodes[e.to_id]
-        lbl = f'{e.from_iface or "?"} -> {e.to_iface or "?"}<br/>{fmt_bps(e.bps)}'
+        # k8s-internal edges have no iface on either end: label just the value
+        if e.from_iface or e.to_iface:
+            lbl = f'{e.from_iface or "?"} -> {e.to_iface or "?"}<br/>{fmt_bps(e.bps)}'
+        else:
+            lbl = fmt_bps(e.bps)
         if e.backward:
             lbl += "<br/>(backflow)"
         arrow = f'-. "{lbl}" .->' if b.kind == "leaf" else f'-- "{lbl}" -->'
@@ -552,6 +609,12 @@ def mermaid_flow(t: Trace) -> str:
     L += [
         "  classDef root stroke:#22d3ee,stroke-width:2px;",
         "  classDef k8snode stroke:#7dd3fc,stroke-dasharray:6 4;",
+    ]
+    # only when a pod acts as a hop (the always-on classDefs predate this one;
+    # keeping existing outputs byte-identical)
+    if any(n.kind == "node" and n.role == "pod" and not n.is_root for n in t.nodes.values()):
+        L.append("  classDef k8spod stroke:#7dd3fc,stroke-dasharray:2 3;")
+    L += [
         "  classDef leaf stroke:#94a3b8,stroke-dasharray:5 4,color:#94a3b8;",
         "  classDef anchor stroke:#22d3ee,stroke-dasharray:4 3;",
         "  classDef otherin stroke:#f59e0b,stroke-dasharray:4 3,color:#f59e0b;",
@@ -668,14 +731,26 @@ def main(argv: list[str] | None = None) -> int:
     elif args.mermaid == "flow":
         print(mermaid_flow(t))
     elif args.json:
+        def leaf_row(n: Node) -> dict:
+            e = n.in_edges[0] if t.dir == "destination" else n.out_edges[0]
+            hop = (e.from_id if t.dir == "destination" else e.to_id) if e else None
+            row = {"id": n.id, "label": n.label, "role": n.role,
+                   "iface": n.iface or "", "bps": e.bps if e else 0.0, "hop": hop}
+            if n.namespace:
+                row["namespace"] = n.namespace
+            return row
+
         print(json.dumps({
             "dir": t.dir,
             "hops": [{
                 "switchId": n.id, "label": n.label, "col": n.col, "role": n.role,
                 "mergedHops": n.hop_count,
+                **({"namespace": n.namespace} if n.namespace else {}),
                 "tracedInBps": n.traced_in, "tracedOutBps": n.traced_out,
                 "otherInBps": n.other_in, "otherOutBps": n.other_out,
             } for n in t.hop_nodes()],
+            # leaves used to be missing entirely, silently dropping namespaces
+            "leaves": [leaf_row(n) for n in t.nodes.values() if n.kind == "leaf"],
             "warnings": t.warnings,
         }, ensure_ascii=False, indent=2))
     elif not args.plotly:

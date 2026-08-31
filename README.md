@@ -56,7 +56,7 @@ index.html?sample=campus&tab=chart
 
 | 參數 | 值 |
 | --- | --- |
-| `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s` `dci-tier` `dci-uturn`（`custom` = 你載入的那份） |
+| `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s` `k8s-source` `dci-tier` `dci-uturn`（`custom` = 你載入的那份） |
 | `tab` | `chart` `json` `mermaid-sankey` `mermaid-flow` `notes` |
 
 ## 看圖：縮放與平移
@@ -115,7 +115,8 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 | --- | --- | --- | --- |
 | `switchId` | string | ✔ | 合併鍵。同一個 id 出現多次會**合併成一個盒子**，不畫成兩台 |
 | `label` | string | | 顯示名稱，沒給就用 `switchId` |
-| `role` | `"switch"` \| `"node"` \| `"pod"` | | `node` 畫成虛線盒（k8s node），預設 `switch` |
+| `role` | string（非空） | | 自由字串。繪製只認 `node`（天藍虛線盒，k8s node）與 `pod`（pod 當中繼 hop 時用），**其他值一律畫成一般 switch 盒**（範例拿 `core`／`border` 等當註記）。預設 `switch` |
+| `namespace` | string（非空） | | `role: "pod"` 的中繼 hop 標所屬 ns，顯示在盒副標與匯出 |
 | `tier` | string（非空） | | 同層標籤。同 `tier` 的 hop **鎖在同一欄**，彼此之間的邊畫成右側弧帶；字串內容自訂，程式只比對相同與否。見下方「同層互連（tier）」 |
 | `outputs` | array of port | 追終點 | 跟下去的出口 |
 | `inputs` | array of port | 追來源 | 往回追的入口 |
@@ -126,13 +127,13 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 
 | 欄位 | 型別 | 必填 | 說明 |
 | --- | --- | --- | --- |
-| `iface` | string | ✔ | 本機這一側的 interface |
+| `iface` | string | switch hop ✔ | 本機這一側的 interface。`role: "node"` / `"pod"` 的 hop **可省略**（k8s 內部沒有 switch interface；有 veth／bond 名想記的照填），**省略時必須給 `peerSwitchId` 或 `peerId`**。沒填的 port 槽位不印 iface 字樣 |
 | `deltaBps` | number ≥ 0 | ✔ | 這條的速率增量 Δ，bps |
 | `peerSwitchId` | string | | 對端 switch／node 的 id |
 | `peerId` | string | | 對端不是 switch 時用（host / router / pod） |
 | `peerIface` | string | | 對端那一側的 interface。對端 iface 只由這裡決定，沒填就留空、不猜 |
-| `peerKind` | string | | `switch` / `node` / `pod` / `host` / `router`；`pod` 會畫成 pod 葉節點 |
-| `namespace` | string | | `peerKind: "pod"` 時顯示 `ns/<namespace>` |
+| `peerKind` | string（非空） | | 自由字串註記；**唯一有語意的值是 `pod`**（畫成 pod 葉卡），其他值畫一般灰葉 |
+| `namespace` | string（非空） | | 有給就顯示 `ns/<namespace>`；同 ns 的 pod 葉**在同一欄相鄰排列、左緣掛同色 ns 色條**（色盤依首次出現順序取色、超過 5 個循環）。標在「對端已接進 hops」的 port 上不會標在盒上（會警告），請改標在該 hop |
 
 對端接不接下去，看的是 `peerSwitchId`（沒有就看 `peerId`）**在 `hops` 裡有沒有同 id 的那一跳**：
 有就接成下一台，沒有就畫成灰色「追查終止」小卡。
@@ -197,6 +198,44 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 }
 ```
 
+### k8s（node / pod / namespace）
+
+edge switch 接的是 k8s node 時，同一條 Sankey 直接接下去（完整版在 `samples/k8s.json`）：
+
+```jsonc
+{
+  "kind": "destination",
+  "investigation": { "switchId": "sw-tor-k8s", "iface": "et-0/0/48", "direction": "in", "deltaBps": 30000000000 },
+  "hops": [
+    { "switchId": "sw-tor-k8s", "label": "ToR k8s", "role": "switch",
+      "outputs": [
+        { "iface": "xe-0/0/11", "deltaBps": 14000000000, "peerKind": "node", "peerSwitchId": "node-w-11", "peerIface": "bond0" },
+        { "iface": "xe-0/0/12", "deltaBps": 8000000000,  "peerKind": "node", "peerSwitchId": "node-w-12", "peerIface": "bond0" },
+        { "iface": "xe-0/0/13", "deltaBps": 5000000000,  "peerKind": "node", "peerSwitchId": "node-w-13", "peerIface": "bond0" },
+        { "iface": "xe-0/0/20", "deltaBps": 3000000000,  "peerKind": "host", "peerId": "srv-log-01", "peerIface": "eno1" }
+      ] },
+    { "switchId": "node-w-11", "role": "node", "otherOutBps": 2500000000,
+      "outputs": [
+        { "iface": "veth3a1f", "deltaBps": 8000000000, "peerKind": "pod", "peerId": "ingest-7d9c", "namespace": "telemetry" },
+        { "iface": "veth9b02", "deltaBps": 3500000000, "peerKind": "pod", "peerId": "kafka-2", "namespace": "stream" }
+      ] },
+    { "switchId": "node-w-12", "role": "node",
+      "outputs": [
+        { "deltaBps": 5500000000, "peerKind": "pod", "peerId": "ingest-4f11", "namespace": "telemetry" },
+        { "deltaBps": 2500000000, "peerKind": "pod", "peerId": "debug-shell" }
+      ] },
+    { "switchId": "node-w-13", "role": "node" }
+  ]
+}
+```
+
+四個情境一次示範：`node-w-11` 是標準 switch → node → pod（veth 名照填）；`node-w-12` 的
+port **省略 iface**（k8s 內部沒有 switch interface，靠 `peerId` 認 port），`debug-shell`
+是**沒 namespace 的 pod**；`node-w-13` 是 **node 當葉**（沒列 pod，進來的 5G 由平衡式補成
+其他輸出）；`srv-log-01` 是混在其中的非 k8s host 葉。`telemetry` 的兩個 pod 掛在不同 node
+上，圖上仍會**相鄰排列、共用同色 ns 色條**。追來源方向見 `samples/k8s-source.json`
+（pod 在最左欄）。
+
 `samples/` 底下是網頁上那些範例的 JSON，可以直接拿來改。
 
 ### 驗證錯誤對照
@@ -216,10 +255,13 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 | hops[i] 不是物件。 | 陣列裡混了字串或數字 |
 | hops[i].switchId 必填。 | 那一跳沒給 id，就沒得合併 |
 | hops[i].tier 必須是非空字串。 | `tier` 給了數字、空字串或其他型別 |
+| hops[i].role 必須是非空字串。 | `role` 給了數字、空字串或其他型別（`namespace` 同款訊息） |
 | hops[i].outputs 必須是陣列。 | 給了單一物件，忘了包 `[]` |
 | hops[i].outputs[j] 不是物件。 | port 陣列裡混了別的東西 |
-| hops[i].outputs[j].iface 必填。 | port 沒給 interface 名 |
+| hops[i].outputs[j].iface 必填。 | 一般 switch hop 的 port 沒給 interface 名 |
+| hops[i].outputs[j] 省略 iface 時必須給 peerSwitchId 或 peerId。 | `role: "node"/"pod"` 的 port 才能省 iface，但沒 iface 又沒對端 id 就沒得認 port |
 | hops[i].outputs[j].deltaBps 必須是非負數。 | port 的量不是數字或是負數 |
+| hops[i].outputs[j].peerKind 必須是非空字串。 | `peerKind` 給了數字或空字串（`namespace` 同款訊息） |
 | hops[i].otherInBps 必須是非負數（bps）。 | 給了負數或非數字；負殘差會讓色塊算出負高度、SVG 破圖 |
 | hops[i].otherOutBps 必須是非負數（bps）。 | 同上 |
 | investigation.switchId「X」在 hops 裡找不到。 | 起點那台沒有出現在 `hops`，通常是 id 打錯或大小寫不一致 |
@@ -234,6 +276,8 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
 - `同一台在不同 hop 給了不同 tier` — 同 `switchId` 的 hop 標了兩種 tier，採用先出現的
 - `逆著多數流量方向` — 兩群之間雙向都有流量，總量小的方向畫成回流帶、不參與排欄
 - `群組間仍繞成環` — 環繞過三群以上，移除環上流量最小的那個方向破環
+- `在不同 hop 給了不同 peerKind／namespace` — 同一個 port 拆在多個 hop 寫、標註衝突，採先出現的值
+- `標了 namespace，但對端已是 hop` — port 上的 ns 只會出現在帶的 tooltip、不會標在盒上；請改標在該 hop 的 `namespace` 欄位
 
 ### 同層互連（tier）
 
@@ -288,8 +332,14 @@ Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「
   免得浮點雜訊在圖上長出一塊。圖、hop 摘要、Mermaid 用同一個門檻。
 - 盒子裡只畫已追查 port，殘差不用斜線填滿整台 switch。
 - 追查終止葉節點是灰色虛線小卡（「追查終止」「未再往下追」＋ iface ＋ 帶寬），不是又一台 switch。
-- k8s 接在同一條 Sankey 上：switch → node（虛線盒）→ pod（葉，標 namespace/name）。
-  node 用同一套截斷，沒跟的 pod 併成該 node 的其他輸出。
+- k8s 接在同一條 Sankey 上：switch → node（天藍虛線盒）→ pod（天藍虛線葉卡，標 name 與
+  `ns/<namespace>`）。**每一層都是選填**：不是每個 switch iface 都接 node；node 可以當葉
+  （不列 `outputs` 就整台由平衡式補成其他輸出）；pod 可以沒 namespace。node 用同一套截斷，
+  沒跟的 pod 併成該 node 的其他輸出。
+- **namespace 不是節點**：流量「經過」node 到 pod，pod「屬於」ns——ns 不在流量路徑上，
+  不畫成盒子、不加假流量邊。同 ns 的 pod 在欄內**相鄰排列**、左緣掛同色 ns 色條
+  （色盤 5 色依首次出現順序取用、超過循環），彙總數字在圖下方「namespace 流量小計」表。
+- 整欄都是 k8s node 時欄標題標「第 N 跳 · k8s node」；整欄都是 pod 葉標「追查終止 · pod」。
 - hop 數字摘要放圖下方，是圖外資訊，不是盒子內標籤。
 - 圖區是固定尺寸畫布：SVG 填滿容器，`viewBox` 的 meet-fit 就是「符合視窗」，
   縮放平移只改一層 `<g>` 的 `transform`。字級與線寬跟著等比縮放（真幾何縮放）。

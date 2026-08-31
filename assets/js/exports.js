@@ -13,8 +13,8 @@
   }
   function nodeName(n, model) {
     if (n.kind === 'anchor') return '追查起點 ' + model.investigation.iface;
-    if (n.kind === 'leaf') return n.label + (n.namespace ? ' (' + n.namespace + ')' : '');
-    return n.label;
+    /* 葉與 hop 級 namespace（pod 當中繼）都套同一個後綴 */
+    return n.label + (n.namespace ? ' (' + n.namespace + ')' : '');
   }
   function id(s) { return 'n_' + String(s).replace(/[^A-Za-z0-9]/g, '_'); }
 
@@ -43,12 +43,14 @@
     var L = ['flowchart LR'];
     model.nodes.forEach(function (n) {
       if (n.kind === 'node') {
-        var t = n.label + '<br/><small>' + n.id + '</small>' + (n.hopCount > 1 ? '<br/>合併 ' + n.hopCount + ' hop' : '');
-        L.push('  ' + id(n.id) + (n.role === 'node' ? '["' + t + '"]:::k8snode' : '["' + t + '"]' +
-          (n.isRoot ? ':::root' : '')));
+        var t = n.label + '<br/><small>' + n.id + '</small>' + (n.hopCount > 1 ? '<br/>合併 ' + n.hopCount + ' hop' : '') +
+          (n.role === 'pod' && n.namespace ? '<br/>ns/' + n.namespace : '');
+        /* root 身分優先掛 :::root（與網頁框色優先序一致），非 root 才依 role 掛 k8s 樣式 */
+        var cls = n.isRoot ? ':::root' : (n.role === 'node' ? ':::k8snode' : (n.role === 'pod' ? ':::k8spod' : ''));
+        L.push('  ' + id(n.id) + '["' + t + '"]' + cls);
       } else if (n.kind === 'leaf') {
         var lt = '追查終止<br/>' + n.label + (n.namespace ? '<br/>ns/' + n.namespace : '') +
-          '<br/>' + F(n.bps) + '<br/>未再往下追';
+          (n.role === 'pod' ? '<br/>pod' : '') + '<br/>' + F(n.bps) + '<br/>未再往下追';
         L.push('  ' + id(n.id) + '("' + lt + '"):::leaf');
       } else {
         L.push('  ' + id(n.id) + '(["追查起點<br/>' + model.investigation.iface + '<br/>' +
@@ -58,8 +60,9 @@
     model.edges.forEach(function (e) {
       var a = model.nodeMap[e.fromId], b = model.nodeMap[e.toId];
       var v = F(e.bps);
-      var lbl = (e.fromIface || '?') + ' → ' + (e.toIface || '?') + '<br/>' + v +
-        (e.backward ? '<br/>(回流)' : '');
+      /* k8s 內部的邊兩端都沒 iface：標籤只放流量，不畫「? → ?」 */
+      var lbl = ((e.fromIface || e.toIface) ? (e.fromIface || '?') + ' → ' + (e.toIface || '?') + '<br/>' : '') +
+        v + (e.backward ? '<br/>(回流)' : '');
       var arrow = (b.kind === 'leaf') ? '-. "' + lbl + '" .->' : '-- "' + lbl + '" -->';
       L.push('  ' + id(a.id) + ' ' + arrow + ' ' + id(b.id));
     });
@@ -76,6 +79,10 @@
     });
     L.push('  classDef root stroke:#22d3ee,stroke-width:2px;');
     L.push('  classDef k8snode stroke:#7dd3fc,stroke-dasharray:6 4;');
+    /* 有 pod 中繼才輸出（其他 classDef 是一開始就有的，維持既有輸出逐 byte 不變） */
+    if (model.nodes.some(function (n) { return n.kind === 'node' && n.role === 'pod' && !n.isRoot; })) {
+      L.push('  classDef k8spod stroke:#7dd3fc,stroke-dasharray:2 3;');
+    }
     L.push('  classDef leaf stroke:#94a3b8,stroke-dasharray:5 4,color:#94a3b8;');
     L.push('  classDef anchor stroke:#22d3ee,stroke-dasharray:4 3;');
     L.push('  classDef otherin stroke:#f59e0b,stroke-dasharray:4 3,color:#f59e0b;');

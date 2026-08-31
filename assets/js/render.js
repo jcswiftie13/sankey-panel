@@ -12,13 +12,20 @@
   var THICK_MAX = 86, THICK_MIN = 3;
   var RES_LEN = 34, RES_GAP = 8;   /* 高度改用 thick()，不再有固定的 RES_H／RES_PAD */
 
+  /* namespace 色盤：依「首次出現順序」配色、超過就循環。不用 hash——色盤只有 5 色，
+     hash 撞色不可控，相鄰兩組同色比跨檔案顏色不穩更傷可讀性；出現順序在同一份 JSON
+     裡是確定的，與 tier 先到先贏同一套哲學。刻意避開語意色：青（追查）、琥珀（其他入）、
+     玫瑰（其他出）、灰（葉）、#7dd3fc 天藍（k8s node 框）。 */
+  var NS_COLORS = ['#a78bfa', '#34d399', '#facc15', '#60a5fa', '#f472b6'];
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
 
-  function leafH(n) { return n.role === 'pod' ? 80 : 70; }
+  /* pod 或帶 namespace 的葉多一行資訊（pod / ns 標示），卡要高一階 */
+  function leafH(n) { return (n.role === 'pod' || n.namespace) ? 80 : 70; }
 
   /* 殘差門檻用 model 算好的 resEps：小於 counter 浮點雜訊的殘差不畫，也不佔版面。
      注意這是「相對這台自己流量」的判斷，粗細卻是全圖 maxVal 的比例——
@@ -28,6 +35,14 @@
 
   function layout(model) {
     var nodes = model.nodes, edges = model.edges;
+
+    /* namespace → 顏色：掃節點（葉與 hop 級 ns 都算）依首次出現順序取色 */
+    var nsColor = {};
+    nodes.forEach(function (n) {
+      if (n.namespace && nsColor[n.namespace] == null) {
+        nsColor[n.namespace] = NS_COLORS[Object.keys(nsColor).length % NS_COLORS.length];
+      }
+    });
 
     /* 殘差跟青帶共用同一把比例尺，比例才讀得出來。殘差比所有邊都大時青帶會變細，
        那正是「沒追到的佔大多數」該有的觀感。 */
@@ -125,8 +140,29 @@
             n.__pref = lat.reduce(function (s, e) { return s + model.nodeMap[e.fromId].__pref; }, 0) / lat.length;
           }
         });
+      /* pod 葉依 namespace 分組：同 ns 的 pod 共用「組平均 __pref」當第一排序鍵，
+         整組相鄰排列；組間平手再用 ns 首次出現序拆。組內仍照各自 __pref（上游重心），
+         跨 node 的同 ns pod 相鄰但各自貼近自己的上游。只有帶 ns 的 pod 葉會設
+         __nsPref——沒有 pod 的圖兩個新鍵全空，比較器退化成原本的三鍵，輸出不變。
+         注意 source 模式 pod 在第 0 欄沒有跨欄上游、__pref 是輸入順序：分組照文件順序聚攏。 */
+      var nsAgg = {}, nsSeq = 0;
+      col.forEach(function (n) {
+        n.__nsPref = null; n.__nsIdx = 0;
+        if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) return;
+        var a = nsAgg[n.namespace] || (nsAgg[n.namespace] = { s: 0, c: 0, idx: ++nsSeq });
+        a.s += n.__pref; a.c++;
+      });
+      col.forEach(function (n) {
+        if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) return;
+        var a = nsAgg[n.namespace];
+        n.__nsPref = a.s / a.c;
+        n.__nsIdx = a.idx;
+      });
       col.sort(function (a, b) {
-        return (a.__pref - b.__pref) || ((a.subOrder || 0) - (b.subOrder || 0)) || (a.__ord - b.__ord);
+        var ka = a.__nsPref != null ? a.__nsPref : a.__pref;
+        var kb = b.__nsPref != null ? b.__nsPref : b.__pref;
+        return (ka - kb) || (a.__nsIdx - b.__nsIdx) || (a.__pref - b.__pref) ||
+          ((a.subOrder || 0) - (b.subOrder || 0)) || (a.__ord - b.__ord);
       });
       var y = 0;
       col.forEach(function (n) { n.y = y; y += n.h + VGAP; });
@@ -145,6 +181,28 @@
     var dy = PAD_TOP - minY;
     nodes.forEach(function (n) { n.y += dy; n.__cy = n.y + n.h / 2; });
     var totalH = (maxY + dy) + PAD_BOTTOM;
+
+    /* pod 依 ns 分組後，欄內順序可能偏離 hop 上 port 的宣告順序，帶子會互穿。
+       把「對端是帶 ns 的 pod 葉」的槽位依對端的 y 重排（寫回原本的索引位置，
+       其他槽位含殘差槽原地不動）——只有 pod 葉邊會被重排，非 k8s 圖槽位順序逐 byte 不變。 */
+    nodes.forEach(function (n) {
+      if (n.kind !== 'node') return;
+      [n.leftSlots, n.rightSlots].forEach(function (slots) {
+        function far(sl) {
+          return model.nodeMap[sl.role === 'in' ? sl.edge.fromId : sl.edge.toId];
+        }
+        var idxs = [];
+        slots.forEach(function (sl, i) {
+          if (!sl.edge || sl.edge.lateral || sl.edge.backward) return;
+          var f = far(sl);
+          if (f.kind === 'leaf' && f.role === 'pod' && f.namespace) idxs.push(i);
+        });
+        if (idxs.length < 2) return;
+        var picked = idxs.map(function (i) { return slots[i]; });
+        picked.sort(function (a, b) { return far(a).y - far(b).y; });
+        idxs.forEach(function (i, k) { slots[i] = picked[k]; });
+      });
+    });
 
     /* port 中心點 */
     nodes.forEach(function (n) {
@@ -196,7 +254,7 @@
     });
     if (backs.length) totalH = backY - 16 + PAD_BOTTOM;
 
-    return { cols: cols, colX: colX, width: totalW, height: Math.max(totalH, 220), thick: thick };
+    return { cols: cols, colX: colX, width: totalW, height: Math.max(totalH, 220), thick: thick, nsColor: nsColor };
 
     function stackH(slots) {
       if (!slots.length) return 0;
@@ -285,12 +343,14 @@
       var meta = {
         from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
         fi: e.fromIface, ti: e.toIface, bps: e.bps, anchor: !!e.isAnchor,
-        backward: e.backward || undefined     /* stringify 會把 undefined 丟掉：沒回流的圖輸出不變 */
+        backward: e.backward || undefined,    /* stringify 會把 undefined 丟掉：沒回流的圖輸出不變 */
+        ns: e.namespace || undefined          /* 同上：沒 ns 的圖輸出不變 */
       };
+      /* iface 在 k8s hop 上可空：title 只在有值時帶，避免「A → B：+8 Gbps」多出孤懸空格 */
+      var tt = meta.from + (e.fromIface ? ' ' + e.fromIface : '') + ' → ' +
+        meta.to + (e.toIface ? ' ' + e.toIface : '') + '：' + D(e.bps);
       if (e.backward) {
-        var backTitle = '<title>' +
-          esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + D(e.bps) + '（回流）') +
-          '</title>';
+        var backTitle = '<title>' + esc(tt + '（回流）') + '</title>';
         if (e.backNear) {
           /* 相鄰欄回流：整條活在兩欄之間的走廊，反向的一般帶 */
           out.push('<path class="band band-back" d="' + ribbon(e) + '" fill="url(#gband-back)" ' +
@@ -308,9 +368,7 @@
       out.push('<path class="band' + (e.lateral ? ' band-lat' : '') + '" d="' +
         (e.lateral ? lateralRibbon(e, e.bulge) : ribbon(e)) + '" fill="url(#gband)" ' +
         'stroke="#22d3ee" stroke-opacity=".35" stroke-width="1" ' +
-        'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
-        esc(meta.from + ' ' + e.fromIface + ' → ' + meta.to + ' ' + e.toIface + '：' + D(e.bps)) +
-        '</title></path>');
+        'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' + esc(tt) + '</title></path>');
       /* 馬蹄弧一定終止在 target 右緣、且是朝 -x 進來的，所以固定一個朝左的三角形
          就永遠指對方向，不用算路徑切線。兄弟節點而非包在 band 裡：包起來會打斷
          .band:hover 與 querySelectorAll('.band') 的 tooltip 綁定。 */
@@ -333,8 +391,8 @@
 
     /* 盒子 */
     model.nodes.forEach(function (n) {
-      if (n.kind === 'node') out.push(nodeBox(n, model));
-      else if (n.kind === 'leaf') out.push(leafCard(n));
+      if (n.kind === 'node') out.push(nodeBox(n, model, geo.nsColor));
+      else if (n.kind === 'leaf') out.push(leafCard(n, geo.nsColor));
       else out.push(anchorCard(n, model));
     });
 
@@ -356,30 +414,44 @@
     var kinds = {};
     col.forEach(function (n) { kinds[n.kind] = true; });
     if (kinds.anchor) return dir === 'destination' ? '追查起點 (in)' : '追查起點 (out)';
-    if (kinds.node) return '第 ' + col[0].col + ' 跳';
-    return '追查終止';
+    /* 整欄都是 k8s node／pod 才標註，混欄不標——標了反而誤導 */
+    if (kinds.node) {
+      var allK8s = col.every(function (n) { return n.kind === 'node' && n.role === 'node'; });
+      return '第 ' + col[0].col + ' 跳' + (allK8s ? ' · k8s node' : '');
+    }
+    var allPod = col.every(function (n) { return n.kind === 'leaf' && n.role === 'pod'; });
+    return '追查終止' + (allPod ? ' · pod' : '');
   }
 
-  function nodeBox(n, model) {
-    var isK8sNode = n.role === 'node';
+  function nodeBox(n, model, nsColor) {
+    var isK8s = n.role === 'node' || n.role === 'pod';   /* pod 也能當中繼 hop（proxy pod） */
     var s = [];
+    /* root 身分優先於 k8s 樣式（青框），虛線只看 k8s——root 的 k8s node 兩個身分都看得見 */
     s.push('<g>');
     s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="9" ' +
-      'fill="#101c28" stroke="' + (isK8sNode ? '#7dd3fc' : (n.isRoot ? '#22d3ee' : '#2c3e52')) + '" ' +
-      'stroke-width="' + (n.isRoot ? 1.8 : 1.2) + '"' + (isK8sNode ? ' stroke-dasharray="6 4"' : '') + '/>');
+      'fill="#101c28" stroke="' + (n.isRoot ? '#22d3ee' : (isK8s ? '#7dd3fc' : '#2c3e52')) + '" ' +
+      'stroke-width="' + (n.isRoot ? 1.8 : 1.2) + '"' + (isK8s ? ' stroke-dasharray="6 4"' : '') + '/>');
     s.push('<line x1="' + n.x + '" y1="' + (n.y + HEADER_H - 6) + '" x2="' + (n.x + n.w) +
       '" y2="' + (n.y + HEADER_H - 6) + '" stroke="#22303f"/>');
     s.push('<text class="n-title" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">' + esc(n.label) +
       (n.hopCount > 1 ? ' <tspan class="n-sub">×' + n.hopCount + ' hop 合併</tspan>' : '') + '</text>');
-    s.push('<text class="n-sub" x="' + (n.x + 12) + '" y="' + (n.y + 29) + '">' + esc(n.id) +
-      (isK8sNode ? ' · node' : '') + '</text>');
+    var sub = esc(n.id);
+    if (n.role === 'node') sub += ' · node';
+    else if (n.role === 'pod') {
+      if (n.namespace) {
+        sub += ' · <tspan style="fill:' + (nsColor[n.namespace] || '#94a3b8') + '">ns/' +
+          esc(n.namespace) + '</tspan>';
+      }
+      sub += ' · pod';
+    }
+    s.push('<text class="n-sub" x="' + (n.x + 12) + '" y="' + (n.y + 29) + '">' + sub + '</text>');
 
     n.leftSlots.forEach(function (sl) {
-      if (sl.res) return;                          /* 殘差的標籤畫在盒子外面 */
+      if (sl.res || !sl.iface) return;             /* 殘差的標籤畫在盒子外面；k8s port 可沒 iface */
       s.push('<text class="p-label" x="' + (n.x + 10) + '" y="' + (sl.cy + 3.5) + '">' + esc(sl.iface) + '</text>');
     });
     n.rightSlots.forEach(function (sl) {
-      if (sl.res) return;
+      if (sl.res || !sl.iface) return;
       s.push('<text class="p-label" text-anchor="end" x="' + (n.x + n.w - 10) + '" y="' + (sl.cy + 3.5) + '">' +
         esc(sl.iface) + '</text>');
     });
@@ -387,21 +459,36 @@
     return s.join('');
   }
 
-  function leafCard(n) {
+  function leafCard(n, nsColor) {
     var s = [];
     var isPod = n.role === 'pod';
+    var nsc = n.namespace ? (nsColor[n.namespace] || '#94a3b8') : null;
     s.push('<g>');
+    /* pod 用 node 盒同家族的天藍描邊（調淡），跟一般灰葉一眼就分得出來 */
     s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8" ' +
-      'fill="#0e151d" stroke="#94a3b8" stroke-opacity=".65" stroke-width="1.1" stroke-dasharray="5 4"/>');
+      'fill="#0e151d" stroke="' + (isPod ? '#7dd3fc' : '#94a3b8') + '" stroke-opacity="' +
+      (isPod ? '.55' : '.65') + '" stroke-width="1.1" stroke-dasharray="5 4"/>');
+    /* 左緣 ns 色條：同 ns 的 pod 相鄰排列時色條連成一段，彙總一眼可讀。
+       上下內縮避開圓角，避免色條戳出弧線外。 */
+    if (nsc) {
+      s.push('<rect x="' + (n.x + 1.5) + '" y="' + (n.y + 5) + '" width="4" height="' + (n.h - 10) +
+        '" rx="2" fill="' + nsc + '" fill-opacity=".85"/>');
+    }
     s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">追查終止</text>');
     s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 34) + '">' + esc(n.label) + '</text>');
     var ly = n.y + 48;
-    if (isPod && n.namespace) {
-      s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">ns/' + esc(n.namespace) + ' · pod</text>');
+    /* namespace 有給就顯示（與 exports/CLI 同一條件），pod 標記獨立於 ns */
+    if (n.namespace) {
+      s.push('<text class="leaf-sub" style="fill:' + nsc + '" x="' + (n.x + 12) + '" y="' + ly + '">ns/' +
+        esc(n.namespace) + (isPod ? ' · pod' : '') + '</text>');
+      ly += 14;
+    } else if (isPod) {
+      s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">pod</text>');
       ly += 14;
     }
-    s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">' + esc(n.iface || n.localIface || '') +
-      ' · ' + esc(F(n.bps)) + '</text>');
+    var ifc = n.iface || n.localIface || '';
+    s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">' +
+      (ifc ? esc(ifc) + ' · ' : '') + esc(F(n.bps)) + '</text>');
     s.push('<text class="leaf-stop" text-anchor="end" x="' + (n.x + n.w - 12) + '" y="' + (n.y + 17) +
       '">未再往下追</text>');
     s.push('</g>');
@@ -464,6 +551,24 @@
         '<td class="num c-rose">' + (resOut(n) ? F(n.otherOut) : '—') + '</td></tr>');
     });
     h.push('</tbody></table></div>');
+    /* pod 葉的 namespace 流量小計：圖上的分組色條給觀感，數字彙總在這裡 */
+    var pods = model.nodes.filter(function (n) { return n.kind === 'leaf' && n.role === 'pod'; });
+    if (pods.some(function (n) { return !!n.namespace; })) {
+      var agg = {}, nsOrder = [];
+      pods.forEach(function (n) {
+        var k = n.namespace || '（無 namespace）';
+        if (!agg[k]) { agg[k] = { c: 0, bps: 0 }; nsOrder.push(k); }
+        agg[k].c++; agg[k].bps += n.bps;
+      });
+      nsOrder.sort(function (a, b) { return agg[b].bps - agg[a].bps; });
+      h.push('<h3>namespace 流量小計（pod 葉）</h3><div class="tbl-wrap"><table><thead><tr>' +
+        '<th>namespace</th><th>pod 數</th><th>Δ 合計</th></tr></thead><tbody>');
+      nsOrder.forEach(function (k) {
+        h.push('<tr><td>' + esc(k) + '</td><td class="num">' + agg[k].c + '</td>' +
+          '<td class="num">' + D(agg[k].bps) + '</td></tr>');
+      });
+      h.push('</tbody></table></div>');
+    }
     h.push('<p class="warn">平衡式：已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出。</p>');
     model.warnings.forEach(function (w) { h.push('<p class="warn">⚠ ' + esc(w) + '</p>'); });
     return h.join('');
