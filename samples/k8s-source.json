@@ -49,7 +49,8 @@
         {
           "deltaBps": 2000000000,
           "peerKind": "pod",
-          "peerId": "batch-9k"
+          "peerId": "batch-9k",
+          "namespace": "batch"
         }
       ]
     },

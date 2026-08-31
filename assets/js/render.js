@@ -184,9 +184,10 @@
 
     /* pod 依 ns 分組後，欄內順序可能偏離 hop 上 port 的宣告順序，帶子會互穿。
        把「對端是帶 ns 的 pod 葉」的槽位依對端的 y 重排（寫回原本的索引位置，
-       其他槽位含殘差槽原地不動）——只有 pod 葉邊會被重排，非 k8s 圖槽位順序逐 byte 不變。 */
+       其他槽位含殘差槽原地不動）——只有 pod 葉邊會被重排，非 k8s 圖槽位順序逐 byte 不變。
+       ns 終點也要重排：多台 node 的 pod 匯進同一個 ns，匯流帶照 pod 的 y 排才不互穿。 */
     nodes.forEach(function (n) {
-      if (n.kind !== 'node') return;
+      if (n.kind !== 'node' && n.role !== 'ns') return;
       [n.leftSlots, n.rightSlots].forEach(function (slots) {
         function far(sl) {
           return model.nodeMap[sl.role === 'in' ? sl.edge.fromId : sl.edge.toId];
@@ -392,7 +393,11 @@
     /* 盒子 */
     model.nodes.forEach(function (n) {
       if (n.kind === 'node') out.push(nodeBox(n, model, geo.nsColor));
-      else if (n.kind === 'leaf') out.push(leafCard(n, geo.nsColor));
+      else if (n.kind === 'leaf') {
+        if (n.role === 'pod') out.push(podCard(n, geo.nsColor));
+        else if (n.role === 'ns') out.push(nsCard(n, model, geo.nsColor));
+        else out.push(leafCard(n, geo.nsColor));
+      }
       else out.push(anchorCard(n, model));
     });
 
@@ -414,13 +419,21 @@
     var kinds = {};
     col.forEach(function (n) { kinds[n.kind] = true; });
     if (kinds.anchor) return dir === 'destination' ? '追查起點 (in)' : '追查起點 (out)';
-    /* 整欄都是 k8s node／pod 才標註，混欄不標——標了反而誤導 */
+    /* 整欄同質才標註，混欄不標——標了反而誤導 */
     if (kinds.node) {
       var allK8s = col.every(function (n) { return n.kind === 'node' && n.role === 'node'; });
       return '第 ' + col[0].col + ' 跳' + (allK8s ? ' · k8s node' : '');
     }
-    var allPod = col.every(function (n) { return n.kind === 'leaf' && n.role === 'pod'; });
-    return '追查終止' + (allPod ? ' · pod' : '');
+    /* ns 終點欄：namespace 是追查的盡頭 */
+    if (col.every(function (n) { return n.role === 'ns'; })) return '追查終止 · namespace';
+    /* pod 是中繼了（另一側接 ns），整欄 pod 比照「第 N 跳」；含 pod 的混葉欄同理 */
+    if (col.every(function (n) { return n.kind === 'leaf' && n.role === 'pod'; })) {
+      return '第 ' + col[0].col + ' 跳 · pod';
+    }
+    if (col.some(function (n) { return n.kind === 'leaf' && n.role === 'pod'; })) {
+      return '第 ' + col[0].col + ' 跳';
+    }
+    return '追查終止';
   }
 
   function nodeBox(n, model, nsColor) {
@@ -461,14 +474,11 @@
 
   function leafCard(n, nsColor) {
     var s = [];
-    var isPod = n.role === 'pod';
     var nsc = n.namespace ? (nsColor[n.namespace] || '#94a3b8') : null;
     s.push('<g>');
-    /* pod 用 node 盒同家族的天藍描邊（調淡），跟一般灰葉一眼就分得出來 */
     s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8" ' +
-      'fill="#0e151d" stroke="' + (isPod ? '#7dd3fc' : '#94a3b8') + '" stroke-opacity="' +
-      (isPod ? '.55' : '.65') + '" stroke-width="1.1" stroke-dasharray="5 4"/>');
-    /* 左緣 ns 色條：同 ns 的 pod 相鄰排列時色條連成一段，彙總一眼可讀。
+      'fill="#0e151d" stroke="#94a3b8" stroke-opacity=".65" stroke-width="1.1" stroke-dasharray="5 4"/>');
+    /* 左緣 ns 色條：帶 ns 的非 pod 葉也照畫（與色盤取用條件一致）。
        上下內縮避開圓角，避免色條戳出弧線外。 */
     if (nsc) {
       s.push('<rect x="' + (n.x + 1.5) + '" y="' + (n.y + 5) + '" width="4" height="' + (n.h - 10) +
@@ -477,13 +487,9 @@
     s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">追查終止</text>');
     s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 34) + '">' + esc(n.label) + '</text>');
     var ly = n.y + 48;
-    /* namespace 有給就顯示（與 exports/CLI 同一條件），pod 標記獨立於 ns */
     if (n.namespace) {
       s.push('<text class="leaf-sub" style="fill:' + nsc + '" x="' + (n.x + 12) + '" y="' + ly + '">ns/' +
-        esc(n.namespace) + (isPod ? ' · pod' : '') + '</text>');
-      ly += 14;
-    } else if (isPod) {
-      s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">pod</text>');
+        esc(n.namespace) + '</text>');
       ly += 14;
     }
     var ifc = n.iface || n.localIface || '';
@@ -491,6 +497,46 @@
       (ifc ? esc(ifc) + ' · ' : '') + esc(F(n.bps)) + '</text>');
     s.push('<text class="leaf-stop" text-anchor="end" x="' + (n.x + n.w - 12) + '" y="' + (n.y + 17) +
       '">未再往下追</text>');
+    s.push('</g>');
+    return s.join('');
+  }
+
+  /* pod 中繼卡：外觀沿用天藍虛線＋ns 色條的 pod 家族，但 pod 已不是終點——
+     另一側有邊接 ns 終點，「追查終止／未再往下追」字樣不再出現。 */
+  function podCard(n, nsColor) {
+    var nsc = nsColor[n.namespace] || '#94a3b8';
+    var s = [];
+    s.push('<g>');
+    s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8" ' +
+      'fill="#0e151d" stroke="#7dd3fc" stroke-opacity=".55" stroke-width="1.1" stroke-dasharray="5 4"/>');
+    /* 左緣 ns 色條：同 ns 的 pod 相鄰排列時色條連成一段，彙總一眼可讀 */
+    s.push('<rect x="' + (n.x + 1.5) + '" y="' + (n.y + 5) + '" width="4" height="' + (n.h - 10) +
+      '" rx="2" fill="' + nsc + '" fill-opacity=".85"/>');
+    s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">pod</text>');
+    s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 34) + '">' + esc(n.label) + '</text>');
+    s.push('<text class="leaf-sub" style="fill:' + nsc + '" x="' + (n.x + 12) + '" y="' + (n.y + 48) + '">ns/' +
+      esc(n.namespace) + '</text>');
+    var ifc = n.iface || n.localIface || '';
+    s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + (n.y + 62) + '">' +
+      (ifc ? esc(ifc) + ' · ' : '') + esc(F(n.bps)) + '</text>');
+    s.push('</g>');
+    return s.join('');
+  }
+
+  /* namespace 終點卡：邏輯彙總、不是設備——用 ns 色實線描邊，
+     虛線留給「設備／截斷」的既有語彙。bps 是所有 pod 邊的加總（model 算好）。 */
+  function nsCard(n, model, nsColor) {
+    var nsc = nsColor[n.namespace] || '#94a3b8';
+    var cnt = (model.dir === 'destination' ? n.inEdges : n.outEdges).length;
+    var s = [];
+    s.push('<g>');
+    s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8" ' +
+      'fill="' + nsc + '" fill-opacity=".10" stroke="' + nsc + '" stroke-width="1.4"/>');
+    s.push('<text class="leaf-stop" style="fill:' + nsc + '" x="' + (n.x + 12) + '" y="' + (n.y + 17) +
+      '">namespace</text>');
+    s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 34) + '">' + esc(n.label) + '</text>');
+    s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + (n.y + 48) + '">' +
+      esc(D(n.bps)) + ' · ' + cnt + ' 個 pod</text>');
     s.push('</g>');
     return s.join('');
   }
@@ -551,21 +597,17 @@
         '<td class="num c-rose">' + (resOut(n) ? F(n.otherOut) : '—') + '</td></tr>');
     });
     h.push('</tbody></table></div>');
-    /* pod 葉的 namespace 流量小計：圖上的分組色條給觀感，數字彙總在這裡 */
-    var pods = model.nodes.filter(function (n) { return n.kind === 'leaf' && n.role === 'pod'; });
-    if (pods.some(function (n) { return !!n.namespace; })) {
-      var agg = {}, nsOrder = [];
-      pods.forEach(function (n) {
-        var k = n.namespace || '（無 namespace）';
-        if (!agg[k]) { agg[k] = { c: 0, bps: 0 }; nsOrder.push(k); }
-        agg[k].c++; agg[k].bps += n.bps;
-      });
-      nsOrder.sort(function (a, b) { return agg[b].bps - agg[a].bps; });
-      h.push('<h3>namespace 流量小計（pod 葉）</h3><div class="tbl-wrap"><table><thead><tr>' +
+    /* namespace 流量小計：ns 終點節點就是單一事實來源（bps＝pod 匯流邊加總、
+       pod 數＝邊數），表跟圖不可能對不上 */
+    var nsNodes = model.nodes.filter(function (n) { return n.role === 'ns'; });
+    if (nsNodes.length) {
+      var sorted = nsNodes.slice().sort(function (a, b) { return b.bps - a.bps; });
+      h.push('<h3>namespace 流量小計（終點）</h3><div class="tbl-wrap"><table><thead><tr>' +
         '<th>namespace</th><th>pod 數</th><th>Δ 合計</th></tr></thead><tbody>');
-      nsOrder.forEach(function (k) {
-        h.push('<tr><td>' + esc(k) + '</td><td class="num">' + agg[k].c + '</td>' +
-          '<td class="num">' + D(agg[k].bps) + '</td></tr>');
+      sorted.forEach(function (n) {
+        var cnt = (model.dir === 'destination' ? n.inEdges : n.outEdges).length;
+        h.push('<tr><td>' + esc(n.label) + '</td><td class="num">' + cnt + '</td>' +
+          '<td class="num">' + D(n.bps) + '</td></tr>');
       });
       h.push('</tbody></table></div>');
     }

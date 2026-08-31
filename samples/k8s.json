@@ -82,7 +82,8 @@
         {
           "deltaBps": 2500000000,
           "peerKind": "pod",
-          "peerId": "debug-shell"
+          "peerId": "debug-shell",
+          "namespace": "debug"
         }
       ]
     },
