@@ -21,7 +21,9 @@
     "styles",
     "types"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "*.css"
+  ],
   "peerDependencies": {
     "react": ">=16.8"
   },

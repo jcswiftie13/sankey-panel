@@ -1,0 +1,83 @@
+/* 使用端 app 的版面樣式。圖本身（容器、帶、SVG 文字、tooltip）的樣式
+   在套件的 trace-sankey/style.css 裡，這裡只管圖以外的頁面。 */
+:root{
+  --bg:#0b1017; --bg2:#111a24; --line:#22303f; --line2:#2c3e52;
+  --fg:#e6edf5; --dim:#93a4b8; --dim2:#6b7f95;
+  --cyan:#22d3ee; --cyan-d:#0e7490; --amber:#f59e0b; --rose:#fb7185; --gray:#94a3b8;
+}
+*{box-sizing:border-box}
+html,body,#root{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg); color:var(--fg);
+  font:15px/1.6 "Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,-apple-system,"Segoe UI",sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+
+/* 直向 flex：上面兩列固定高、圖吃掉剩下全部——不用再量 DOM 算高度 */
+.app{height:100%;display:flex;flex-direction:column;gap:10px;padding:14px 18px 16px}
+
+/* ---------- topbar ---------- */
+.topbar{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between}
+.brand{display:flex;gap:11px;align-items:center}
+.brand .dot{width:12px;height:12px;border-radius:50%;background:var(--cyan);box-shadow:0 0 14px var(--cyan);flex:none}
+.topbar h1{margin:0;font-size:17px;font-weight:650;letter-spacing:.2px}
+
+/* ---------- 顯示門檻 ---------- */
+.min-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--dim)}
+/* 17ch 不是隨便挑的：number input 右邊要留 spinner 的位置，
+   14ch 會把 1500000000 這種十位數從左邊裁掉一個字 */
+#minBps{width:17ch;background:#0e1620;border:1px solid var(--line2);border-radius:8px;
+  color:var(--fg);font-family:inherit;font-size:13px;padding:7px 10px;text-align:right;
+  font-variant-numeric:tabular-nums}
+#minBps:focus{outline:none;border-color:var(--cyan)}
+.min-row .unit{font-size:12.5px;color:var(--dim2)}
+/* tabular-nums：翻譯文字跟著打字一直重算，等寬數字才不會左右跳 */
+.unit-hint{font-size:12.5px;color:#c8f4ff;border:1px dashed var(--line2);border-radius:99px;
+  padding:5px 12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{font-size:12px;border:1px solid var(--line2);border-radius:99px;padding:3px 10px;color:var(--dim)}
+
+/* ---------- legend ---------- */
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--dim)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:22px;height:9px;border-radius:2px;display:inline-block}
+.lg-cyan{background:linear-gradient(90deg,var(--cyan),var(--cyan-d))}
+/* 同欄弧帶不是另一種狀態，是已追查在同欄時的畫法：圖例縮排掛在已追查底下 */
+.lg-sub{margin-left:-6px;opacity:.8}
+.lg-lat{background:linear-gradient(90deg,var(--cyan),var(--cyan-d));opacity:.62;
+  border-radius:0 99px 99px 0;width:14px}
+.lg-back{background:linear-gradient(90deg,#9f1239,var(--rose))}
+.lg-amber{background:rgba(245,158,11,.16);border:1.4px dashed var(--amber)}
+.lg-rose{background:rgba(251,113,133,.16);border:1.4px dashed var(--rose)}
+.lg-gray{height:0!important;border-top:2px dashed var(--gray)}
+
+/* ---------- 圖區 ---------- */
+/* min-height:0 是 flex 的必要惡：沒有它子項不肯縮小，圖會把頁面撐出捲軸 */
+.chart-area{position:relative;flex:1;min-height:0}
+.chart-host{height:100%}
+
+/* 縮放控制列：TraceSankey 容器的兄弟，蓋在圖右下角；
+   刻意放在容器外——容器內的東西每次重畫都會被 innerHTML 洗掉 */
+.zoom-ctl{position:absolute;right:10px;bottom:10px;z-index:4;
+  display:flex;gap:6px;align-items:center;padding:5px 6px;
+  background:rgba(11,16,23,.86);border:1px solid var(--line);border-radius:99px}
+.btn{background:#152232;border:1px solid var(--line2);color:var(--fg);border-radius:99px;
+  padding:5px 11px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.btn:hover{border-color:var(--cyan-d)}
+.zbtn{min-width:34px;text-align:center}
+.zpct{min-width:60px;font-variant-numeric:tabular-nums;color:var(--dim)}
+
+/* ---------- 錯誤 ---------- */
+.empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:4px;text-align:center;color:var(--dim);font-size:13.5px}
+.empty b{color:var(--fg);margin-bottom:6px;font-size:15px}
+
+/* ---------- 專注模式 ---------- */
+/* 純 CSS（body class）。tooltip 掛在 body 上所以照常運作——這也是不用 Fullscreen API 的原因 */
+body.chart-focus .topbar,
+body.chart-focus .legend{display:none}
+body.chart-focus .app{padding:0;gap:0}
+body.chart-focus .trace-sankey.chart-wrap{border:0;border-radius:0}
+
+@media (max-width:760px){
+  .app{padding:10px 12px 12px}
+}

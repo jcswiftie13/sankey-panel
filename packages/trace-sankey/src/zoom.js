@@ -257,3 +257,6 @@ export function createZoom() {
     isPanning: isPanning
   };
 }
+
+/* 工具列／快捷鍵的一格倍率，跟實例的 step 同值——使用端不必先有實例才能拿到 */
+export var zoomStep = STEP;
