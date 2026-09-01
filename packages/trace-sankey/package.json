@@ -13,7 +13,10 @@
       "types": "./types/react.d.ts",
       "default": "./src/react.js"
     },
-    "./samples": "./src/samples.js",
+    "./samples": {
+      "types": "./types/samples.d.ts",
+      "default": "./src/samples.js"
+    },
     "./style.css": "./styles/trace-sankey.css"
   },
   "files": [
