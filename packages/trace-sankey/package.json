@@ -1,0 +1,33 @@
+{
+  "name": "trace-sankey",
+  "version": "0.1.0",
+  "description": "網路交換器 interface counter 增量的追查 Sankey 視覺化（零依賴、純 ESM、SVG 字串渲染）",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./react": {
+      "types": "./types/react.d.ts",
+      "default": "./src/react.js"
+    },
+    "./samples": "./src/samples.js",
+    "./style.css": "./styles/trace-sankey.css"
+  },
+  "files": [
+    "src",
+    "styles",
+    "types"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "react": ">=16.8"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

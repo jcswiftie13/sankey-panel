@@ -1,0 +1,8 @@
+{
+  "name": "sankey-panel-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ]
+}
