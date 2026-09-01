@@ -1,0 +1,66 @@
+/* trace-sankey 套件樣式：mount() 容器（.trace-sankey.chart-wrap）與 tooltip。
+   色票變數不放 :root——套件不污染使用端的全域；scope 在自己的兩個根元素上，
+   CSS 變數向下繼承，SVG 內的 text class 照常吃得到。
+   注意：render.js 產出的 SVG 硬編碼了同一批十六進位色（漸層 defs），
+   改配色要兩邊一起改。 */
+.trace-sankey,
+.trace-sankey-tooltip {
+  --panel: #131d29;
+  --line: #22303f;
+  --line2: #2c3e52;
+  --fg: #e6edf5;
+  --dim: #93a4b8;
+  --dim2: #6b7f95;
+  --cyan: #22d3ee;
+  --cyan-d: #0e7490;
+  --amber: #f59e0b;
+  --rose: #fb7185;
+  --gray: #94a3b8;
+  --radius: 10px;
+  /* SVG 文字繼承容器字型：不自帶的話會吃到使用端頁面的字型，圖的量字對不齊 */
+  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.6;
+}
+
+/* ---------- 容器 ---------- */
+/* 高度刻意不在這裡定：容器多高由使用端 CSS 決定，mount 不猜版面 */
+.trace-sankey.chart-wrap{position:relative;border:1px solid var(--line);border-radius:var(--radius);
+  background:radial-gradient(1200px 500px at 20% -10%,#12202e,transparent),var(--panel);
+  overflow:hidden;
+  touch-action:none;-webkit-user-select:none;user-select:none}
+.trace-sankey.chart-wrap:focus-visible{outline:1px solid var(--cyan-d);outline-offset:2px}
+.trace-sankey .chart{height:100%;padding:8px;cursor:grab}
+/* SVG 沒寫 width/height，尺寸完全交給這條——zoom 的 fit 計算依賴它 */
+.trace-sankey .chart svg{display:block;width:100%;height:100%}
+.trace-sankey.chart-wrap.is-panning .chart{cursor:grabbing}
+.trace-sankey.chart-wrap.is-panning .chart svg{pointer-events:none}
+
+/* ---------- 帶 ---------- */
+.trace-sankey .band-lat{fill-opacity:.62}
+/* 馬蹄弧兩端都掛盒子右緣，形狀本身讀不出方向，靠這個三角形指流向。
+   pointer-events:none 是必要的：不然它會擋掉底下 band 的 hover，tooltip 跟高亮都會斷。 */
+.trace-sankey .lat-arrow{fill:var(--cyan);pointer-events:none}
+/* hover 高亮交給 CSS：狀態由瀏覽器管，mouseleave 沒觸發（觸控、游標衝出視窗）也不會卡住 */
+.trace-sankey .band:hover{fill:url(#gband-h)}
+.trace-sankey .band.band-back:hover{fill:url(#gband-back-h)}
+.trace-sankey .band.band-loop:hover{fill:none;stroke-opacity:.85}
+
+/* ---------- svg text ---------- */
+/* 圖上的文字都不可互動，免得帶子上的數字擋掉 hover */
+.trace-sankey .chart svg text{pointer-events:none}
+.trace-sankey .n-title{fill:var(--fg);font-size:12.5px;font-weight:650}
+.trace-sankey .n-sub{fill:var(--dim2);font-size:10.5px}
+.trace-sankey .p-label{fill:var(--dim);font-size:10.5px}
+.trace-sankey .p-val{fill:#cfe9f3;font-size:10.5px;font-weight:600}
+.trace-sankey .res-label{font-size:10.5px;font-weight:600}
+.trace-sankey .leaf-stop{fill:var(--gray);font-size:9.5px;letter-spacing:.06em}
+.trace-sankey .leaf-main{fill:#c3cfdc;font-size:11px;font-weight:600}
+.trace-sankey .leaf-sub{fill:var(--dim2);font-size:10px}
+.trace-sankey .col-cap{fill:var(--dim2);font-size:10px;letter-spacing:.1em}
+
+/* ---------- tooltip（mount 自建、掛在 body 上） ---------- */
+.trace-sankey-tooltip{position:fixed;z-index:50;pointer-events:none;background:#0a1219f2;border:1px solid var(--line2);
+  border-radius:8px;padding:8px 11px;font-size:12px;color:var(--fg);max-width:290px;box-shadow:0 10px 30px #0008}
+.trace-sankey-tooltip[hidden]{display:none}
+.trace-sankey-tooltip b{display:block;margin-bottom:3px}
+.trace-sankey-tooltip .t-row{color:var(--dim);display:flex;gap:10px;justify-content:space-between}

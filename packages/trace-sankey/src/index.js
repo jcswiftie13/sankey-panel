@@ -5,3 +5,5 @@
 export { build, validate, direction, fmtBps, fmtDelta, gbps } from './model.js';
 export { render, summary, esc } from './render.js';
 export { createZoom } from './zoom.js';
+export { createTooltip } from './tooltip.js';
+export { mount } from './mount.js';
