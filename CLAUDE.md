@@ -52,7 +52,7 @@ repo 名 `sankey-panel` 只是倉庫名）。使用情境：你在某台 switch 
 index.html            單頁應用：版面 + 五個分頁（圖 / JSON / Mermaid Sankey / Mermaid Flowchart / 畫法說明）
 assets/css/app.css    全部樣式：CSS 變數色票、SVG text class、hover 高亮、圖例、響應式
 assets/js/samples.js  9 個內建範例（純資料；最後一個 dci-uturn 是 IIFE 程式化產生）
-assets/js/model.js    JSON 驗證 → 合併 hop → 建邊 → 排欄/破環 → 殘差    → TraceModel
+assets/js/model.js    JSON 驗證 → 合併 hop → 建邊（含顯示門檻）→ 排欄/破環 → 殘差 → TraceModel
 assets/js/render.js   版面計算 + SVG 字串組裝 + hop 摘要表               → TraceRender
 assets/js/zoom.js     縮放平移（只改 <g class="zoom-layer"> 的 transform）→ TraceZoom
 assets/js/exports.js  Mermaid sankey-beta / flowchart 匯出                → TraceExports
@@ -73,7 +73,8 @@ README.md             使用說明 + 輸入 JSON 契約 + 驗證錯誤對照表 
 ```
 JSON（FileReader / localStorage / samples.js）
   → app.js currentDoc()
-  → TraceModel.build(doc)        失敗 {ok:false, errors} → 印在圖區；成功 → model
+  → TraceModel.build(doc, {minBps: state.min})
+                                 失敗 {ok:false, errors} → 印在圖區；成功 → model
   → TraceRender.render(model)    SVG 字串 → chart.innerHTML
   → TraceRender.summary(model)   hop 數字表 + warnings → 圖下方
   → TraceExports.mermaid*(model) 兩個 <pre>
@@ -82,11 +83,17 @@ JSON（FileReader / localStorage / samples.js）
 ```
 
 app.js `draw()` 的重要順序約束：
-- `lastKey`（`state.sample + '\n' + raw`）沒變就**不重畫 SVG**，切分頁回來才保得住縮放狀態。
+- `lastKey`（`state.sample + '\n' + state.min + '\n' + raw`）沒變就**不重畫 SVG**，切分頁回來
+  才保得住縮放狀態。**門檻一定要在鍵裡**，不然改門檻不會重畫。
 - `sizeChart()` **一定要在 `Z.attach()` 之前**呼叫——fit 需要用圖區的最終高度計算。
 - 圖畫不出來時走 `chartGone()`：`Z.detach()` + 收縮放工具列 + `lastKey = null`。
-- UI 狀態 = query string（`?sample=&tab=`），控制項是真 `<a href>`（無 JS 也能切換）；
-  document 層攔 click 後 `history.pushState`。縮放狀態**刻意不進** query string。
+- UI 狀態 = query string（`?sample=&tab=&min=`），sample／tab 的控制項是真 `<a href>`
+  （無 JS 也能切換）；document 層攔 click 後 `history.pushState`。縮放狀態**刻意不進** query string。
+- 門檻是 `<input type=number>`，走另一條路：打字時 `history.replaceState`（**不是** pushState
+  ——每個字元推一筆歷史會讓上一頁完全沒法用）、重畫 debounce 200ms、提示文字不 debounce。
+  `setMin()` 一定**先 `clearTimeout` 再比對 `v === state.min`**：打了一個字又刪掉時值會回到
+  `state.min`，這時直接 return 會留下一個待辦的舊值，200ms 後把已經刪掉的門檻套上去。
+  `cleanMin()` 把負數／小數／亂打的字一律當 0。`popstate` 要順便 `syncMin()` 回填輸入框。
 - localStorage 鍵：`trace-sankey/custom`（原始 JSON 文字）、`trace-sankey/custom-name`
   （檔名；有檔名＝從檔案載入、沒有＝編輯器貼上）。開檔與編輯器共用 `applyRaw()` 同一條驗證路徑。
 
@@ -129,9 +136,16 @@ app.js `draw()` 的重要順序約束：
 兩個 tier 範例的差別：`dci-tier` 全部 hop 同一個 tier → 邊全是同欄 lateral 弧帶、無回流；
 `dci-uturn` 分三個 tier 且 dci 層回打 bdr 層 → 觸發多數決回流帶（見下）。
 
-## 6. model.js：`TraceModel.build(doc)` 演算法
+## 6. model.js：`TraceModel.build(doc, opts)` 演算法
 
-匯出：`build` / `validate` / `direction` / `fmtBps` / `fmtDelta` / `gbps`。build 分七步：
+匯出：`build` / `validate` / `direction` / `fmtBps` / `fmtDelta` / `gbps`。
+
+`opts.minBps` 是**顯示門檻**（bps）：只留增量**大於**它的帶子，`0`／沒給＝不過濾，行為與沒有這個
+功能時逐欄位相同。門檻是使用者在 UI 上調的**顯示**選項，不是資料的一部分——不進 JSON 契約、
+不影響 `validate()`，只有網頁版有（`?min=`），CLI 沒有對應旗標。跟 `pruning.topN/minShare`
+是兩件事：那兩個是「上游已截斷過」的註記，程式從不拿它們過濾。
+
+build 分七步（門檻散在步驟 2、4b、6 三處，用 ★ 標）：
 
 1. **合併 hop**：以 `switchId` 為鍵；port 以 `iface|peer` 為鍵累加 `deltaBps`；`tier` 先到先贏
    （衝突只發警告）；`otherInBps/otherOutBps` 累加。
@@ -140,8 +154,16 @@ app.js `draw()` 的重要順序約束：
    **pod 葉再自動接一條到 ns 終點節點**（`nsFor`；`kind:'leaf'`+`role:'ns'`、id `ns-N` 流水號、
    全圖同 ns 合一個），pod→ns 邊值＝pod 自己的 deltaBps（重新分組非推估）；source 模式反接
    （ns→pod，ns 落最左）。proxy pod（列進 hops 的 role:"pod"）**不接** ns，接了會重複計量。
+   ★ **門檻過濾排在建邊之前**：沒過門檻的 port 直接 `return`，不建邊也不建 leaf——先濾再建才不會
+   留下沒有邊的孤兒葉卡；pod 葉的 ns 邊接在建葉之後，所以也一併不生。濾掉的量記進 `dropIn`／
+   `dropOut`（destination 記 out 側、source 記 in 側；對端是 hop 才記對端），步驟 6 併回殘差。
 3. **錨卡** `__anchor__`：destination 接 root 左邊、source 接 root 右邊；`anchorEdge.isAnchor = true`。
+   ★ 錨邊在過濾之後才建，所以**追查起點永遠保留**——濾掉它整張圖就沒有錨了。
 4. **掛邊**：`e.id = 'e'+i`，push 進節點的 `outEdges/inEdges`。
+   ★ **4b 移除孤立節點**：過門檻後身上一條邊都不剩的整台移除（`order` 過濾 + `delete nodes[id]`，
+   名字記進 `filteredNodes`）。**一定要排在步驟 5 之前**：排欄與正規化都吃 `order`，留著不存在的
+   節點會多出空欄。leaf 只在留邊時才建、anchor 與 root 都掛著 anchorEdge，所以移掉孤立節點不會
+   再孤立出別的，掃一輪就夠。
 5. **排欄**（最複雜的區塊，5a–5g）：
    - 每個節點分群：有 `tier` → `'t:'+tier`（整群當超級節點），否則自成一群。
      **群內邊不參與排欄**——這就是「同層互連不被拆成兩欄」的機制。
@@ -158,9 +180,18 @@ app.js `draw()` 的重要順序約束：
 6. **殘差**：`eps = max(in,out)*0.005 + 1`（counter 浮點雜訊門檻，存 `n.resEps`）。
    兩個 other 都給 → 照顯式值畫，gap 超過 eps 只發詳細警告；只給一個 → 另一個由平衡式補；
    都沒給 → 差額全塞給缺的那側。負值在 `validate()` 就擋掉（負殘差會讓 `thick()` 算出負高度破圖）。
+   ★ 算之前先把 `dropIn`／`dropOut` **加進顯式的** `otherInBps`／`otherOutBps`。沒顯式給值的
+   （`null`）**不要碰**：`tracedIn`／`tracedOut` 已經因為邊被拿掉而變小，平衡式會自動把缺口補成
+   殘差；顯式值不加就會誤觸「兩個都給又湊不出平衡式」那則警告。這一步就是門檻仍然守恆的原因。
+   殘差色塊本身**不受門檻管**，照舊只看 `resEps`。
 7. **正規化欄位**：col 全部減 minCol。
 
-回傳 `{ok, dir, investigation, pruning, nodes, nodeMap, edges, anchorEdge, root, warnings, maxCol}`。
+回傳 `{ok, dir, investigation, pruning, minBps, filtered:{edges,bps}, filteredNodes,
+nodes, nodeMap, edges, anchorEdge, root, warnings, maxCol}`。門檻濾掉東西時另發一則警告寫出
+隱藏了幾條帶、幾台、共多少量。
+
+**render.js 與 exports.js 不必為門檻改任何東西**：它們吃的是 `model.nodes`／`model.edges`，
+節點與邊被移除後自動跟上，Mermaid 輸出也跟著少掉那些節點。
 
 ## 7. render.js：版面與繪製
 
@@ -210,7 +241,8 @@ meta 裡 `backward: e.backward || undefined`——stringify 丟掉 undefined，�
 ## 9. Python CLI（tools/trace_sankey.py）
 
 與 model.js **一一鏡像**（合併→建邊→錨→排欄含多數決+SCC→殘差），差異：英文訊息、無 subOrder
-（那是純排版用）。用法：`trace_sankey.py FILE`（文字報告）、`--mermaid sankey|flow`、
+（那是純排版用）、**無顯示門檻**（那是網頁 UI 的顯示選項，不是資料處理；`minBps=0` 時
+model.js 的輸出與沒有門檻時逐欄位相同，殘差算式仍然等價，所以這邊不必跟）。用法：`trace_sankey.py FILE`（文字報告）、`--mermaid sankey|flow`、
 `--plotly out.html`、`--json`（印解好的模型）、`-` 讀 stdin；warnings 一律進 stderr。
 
 **Mermaid sankey-beta 畫不了環**：回流邊在 exports.js 與 CLI 都降級成 `%%` 註解——
@@ -229,6 +261,7 @@ Mermaid Sankey 輸出會遺失回流量、不守恆，這是已知限制不是 b
 1. **`samples/*.json` 與 `assets/js/samples.js` 是重複維護的同一批資料**：網頁只讀 samples.js，
    CLI/make check 只讀 samples/。改一邊忘了另一邊不會有任何警告。
 2. 顯式給了 `otherInBps` 和 `otherOutBps` 但湊不出平衡式時，圖照顯式值畫、該台不守恆，只警告不擋。
+   顯示門檻濾掉的量會**先加進這兩個顯式值再比對**，所以開門檻不會憑空生出這則警告。
 3. `role` 是**刻意的自由字串**（只驗「給了就非空字串」）：繪製只認 `'node'` 與 `'pod'`，其他值
    （samples 實際用了 `core`/`border`/`spine`/`tor` 當註記）一律當一般 switch 畫、不發警告
    （內建範例自己就會觸發，警告會變噪音）。
@@ -245,3 +278,7 @@ Mermaid Sankey 輸出會遺失回流量、不守恆，這是已知限制不是 b
 7. 規模上限：`stress/05-huge.json`（1365 台、5.4 萬個 SVG 元素）滾輪每格約 130ms；
    超深樹會把幾千個葉直堆成一欄（viewBox 高 42 萬）。要撐這種量需要視野裁剪（未做）。
 8. `app.js` 以 `setCode('')` 靠 falsy 走清空分支（參數名其實是 `model`），可讀性差但是刻意的現狀。
+9. **顯示門檻是「大於」不是「大於等於」**：`deltaBps` 剛好等於門檻的帶子會被濾掉。門檻只作用於
+   hop 的 port，`pod → ns` 那條沿用 pod 自己的值（已經過門檻了）、錨邊完全豁免，兩者都不列入
+   「隱藏了幾條帶」的計數。門檻改變的只有畫面：`?min=` 不進 localStorage、不寫回 JSON，
+   換一份 JSON 時門檻仍留著（它是看圖的設定，不是資料的設定）。

@@ -43,6 +43,19 @@ h1,h2,h3{margin:0;font-weight:650}
 .file-name.ok{color:#c8f4ff;border-color:var(--cyan-d);border-style:solid}
 .file-name.bad{color:var(--err);border-color:var(--err);border-style:solid}
 
+/* ---------- 顯示門檻 ---------- */
+.min-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+/* 17ch 不是隨便挑的：number input 右邊要留 spinner 的位置，
+   14ch 會把 1500000000 這種十位數從左邊裁掉一個字 */
+#minBps{width:17ch;background:#0e1620;border:1px solid var(--line2);border-radius:8px;
+  color:var(--fg);font-family:inherit;font-size:13px;padding:7px 10px;text-align:right;
+  font-variant-numeric:tabular-nums}
+#minBps:focus{outline:none;border-color:var(--cyan)}
+.min-row .unit{font-size:12.5px;color:var(--dim2)}
+/* tabular-nums：翻譯文字跟著打字一直重算，等寬數字才不會左右跳 */
+.unit-hint{font-size:12.5px;color:#c8f4ff;border:1px dashed var(--line2);border-radius:99px;
+  padding:5px 12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+
 .drop-hint{position:fixed;inset:0;z-index:60;background:rgba(11,16,23,.78);
   display:flex;align-items:center;justify-content:center;pointer-events:none}
 .drop-hint[hidden]{display:none}
