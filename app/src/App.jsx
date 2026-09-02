@@ -3,17 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { fmtBps, zoomStep } from 'trace-sankey';
 import { TraceSankey } from 'trace-sankey/react';
-import { byKey, defaultKey } from 'trace-sankey/samples';
 import 'trace-sankey/style.css';
 import './app.css';
-
-/* TODO: 未來前後端分離後，追查 JSON 改從 API 取，例如：
-     const [doc, setDoc] = useState(null);
-     useEffect(() => {
-       fetch('/api/trace/' + traceId).then(r => r.json()).then(setDoc);
-     }, [traceId]);
-   目前先用套件內建範例。 */
-const DOC = byKey[defaultKey].json;
+import { useTraceDoc } from './useTraceDoc.js';
 
 /* 負數、小數、亂打的字一律當 0（不過濾），不要讓門檻自己變成一個錯誤來源 */
 function cleanMin(v) {
@@ -22,14 +14,20 @@ function cleanMin(v) {
 }
 
 export default function App() {
-  const [doc] = useState(DOC);
+  /* 資料來源全部關在 useTraceDoc 裡（POC：開檔＋拖放；未來換 API 只改那個檔） */
+  const { doc, name, custom, error: loadError, openFile, reset } = useTraceDoc();
   const [minText, setMinText] = useState('');   /* 輸入框的原始字串 */
   const [min, setMin] = useState(0);            /* 真正生效的門檻（debounce 後） */
   const [model, setModel] = useState(null);
   const [errors, setErrors] = useState(null);
   const [zoomPct, setZoomPct] = useState('—');
   const [focus, setFocus] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const chartRef = useRef(null);
+  const fileRef = useRef(null);
+  /* 拖放 effect 只掛一次，透過 ref 永遠呼叫到最新的 openFile */
+  const openFileRef = useRef(openFile);
+  openFileRef.current = openFile;
 
   /* 重畫 debounce 200ms；提示文字直接從 minText 算，不 debounce（打字就要跟著跳）。
      舊版「打了一個字又刪掉會套上舊值」的坑在這個寫法下不存在：
@@ -67,6 +65,47 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKey);
   }, [focus]);
 
+  /* 拖放：掛 document 層。兩個防呆都是舊靜態頁踩過的坑——
+     hasFiles() 讓拖選取文字不觸發；depth 計數讓游標掃過子元素時提示不閃爍 */
+  useEffect(() => {
+    let depth = 0;
+    function hasFiles(ev) {
+      const dt = ev.dataTransfer;
+      if (!dt) return false;
+      if (dt.files && dt.files.length) return true;
+      return dt.types && Array.prototype.indexOf.call(dt.types, 'Files') >= 0;
+    }
+    function onEnter(ev) {
+      if (!hasFiles(ev)) return;
+      ev.preventDefault(); depth++; setDragging(true);
+    }
+    function onOver(ev) {
+      if (!hasFiles(ev)) return;
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+    }
+    function onLeave(ev) {
+      if (!hasFiles(ev)) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) setDragging(false);
+    }
+    function onDrop(ev) {
+      if (!hasFiles(ev)) return;
+      ev.preventDefault(); depth = 0; setDragging(false);
+      openFileRef.current(ev.dataTransfer.files[0]);
+    }
+    document.addEventListener('dragenter', onEnter);
+    document.addEventListener('dragover', onOver);
+    document.addEventListener('dragleave', onLeave);
+    document.addEventListener('drop', onDrop);
+    return () => {
+      document.removeEventListener('dragenter', onEnter);
+      document.removeEventListener('dragover', onOver);
+      document.removeEventListener('dragleave', onLeave);
+      document.removeEventListener('drop', onDrop);
+    };
+  }, []);
+
   const cleaned = cleanMin(minText);
   const hasBack = !!model && model.edges.some(e => e.backward);
   const hasLat = !!model && model.edges.some(e => e.lateral);
@@ -78,6 +117,18 @@ export default function App() {
         <div className="brand">
           <span className="dot" />
           <h1>追查 Sankey</h1>
+        </div>
+        <div className="file-row">
+          <button className="btn" onClick={() => fileRef.current && fileRef.current.click()}>
+            開啟 JSON…
+          </button>
+          {/* value 清空：同一個檔案連續選兩次也要觸發 onChange（舊頁踩過的坑） */}
+          <input
+            ref={fileRef} type="file" accept=".json" hidden
+            onChange={ev => { openFile(ev.target.files && ev.target.files[0]); ev.target.value = ''; }}
+          />
+          <span className={'file-name' + (custom ? ' ok' : '')}>{name}</span>
+          {custom && <button className="btn" onClick={reset}>還原範例</button>}
         </div>
         <div className="min-row">
           <label htmlFor="minBps">顯示門檻 &gt;</label>
@@ -104,6 +155,14 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {/* 載入失敗只出橫幅，不動正在顯示的圖 */}
+      {loadError && (
+        <div className="error-banner" role="alert">
+          <b>{loadError.title}</b>
+          {loadError.messages.map((m, i) => <div key={i}>{m}</div>)}
+        </div>
+      )}
 
       {model && (
         <div className="legend">
@@ -145,6 +204,12 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {dragging && (
+        <div className="drop-hint">
+          <div className="drop-box">放開就載入這份追查 JSON</div>
+        </div>
+      )}
     </div>
   );
 }

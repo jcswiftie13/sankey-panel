@@ -28,8 +28,11 @@ make draw FILE=my-trace.json  # 不開瀏覽器，CLI 文字報告
 make help                     # 所有 target
 ```
 
-app 目前顯示套件內建範例；未來前後端分離後改從 API 取 JSON，
-接點標在 `app/src/App.jsx` 的 TODO。
+app 開場顯示套件內建範例；按「開啟 JSON…」或把 `.json` 拖進頁面就換成你的追查
+（純瀏覽器本機讀，不上傳；存 localStorage，重新整理還在，「還原範例」清掉）。
+壞檔（語法錯誤／不合契約）只出錯誤橫幅，不會毀掉正在看的圖。
+資料來源整個關在 `app/src/useTraceDoc.js`——未來前後端分離改從 API 取 JSON 時，
+只改這個檔（替換法寫在檔頭註解）。
 
 ### 當套件用
 

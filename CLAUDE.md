@@ -102,7 +102,11 @@ mount `update()` 的重要順序約束（都是 app.js 時代踩過的坑，搬�
 - `destroy()` 必須冪等：React StrictMode 開發模式會故意 mount→unmount→mount 一輪。
 
 app 端約束（`App.jsx`）：門檻重畫 debounce 200ms、提示文字不 debounce；`cleanMin()` 把負數／
-小數／亂打的字一律當 0。舊版 query string／localStorage／分頁／開檔／編輯器都已移除。
+小數／亂打的字一律當 0。**資料來源整個關在 `useTraceDoc.js`**（POC：開檔＋拖放＋localStorage
+續存，沿用舊鍵 `trace-sankey/custom`；壞檔只設 error 不動現有 doc）——未來 iframe 鑲嵌＋
+API 取數時只改這個檔（替換法在檔頭註解），App 的圖零改動。開檔 input 的 `value` 每次要清空
+（同檔連選兩次也要觸發）；拖放的 `hasFiles`／depth 計數兩個防呆別拆。
+舊版 query string／分頁／編輯器仍為移除狀態。
 
 ## 5. 輸入 JSON 契約（濃縮版；完整版在 README.md）
 
