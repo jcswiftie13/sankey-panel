@@ -1,16 +1,17 @@
 /* 圖的縮放與平移：只動 <g class="zoom-layer"> 的 transform 屬性。
-   縮放狀態是暫時的，不進 query string —— query string 是「你在看哪份資料」
-   （?sample=&tab=），滾輪一格推一筆 history 是災難。 */
-(function (global) {
-  'use strict';
+ 縮放狀態是暫時的，不進 query string —— query string 是「你在看哪份資料」
+ （?sample=&tab=），滾輪一格推一筆 history 是災難。 */
+var MIN_K = 0.25;               /* 相對「符合視窗」最多再縮小到這 */
+var MAX_SCREEN = 8;             /* 放大上限用「螢幕上的實際倍率」定義，不是相對 fit —— */
+var MIN_MAX_K = 4;              /* 超大圖 fit 可能只有 0.2%，相對倍率會把人卡在看不見字 */
+var STEP = 1.25;                /* 按鈕／快捷鍵一格 */
+var DRAG_MIN = 4;               /* 超過這個位移才算拖曳，免得吃掉 band 的 click */
+var EDGE = 0.35;                /* 平移夾住：內容至少要蓋住視窗這個比例 */
 
-  var MIN_K = 0.25;               /* 相對「符合視窗」最多再縮小到這 */
-  var MAX_SCREEN = 8;             /* 放大上限用「螢幕上的實際倍率」定義，不是相對 fit —— */
-  var MIN_MAX_K = 4;              /* 超大圖 fit 可能只有 0.2%，相對倍率會把人卡在看不見字 */
-  var STEP = 1.25;                /* 按鈕／快捷鍵一格 */
-  var DRAG_MIN = 4;               /* 超過這個位移才算拖曳，免得吃掉 band 的 click */
-  var EDGE = 0.35;                /* 平移夾住：內容至少要蓋住視窗這個比例 */
-
+/* 一個 createZoom() 實例管一個容器。dispose() 把 listener 全解掉——
+   單例時代「bind 一次永不解綁」沒關係，變成可重複建立的實例後，
+   mount/destroy 循環（尤其 React StrictMode 的雙重掛載）不解綁就會疊 listener。 */
+export function createZoom() {
   var st = null;                  /* {wrap, svg, layer, k, tx, ty} */
   var opts = {};
   var boundWrap = null;
@@ -59,7 +60,7 @@
   }
   function schedule() {                 /* 滾輪／拖曳一秒幾十次，合併成一 frame 一次 */
     if (raf) return;
-    raf = global.requestAnimationFrame(function () { raf = 0; apply(); });
+    raf = window.requestAnimationFrame(function () { raf = 0; apply(); });
   }
 
   function zoomAt(k2, cx, cy) {         /* 以畫面點 (cx,cy) 為錨點縮放 */
@@ -209,7 +210,7 @@
     wrap.addEventListener('pointermove', onMove);
     wrap.addEventListener('pointerup', onUp);
     wrap.addEventListener('pointercancel', onUp);
-    global.addEventListener('resize', refresh);
+    window.addEventListener('resize', refresh);
   }
 
   /* 同一個 layer 再 attach（只是切分頁回來）就沿用縮放；換了圖才重新 initial()。 */
@@ -231,12 +232,31 @@
     if (st) st.wrap.classList.remove('is-panning');
     st = null; opts = {};
     panning = false; moved = false; pid = null; pts = {}; pinch = null;
-    if (raf) { global.cancelAnimationFrame(raf); raf = 0; }
+    if (raf) { window.cancelAnimationFrame(raf); raf = 0; }
   }
 
-  global.TraceZoom = {
-    attach: attach, detach: detach, refresh: refresh,
+  function isPanning() { return panning; }
+
+  /* 徹底收掉：解綁全部 listener，之後這個實例不能再用 */
+  function dispose() {
+    detach();
+    if (boundWrap) {
+      boundWrap.removeEventListener('wheel', onWheel);
+      boundWrap.removeEventListener('pointerdown', onDown);
+      boundWrap.removeEventListener('pointermove', onMove);
+      boundWrap.removeEventListener('pointerup', onUp);
+      boundWrap.removeEventListener('pointercancel', onUp);
+      boundWrap = null;
+    }
+    window.removeEventListener('resize', refresh);
+  }
+
+  return {
+    attach: attach, detach: detach, dispose: dispose, refresh: refresh,
     fit: fit, actual: actual, zoomBy: zoomBy, step: STEP,
-    isPanning: function () { return panning; }
+    isPanning: isPanning
   };
-})(window);
+}
+
+/* 工具列／快捷鍵的一格倍率，跟實例的 step 同值——使用端不必先有實例才能拿到 */
+export var zoomStep = STEP;

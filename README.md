@@ -11,54 +11,52 @@
 沒有任何推估值：bps 本身就是「每秒多少 bit」的速率，increment 是這個速率的差，所以數字帶 `+` 號。
 不另外做一張只畫貢獻的圖。
 
-不做的事：不自動偵測 switch／counter、不掃網、沒有帳號與資料庫、不上傳你的 JSON、
+不做的事：不自動偵測 switch／counter、不掃網、沒有帳號與資料庫、
 不把追來源畫成整張圖左右鏡射。
 
 ## 快速開始
 
-純靜態，沒有 build step，只需要 `python3`。
+兩個部分：`packages/trace-sankey`（畫圖的 npm 套件，零依賴純 ESM）與 `app/`
+（Vite + React 使用端，只有圖和顯示門檻）。CLI 另外只需要 `python3`。
 
 ```bash
 git clone <repo> && cd sankey-panel
 
-make serve                    # http://127.0.0.1:8765/index.html
-make open                     # 順便開瀏覽器
-make demo                     # 不開 server，直接 file:// 開，離線可用
+npm install                   # 第一次；裝 app 的 react/vite（套件本身零依賴）
+make dev                      # 起 dev server（= npm run dev --workspace app）
 make draw FILE=my-trace.json  # 不開瀏覽器，CLI 文字報告
 make help                     # 所有 target
 ```
 
-沒有 `make` 也行：
+app 開場顯示套件內建範例；按「開啟 JSON…」或把 `.json` 拖進頁面就換成你的追查
+（純瀏覽器本機讀，不上傳；存 localStorage，重新整理還在，「還原範例」清掉）。
+壞檔（語法錯誤／不合契約）只出錯誤橫幅，不會毀掉正在看的圖。
+資料來源整個關在 `app/src/useTraceDoc.js`——未來前後端分離改從 API 取 JSON 時，
+只改這個檔（替換法寫在檔頭註解）。
 
-```bash
-python3 -m http.server 8765 --bind 127.0.0.1
-# 或直接用瀏覽器開 index.html（file://）
+### 當套件用
+
+```js
+// React：
+import { TraceSankey } from 'trace-sankey/react';
+import 'trace-sankey/style.css';
+<TraceSankey doc={traceJson} minBps={0} className="my-chart" />
+// 容器高度由你的 CSS 決定（元件不設高度）
+
+// 不用 React（vanilla）：
+import { mount } from 'trace-sankey';
+const inst = mount(document.getElementById('chart'), traceJson, { minBps: 0 });
+inst.setMinBps(5e8); inst.zoom.fit(); inst.destroy();
+
+// 只要 SVG 字串（Node 也能跑，沒有 DOM 依賴）：
+import { build, render } from 'trace-sankey';
+const model = build(traceJson, { minBps: 0 });
+if (model.ok) fs.writeFileSync('out.svg', render(model));
 ```
 
-`file://` 也能用：全部是傳統 `<script>`，沒有 module、沒有 `fetch`。
-
-### 三條載入路徑
-
-| 方式 | 怎麼做 |
-| --- | --- |
-| 開檔 | 按「開啟 JSON 檔…」，選一份 `.json` |
-| 拖放 | 把 `.json` 拖進頁面，放開就畫 |
-| 範例 | 點「範例展示」的 chip，看內建示範資料 |
-
-載入的檔案只在瀏覽器裡讀（`FileReader`），不會送到任何地方。內容存在 `localStorage`，
-重新整理還在；按 JSON 分頁的「還原範例」就清掉。
-
-分頁、範例與顯示門檻的狀態在 query string，分頁與範例的控制項是真的 `<a href>`：
-
-```
-index.html?sample=campus&tab=chart&min=1500000000
-```
-
-| 參數 | 值 |
-| --- | --- |
-| `sample` | `classic` `dual-uplink` `campus` `pruned` `source` `k8s` `k8s-source` `dci-tier` `dci-uturn`（`custom` = 你載入的那份） |
-| `tab` | `chart` `json` `mermaid-sankey` `mermaid-flow` `notes` |
-| `min` | 顯示門檻（bps 整數）。省略或 `0` ＝ 不過濾 |
+對外契約（自己接互動時可依賴）：render 產出的 `<g class="zoom-layer">` 是縮放的掛點；
+每條 `.band` 上的 `data-tip` 屬性是一份 JSON（from/to/iface/bps/…），tooltip 的資料
+都從這來。SVG 的文字顏色與字級在 `trace-sankey/style.css`，不載入會沒有正確外觀。
 
 ### 顯示門檻
 
@@ -71,10 +69,12 @@ index.html?sample=campus&tab=chart&min=1500000000
 - 一台 switch 濾完身上一條帶都不剩，就**整台不顯示**。
 - 追查起點那條**永遠保留**——濾掉它整張圖就沒有錨了。
 - 殘差色塊本身不受門檻管，照舊只看該台的讀數誤差門檻。
-- 圖下方會有一則警告寫出隱藏了幾條帶、幾台、總共多少量。
+- 門檻輸入旁會顯示隱藏了幾條帶、幾台、總共多少量（model 的 `filtered`／
+  `filteredNodes`，warnings 裡也有同一句）。
 - 這是**顯示**用的門檻，跟 JSON 裡的 `pruning.topN` / `pruning.minShare`
   是兩件事：那兩個是宣告「上游已經截斷過」的 metadata，程式不拿它們過濾。
-- CLI（`tools/trace_sankey.py`）沒有對應的旗標，只有網頁版有。
+- CLI（`tools/trace_sankey.py`）沒有對應的旗標，只有網頁版有
+  （`build(doc, { minBps })` 的第二個參數）。
 
 ## 看圖：縮放與平移
 
@@ -93,8 +93,7 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 右下角的工具列有同樣的按鈕，中間顯示目前倍率（`100%`＝原始大小，點一下回到 1:1）。
 
 開場是「符合視窗，但不放大超過原始大小」——小圖維持原尺寸，大圖才縮到看得見全貌。
-換一份資料會重新回到這個開場視角；只是切分頁再切回來則會保留你的縮放。
-縮放狀態刻意不進 query string（滾一格就推一筆瀏覽紀錄會很難用）。
+換一份資料或改門檻會重新回到這個開場視角；同一份資料與門檻下的重畫則會保留你的縮放。
 
 ## 輸入 JSON 規格
 
@@ -361,11 +360,12 @@ edge switch 接的是 k8s node 時，同一條 Sankey 直接接下去（完整�
   追來源模式鏡像，ns 終點落在最左欄。列進 `hops` 的中繼 pod（proxy pod）**不接** ns——
   它的流量已流向自己的下游，再接會重複計量破壞守恆，它的 ns 只是盒副標。
   同 ns 的 pod 在欄內**相鄰排列**、左緣掛同色 ns 色條（色盤 5 色依首次出現順序取用、
-  超過循環）；pod 落在不同深度時各 ns 各自落欄，是預期行為。彙總數字同步在圖下方
-  「namespace 流量小計」表。
+  超過循環）；pod 落在不同深度時各 ns 各自落欄，是預期行為。彙總數字在 `summary()`
+  的「namespace 流量小計」表（CLI 文字報告也有；目前 app 沒有顯示這張表）。
 - 整欄都是 k8s node 時欄標題標「第 N 跳 · k8s node」；整欄都是 pod 卡標「第 N 跳 · pod」；
   整欄都是 ns 終點標「追查終止 · namespace」。
-- hop 數字摘要放圖下方，是圖外資訊，不是盒子內標籤。
+- hop 數字摘要是圖外資訊（`summary()` 回傳 HTML 字串），不是盒子內標籤；
+  目前 app 沒有顯示，CLI 文字報告有同樣內容。
 - 圖區是固定尺寸畫布：SVG 填滿容器，`viewBox` 的 meet-fit 就是「符合視窗」，
   縮放平移只改一層 `<g>` 的 `transform`。字級與線寬跟著等比縮放（真幾何縮放）。
 
@@ -387,19 +387,23 @@ cat trace.json | python3 tools/trace_sankey.py -           # 吃 stdin
 ## 檔案
 
 ```
-Makefile                   跑起來與驗證的入口（make help）
-index.html                 版面與五個分頁
-assets/css/app.css
-assets/js/samples.js       八個內建範例（純資料）
-assets/js/model.js         驗證、合併 hop、顯示門檻過濾、算殘差
-assets/js/render.js        SVG Sankey、等比殘差色塊、終止小卡、hop 摘要
-assets/js/zoom.js          圖的縮放與平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
-assets/js/exports.js       Mermaid sankey-beta / flowchart
-assets/js/app.js           query string、分頁、開檔／拖放、JSON 編輯器、顯示門檻、
-                           tooltip、縮放按鈕與快捷鍵、圖區高度
-samples/*.json             範例 JSON（CLI 也吃同一份；make check 會全部跑一次）
-stress/                    縮放平移的壓力測試資料與產生器（刻意不放 samples/，
-                           免得 make check 被超大檔拖慢）
-tools/serve.py             開發用 server：送 no-store、不回 304，改完 js/css 不會拿到舊檔
-tools/trace_sankey.py      CLI：文字報告 / Mermaid / plotly
+Makefile                     跑起來與驗證的入口（make help）
+packages/trace-sankey/       npm 套件（零依賴、純 ESM、無 build step）
+  src/model.js               驗證、合併 hop、顯示門檻過濾、算殘差
+  src/render.js              SVG Sankey、等比殘差色塊、終止小卡、hop 摘要（summary）
+  src/zoom.js                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
+  src/tooltip.js             createTooltip()：帶子 hover 的 tooltip
+  src/mount.js               mount(el, doc, opts)：一行接好整條管線
+  src/react.js               <TraceSankey> React 元件（trace-sankey/react）
+  src/samples.js             九個內建範例（trace-sankey/samples）
+  styles/trace-sankey.css    圖與 tooltip 的樣式（trace-sankey/style.css）
+  types/index.d.ts           TypeScript 型別
+app/                         Vite + React 使用端：圖 + 顯示門檻 + 圖例 + 縮放工具列
+samples/*.json               範例 JSON（CLI 也吃同一份；make check 會全部跑一次）
+stress/                      縮放平移的壓力測試資料與產生器（刻意不放 samples/，
+                             免得 make check 被超大檔拖慢）
+tools/trace_sankey.py        CLI：文字報告 / Mermaid / plotly
+tools/golden.mjs             重構對拍：dump 所有範例輸出，前後 diff -r
 ```
+
+Mermaid 匯出目前只在 CLI（網頁版的匯出分頁已隨舊靜態頁移除）。
