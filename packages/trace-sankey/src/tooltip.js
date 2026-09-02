@@ -17,6 +17,12 @@ export function createTooltip() {
   /* 每次重畫 SVG 後對新的 .band 重綁；isPanning 讓拖曳中不彈 tooltip */
   function bind(container, isPanning) {
     Array.prototype.forEach.call(container.querySelectorAll('.band'), function (el) {
+      /* render 在每條帶裡輸出原生 <title> 當備援（headless 產 .svg、或不接 tooltip
+         時是唯一的 hover 資訊）。這裡 JS tooltip 接手了，備援留著會變成第二個
+         無樣式的瀏覽器提示框——移除它，而不是叫 render 不輸出（render 輸出要
+         維持 byte-identical，且殘差色塊的 <title> 沒有替代品、必須保留）。 */
+      var nativeTitle = el.querySelector('title');
+      if (nativeTitle) nativeTitle.parentNode.removeChild(nativeTitle);
       el.addEventListener('mouseenter', function () {
         if (isPanning && isPanning()) return;
         var d;

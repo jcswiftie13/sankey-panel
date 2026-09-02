@@ -227,7 +227,9 @@ nodes, nodeMap, edges, anchorEdge, root, warnings, maxCol}`。門檻濾掉東西
 `render(model)` 的繪製順序＝z-order：defs 漸層（**留在 zoom-layer 外面**）→ `<g class="zoom-layer">`
 → 欄位標題 → **帶（先畫，壓在盒子下）** → 帶上數字 → 盒子 → **殘差色塊（最後畫）**。
 每條帶有 `class="band"`（回流加 `band-back`，繞圖底的再加 `band-loop`，同欄加 `band-lat`）、
-`data-tip="<JSON>"`（給 tooltip）與原生 `<title>`。lateral 帶另輸出 `.lat-arrow` 三角形指流向——
+`data-tip="<JSON>"`（給 tooltip）與原生 `<title>`——後者是 headless 用法的備援，
+`tooltip.bind()` 綁定時會把 band 的 `<title>` 移掉（不然會出現第二個無樣式的瀏覽器
+提示框）；殘差色塊的 `<title>` 沒有替代品，保留。lateral 帶另輸出 `.lat-arrow` 三角形指流向——
 **必須是 band 的兄弟節點**（包進去會打斷 `.band:hover` 與 tooltip 綁定）且 `pointer-events:none`。
 meta 裡 `backward: e.backward || undefined`——stringify 丟掉 undefined，沒回流的圖輸出不變。
 
