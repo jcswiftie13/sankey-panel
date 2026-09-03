@@ -42,12 +42,27 @@ npm workspaces monorepo-lite，三個部分：
 - **`app/`——Vite + React 使用端**。只有「圖 + 顯示門檻」加圖例與縮放工具列；全部接線都在
   `App.jsx` 一支。`npm install`（repo 根目錄）後 `make dev` 或 `npm run dev --workspace app`。
   開發時 Vite 直接吃套件 src/（workspace symlink），改套件存檔即熱更新，**沒有 ?v= 快取紀律了**。
+- **部署——nginx 靜態託管，網頁與 nginx 分成兩層**（細節與陷阱見 §12）。`Dockerfile` 三個
+  stage（build → content → standalone）＋ `docker-compose.yml`（content 映像倒進 volume +
+  官方 nginx）＋ `docker-compose.dev.yml`（bind mount app/dist）＋ `deploy/conf.d/default.conf`
+  ＋ `deploy/kustomization.yaml`（k8s）。`make up` / `make up-dev` / `make down` /
+  `make content-build` / `make docker-build` / `make build`；對外 port 用 `PORT=`。
+  **純靜態、沒有後端、沒有 proxy_pass**：
+  拖放與開檔都是 `file.text()` 本機讀，檔案不經過 nginx。`deploy/conf.d/default.conf` 蓋掉映像的
+  `conf.d/default.conf`，被 include 在 `http {}` 內所以只能有一個 `server {}`；**nginx 的
+  `add_header` 不繼承**，`= /index.html` 與 `/assets/` 兩個 location 各自重寫一份安全標頭，
+  改標頭要三處一起改。消費端是 **Electron BrowserView**（`http://localhost:8080`，不是 iframe——
+  `useTraceDoc.js:15-17` 那則 iframe 註解已非現況）：host 端必須用 `will-navigate` 白名單擋掉
+  預設的拖放導航，否則整頁跳去 `file://…json`，drop handler 不會跑（README 有程式片段）。
 - **`tools/trace_sankey.py`——Python CLI**。與 model.js 邏輯一一鏡像，只需要 python3
   （`--plotly` 是唯一可選相依；語法需 3.10+）。Mermaid 匯出現在**只有 CLI 有**
   （網頁版 exports.js 已隨舊靜態頁移除）。
 
+部署見 §12：網頁內容與 nginx 是兩個可各自替換的層，不是一顆全包的映像。
+
 全專案文件、UI、JS 註解為**繁體中文**；Python CLI 訊息為英文。深色主題。
-Makefile：`make dev`（=`serve`）/ `draw FILE=x.json` / `mermaid KIND=sankey|flow` /
+Makefile：`make dev`（=`serve`）/ `build`（vite build）/ `up`／`up-dev`／`down`／
+`content-build`／`docker-build`（部署，見 §12）/ `draw FILE=x.json` / `mermaid KIND=sankey|flow` /
 `html`（plotly）/ `check`（跑遍 samples/*.json）/ `golden DIR=…`（對拍 dump）/ `clean`。
 
 ## 3. 目錄結構
@@ -70,6 +85,12 @@ samples/*.json            同一批範例的檔案版（CLI 與 make check 用�
 stress/                   縮放平移壓力測試資料 + gen.py。刻意不放 samples/（make check 會 glob 它）
 tools/trace_sankey.py     CLI：文字報告 / --mermaid / --plotly / --json；與 model.js 一一鏡像
 tools/golden.mjs          對拍工具：dump 所有範例的 render()/summary() 輸出，重構前後 diff -r
+Dockerfile                三個 stage：build（node）→ content（busybox+dist，3MB）→ standalone（nginx 全包）
+docker-compose.yml        分離式：content 映像倒進 named volume + 官方 nginx（make up）
+docker-compose.dev.yml    nginx bind mount 主機的 app/dist（make up-dev）；專案名刻意不同
+deploy/conf.d/default.conf  nginx server 區塊：try_files SPA fallback、快取分層、gzip
+deploy/kustomization.yaml   k8s 入口（kubectl apply -k deploy）；ConfigMap 直接讀上面那支
+deploy/k8s/               Deployment（initContainer 倒內容到 emptyDir）與 Service
 Makefile                  入口指令
 README.md                 使用說明 + 輸入 JSON 契約 + 驗證錯誤對照表 + 畫法定案
 ```
@@ -313,3 +334,42 @@ model.js 的輸出與沒有門檻時逐欄位相同，殘差算式仍然等價�
    用 `npm install --cache <別的目錄>` 繞過，或 `sudo chown -R 501:20 ~/.npm` 永久修。
 10. `summary()`（hop 摘要表）還在 render.js 照常匯出並被 golden 對拍，但目前 app 沒有使用——
     是刻意保留的 API，不是死碼。
+
+## 12. 部署：網頁與 nginx 是分開的兩層
+
+`Dockerfile` 一支三個 stage，兩種交付：`--target content`（busybox + `dist`，3MB，給
+compose／k8s 掛載，**主要**）、不帶 target（nginx 全包的自足映像，**次要**；`standalone`
+刻意放最後，所以 `docker build .` 的行為與拆分前完全相同）。nginx 一律用**官方映像零客製**，
+內容與設定都從外面掛進來。compose 用 named volume + 一次性 `content` service，k8s 用
+emptyDir + initContainer——同一套心智模型，本機測到的就是叢集上的行為。
+
+三個踩過的坑，改這塊之前一定要知道：
+
+1. **絕不能靠 Docker 的「空 volume 自動填充」**。Docker 只在 named volume 是空的時候才拿
+   映像內容填它，之後永遠不再更新——靠那個行為的話，第二次換網頁會**安靜地繼續端舊內容**。
+   所以 `content` service 是明確的一次性任務：先 `rm -rf`（三個 glob 才掃得到 dotfile）
+   再 `cp -a`。k8s 的 emptyDir 每個 pod 都是全新的，不需要清，但指令寫一致好維護。
+2. **設定掛的是 `deploy/conf.d/` 整個目錄，不是單一檔案**。Docker 單檔 bind mount 綁的是
+   inode，而 `sed -i`／vim／VS Code 存檔都是「寫新檔再改名蓋過去」，inode 一換容器裡那支
+   檔案就消失、`nginx -s reload` 噴 No such file or directory。改回單檔掛載會重現這個 bug。
+   （這也剛好和 k8s 把 ConfigMap 掛成整個 conf.d 的語意一致。）
+3. **compose 專案名沿用預設（目錄名 `sankey-panel`）是刻意的**：拆分前建的容器才會被同一個
+   `make down` 收掉。改成別的名字會讓舊容器變孤兒、繼續佔著 8080（實測踩過）。
+   `docker-compose.dev.yml` 才用不同專案名（`sankey-panel-dev`），兩套各自 up/down。
+
+`deploy/kustomization.yaml` 放在 `deploy/` 而不是 `deploy/k8s/`：kustomize 預設不准讀
+kustomization 所在目錄以外的檔案（`../` 會被擋），放上層才能直接讀 `conf.d/default.conf`，
+不必加 `--load-restrictor`、也不必把設定複製第二份（本 repo 已經有 §11.1 那個重複維護的坑，
+不要再製造第二個）。generator 會在 ConfigMap 名字後加內容 hash，所以改設定自動觸發
+rolling restart。
+
+考慮過但**否決**了 `type: image` volume（Docker 28+／Compose 2.35+ 能直接把映像掛成 volume，
+不用複製）：k8s 的對應功能 Image Volume Source 要 1.33+ 且要 container runtime 配合，
+目標叢集未知不能賭。理由留在 `docker-compose.yml` 檔頭。
+
+顯示門檻／API：`useTraceDoc.js` 之後改吃 API 時，Vite 會在 **build 時**把 URL 烤進 bundle，
+同一個 content 映像要跨環境共用得另外做執行期讀的 `config.json`（尚未做）。
+
+驗證：`make up` 後 `curl -sI localhost:8080`；改 conf → `docker compose exec web nginx -s
+reload` 應立刻生效且完全不 build；改 `app/index.html` → `make up` **連做兩次**（第二次
+volume 非空，才是真正的陷阱測試）。這塊完全不碰 `packages/` 與 `app/src/`，不需要跑 golden。

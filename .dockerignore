@@ -1,0 +1,13 @@
+.git
+.gitignore
+node_modules
+**/node_modules
+app/dist
+__pycache__
+**/__pycache__
+.DS_Store
+out.html
+stress
+CLAUDE.md
+docker-compose*.yml
+deploy/k8s
