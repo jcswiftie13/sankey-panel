@@ -1,0 +1,8 @@
+# make up / make down 的實作。對外 8080、容器 80。
+services:
+  web:
+    build: .
+    image: trace-sankey
+    ports:
+      - "8080:80"
+    restart: unless-stopped

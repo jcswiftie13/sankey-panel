@@ -5,9 +5,11 @@ CLI    := $(PYTHON) tools/trace_sankey.py
 FILE   ?= samples/classic.json
 KIND   ?= sankey
 OUT    ?= out.html
+IMAGE  ?= trace-sankey
+PORT   ?= 8080
 
 .DEFAULT_GOAL := help
-.PHONY: help dev serve draw mermaid html check golden clean
+.PHONY: help dev serve build docker-build up down draw mermaid html check golden clean
 
 help:  ## 列出所有 target
 	@echo "追查 Sankey — 可用指令："
@@ -15,11 +17,25 @@ help:  ## 列出所有 target
 	  | awk -F':.*?## ' '{printf "  make %-10s %s\n", $$1, $$2}'
 	@echo ""
 	@echo "變數：FILE=<追查 JSON>  KIND=sankey|flow  OUT=<輸出 html>  DIR=<golden 輸出>"
+	@echo "      IMAGE=<映像名>  PORT=<對外 port，改了要同步改 docker-compose.yml>"
 
 dev:  ## 起 React app 的 dev server（第一次要先 npm install）
 	@npm run dev --workspace app
 
 serve: dev  ## dev 的別名（沿用舊指令習慣）
+
+build:  ## 建置前端靜態檔到 app/dist
+	@npm run build --workspace app
+
+docker-build:  ## 只建 nginx 映像，不啟動
+	@docker build -t $(IMAGE) .
+
+up:  ## 起 nginx 容器（預設 http://localhost:8080）
+	@docker compose up -d --build
+	@echo "開 http://localhost:$(PORT)"
+
+down:  ## 停掉並移除容器
+	@docker compose down
 
 draw:  ## CLI 文字報告（FILE=trace.json）
 	@$(CLI) $(FILE)
@@ -41,4 +57,5 @@ golden:  ## dump 目前 render/summary 輸出（重構前後 diff -r 對拍用�
 
 clean:  ## 刪掉產生的輸出
 	@rm -f $(OUT)
+	@rm -rf app/dist
 	@echo "清乾淨了。"

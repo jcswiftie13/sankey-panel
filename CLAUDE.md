@@ -42,13 +42,23 @@ npm workspaces monorepo-lite，三個部分：
 - **`app/`——Vite + React 使用端**。只有「圖 + 顯示門檻」加圖例與縮放工具列；全部接線都在
   `App.jsx` 一支。`npm install`（repo 根目錄）後 `make dev` 或 `npm run dev --workspace app`。
   開發時 Vite 直接吃套件 src/（workspace symlink），改套件存檔即熱更新，**沒有 ?v= 快取紀律了**。
+- **部署——nginx 靜態託管**。`Dockerfile`（多階段：node 跑 `npm ci` + `vite build` → `nginx:1.27-alpine`
+  端 `app/dist`）＋ `docker-compose.yml`（對外 8080、容器 80）＋ `deploy/nginx.conf`。
+  `make up` / `make down` / `make docker-build` / `make build`。**純靜態、沒有後端、沒有 proxy_pass**：
+  拖放與開檔都是 `file.text()` 本機讀，檔案不經過 nginx。`deploy/nginx.conf` 蓋掉映像的
+  `conf.d/default.conf`，被 include 在 `http {}` 內所以只能有一個 `server {}`；**nginx 的
+  `add_header` 不繼承**，`= /index.html` 與 `/assets/` 兩個 location 各自重寫一份安全標頭，
+  改標頭要三處一起改。消費端是 **Electron BrowserView**（`http://localhost:8080`，不是 iframe——
+  `useTraceDoc.js:15-17` 那則 iframe 註解已非現況）：host 端必須用 `will-navigate` 白名單擋掉
+  預設的拖放導航，否則整頁跳去 `file://…json`，drop handler 不會跑（README 有程式片段）。
 - **`tools/trace_sankey.py`——Python CLI**。與 model.js 邏輯一一鏡像，只需要 python3
   （`--plotly` 是唯一可選相依；語法需 3.10+）。Mermaid 匯出現在**只有 CLI 有**
   （網頁版 exports.js 已隨舊靜態頁移除）。
 
 全專案文件、UI、JS 註解為**繁體中文**；Python CLI 訊息為英文。深色主題。
-Makefile：`make dev`（=`serve`）/ `draw FILE=x.json` / `mermaid KIND=sankey|flow` /
-`html`（plotly）/ `check`（跑遍 samples/*.json）/ `golden DIR=…`（對拍 dump）/ `clean`。
+Makefile：`make dev`（=`serve`）/ `build`（vite build）/ `up`／`down`／`docker-build`（nginx 容器）/
+`draw FILE=x.json` / `mermaid KIND=sankey|flow` / `html`（plotly）/ `check`（跑遍 samples/*.json）/
+`golden DIR=…`（對拍 dump）/ `clean`。
 
 ## 3. 目錄結構
 
@@ -70,6 +80,9 @@ samples/*.json            同一批範例的檔案版（CLI 與 make check 用�
 stress/                   縮放平移壓力測試資料 + gen.py。刻意不放 samples/（make check 會 glob 它）
 tools/trace_sankey.py     CLI：文字報告 / --mermaid / --plotly / --json；與 model.js 一一鏡像
 tools/golden.mjs          對拍工具：dump 所有範例的 render()/summary() 輸出，重構前後 diff -r
+Dockerfile                多階段建置：node 產 app/dist → nginx:alpine 端靜態檔
+docker-compose.yml        make up/down 的實作（對外 8080:80）
+deploy/nginx.conf         nginx server 區塊：try_files SPA fallback、快取分層、gzip
 Makefile                  入口指令
 README.md                 使用說明 + 輸入 JSON 契約 + 驗證錯誤對照表 + 畫法定案
 ```

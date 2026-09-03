@@ -25,6 +25,7 @@ git clone <repo> && cd sankey-panel
 npm install                   # 第一次；裝 app 的 react/vite（套件本身零依賴）
 make dev                      # 起 dev server（= npm run dev --workspace app）
 make draw FILE=my-trace.json  # 不開瀏覽器，CLI 文字報告
+make up                       # 產品用：建 Docker 映像 + 起 nginx（見「用 nginx 部署」）
 make help                     # 所有 target
 ```
 
@@ -33,6 +34,46 @@ app 開場顯示套件內建範例；按「開啟 JSON…」或把 `.json` 拖�
 壞檔（語法錯誤／不合契約）只出錯誤橫幅，不會毀掉正在看的圖。
 資料來源整個關在 `app/src/useTraceDoc.js`——未來前後端分離改從 API 取 JSON 時，
 只改這個檔（替換法寫在檔頭註解）。
+
+### 用 nginx 部署
+
+要對外給人看（或給 Electron 載）時不要用 dev server。`make up` 會建一個多階段 Docker
+映像——node 階段跑 `npm ci` + `vite build`，runtime 只留 `nginx:alpine` 加 `app/dist`
+的靜態檔：
+
+```bash
+make up            # 建映像 + 起容器，開 http://localhost:8080
+make down          # 停掉並移除
+make docker-build  # 只建映像不啟動
+make build         # 只跑 vite build 產出 app/dist（不碰 Docker）
+```
+
+- 對外 port 在 `docker-compose.yml`（預設 `8080:80`），容器內固定 80。
+- nginx 設定在 `deploy/nginx.conf`：`try_files $uri $uri/ /index.html` 的 SPA fallback、
+  `index.html` 不快取、`/assets/`（Vite 的 content hash 檔名）永久快取、gzip。
+- 服務在根路徑 `/`。要掛子路徑得在 `app/vite.config.js` 加 `base`，並同步改 nginx 的
+  `location` 與 `try_files` 目標。
+- **純靜態、沒有後端**：拖放與「開啟 JSON…」都是瀏覽器本機讀檔（`file.text()`），
+  檔案不會經過 nginx，行為與 dev server 完全一樣。
+
+#### Electron BrowserView 端
+
+若用 Electron 的 BrowserView 指向這個服務（`loadURL('http://localhost:8080')`）：
+
+- **一定要擋預設的拖放導航**，否則拖 `.json` 進去會整頁跳到 `file://…`，
+  React 的 drop handler 根本沒機會跑：
+
+  ```js
+  contents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('http://localhost:8080')) e.preventDefault();
+  });
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  ```
+
+- 用 http origin 而不是 `file://`：localStorage 續存（`trace-sankey/custom`）綁在 origin 上，
+  `file://` 下不穩。對外 port 改了就等於換 origin，存過的自訂 JSON 會讀不到。
+- `deploy/nginx.conf` 的 `X-Frame-Options: DENY` 不會擋 BrowserView——它是獨立的
+  top-level WebContents，不是 frame；擋的是真的被別人 `<iframe>` 進去。
 
 ### 當套件用
 
@@ -404,6 +445,9 @@ stress/                      縮放平移的壓力測試資料與產生器（刻
                              免得 make check 被超大檔拖慢）
 tools/trace_sankey.py        CLI：文字報告 / Mermaid / plotly
 tools/golden.mjs             重構對拍：dump 所有範例輸出，前後 diff -r
+Dockerfile                   多階段：node 建置 → nginx:alpine 端靜態檔
+docker-compose.yml           make up / make down 的實作（對外 8080）
+deploy/nginx.conf            nginx server 區塊：try_files SPA fallback、快取、gzip
 ```
 
 Mermaid 匯出目前只在 CLI（網頁版的匯出分頁已隨舊靜態頁移除）。
