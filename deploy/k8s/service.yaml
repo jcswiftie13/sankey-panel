@@ -1,0 +1,12 @@
+# ClusterIP 就好：Ingress / LoadBalancer 各家叢集寫法不同，留給部署端自己加。
+apiVersion: v1
+kind: Service
+metadata:
+  name: trace-sankey
+spec:
+  selector:
+    app: trace-sankey
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

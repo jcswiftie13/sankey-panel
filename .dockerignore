@@ -9,3 +9,5 @@ __pycache__
 out.html
 stress
 CLAUDE.md
+docker-compose*.yml
+deploy/k8s

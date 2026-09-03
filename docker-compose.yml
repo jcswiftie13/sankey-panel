@@ -1,8 +1,48 @@
-# make up / make down 的實作。對外 8080、容器 80。
+# 網頁與 nginx 拆成兩層：內容在自己的小映像裡，nginx 用官方映像＋掛載。
+#   改 deploy/conf.d/default.conf → docker compose exec web nginx -s reload（完全不用 build）
+#   換一版網頁           → make up（只重建那個幾 MB 的 content 映像）
+#   nginx 升版           → 改下面的 tag 就好，內容不動
+#
+# 為什麼要一個一次性的 content service，不直接把映像宣告成 volume 來源：
+# Docker 只有在 named volume「是空的」時才會拿映像內容填充它，之後永遠不再更新。
+# 靠那個行為的話，第二次換網頁會安靜地繼續端舊內容——所以這裡明確地先清空再複製。
+#
+# Docker 28+ / Compose 2.35+ 其實支援 `type: image` 直接把映像掛成 volume，寫起來更短。
+# 沒用它是因為 k8s 的對應功能（Image Volume Source）1.33 才 beta 且要 runtime 配合，
+# 目標叢集未知不能賭；init 複製法在 compose 與所有 k8s 版本上的心智模型完全一樣。
+# 專案名沿用 compose 的預設（= 目錄名），拆分前建的容器才會被同一個 make down 收掉；
+# 改成別的名字會讓舊容器變成沒人管的孤兒，繼續佔著 port。dev 那份才用不同名字。
+name: sankey-panel
+
 services:
+  # 倒完內容就結束的一次性任務，不是常駐服務。
+  content:
+    build:
+      context: .
+      target: content
+    image: ${CONTENT_IMAGE:-trace-sankey-content}:${TAG:-latest}
+    volumes:
+      - web:/html
+    # 三個 glob 是為了連 dotfile 一起清掉（`/html/*` 掃不到）；
+    # rm -rf 對不存在的路徑本來就回 0，所以不會因為 volume 是空的而失敗。
+    command: sh -c 'rm -rf /html/* /html/.[!.]* /html/..?* 2>/dev/null; cp -a /dist/. /html/'
+    restart: "no"
+
   web:
-    build: .
-    image: trace-sankey
+    # 官方映像零客製：設定與內容都從外面掛進來。
+    image: nginx:1.27-alpine
+    depends_on:
+      content:
+        condition: service_completed_successfully
+    volumes:
+      - web:/usr/share/nginx/html:ro
+      # 掛目錄不掛單檔：單檔 bind mount 綁 inode，編輯器存檔換掉 inode
+      # 之後容器內那支檔案會消失（見 deploy/conf.d/default.conf 檔頭）。
+      - ./deploy/conf.d:/etc/nginx/conf.d:ro
+    # 對外 port 只有這一個來源；Makefile 的 PORT 會傳進來，不用兩邊手動同步。
     ports:
-      - "8080:80"
+      - "${PORT:-8080}:80"
     restart: unless-stopped
+
+volumes:
+  web:

@@ -1,0 +1,22 @@
+# 開發用：不建任何映像，官方 nginx 直接讀主機上的 app/dist 與 deploy/conf.d/。
+# 先 make build 產出 app/dist，再 make up-dev；之後改 dist 或 conf 都立刻生效
+# （改 conf 要 nginx -s reload）。想驗證產品版的 nginx 行為時用這個最快。
+#
+# 刻意不叫 docker-compose.override.yml：那個檔名會被 compose 自動載入，
+# commit 進 repo 就等於永遠生效，反而蓋掉上面那份分離架構。要用就明確 -f 指定。
+# 也刻意不去 merge 主檔——重複這幾行，比讓人推理 compose 的合併語意清楚。
+# 專案名與主檔分開：兩套各自 up/down，不會被當成對方的孤兒容器。
+# 但都綁同一個 PORT，所以同時只能起一套。
+name: sankey-panel-dev
+
+services:
+  web:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./app/dist:/usr/share/nginx/html:ro
+      # 掛目錄不掛單檔：單檔 bind mount 綁 inode，編輯器存檔換掉 inode
+      # 之後容器內那支檔案會消失（見 deploy/conf.d/default.conf 檔頭）。
+      - ./deploy/conf.d:/etc/nginx/conf.d:ro
+    ports:
+      - "${PORT:-8080}:80"
+    restart: unless-stopped

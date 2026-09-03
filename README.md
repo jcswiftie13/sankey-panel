@@ -25,7 +25,7 @@ git clone <repo> && cd sankey-panel
 npm install                   # 第一次；裝 app 的 react/vite（套件本身零依賴）
 make dev                      # 起 dev server（= npm run dev --workspace app）
 make draw FILE=my-trace.json  # 不開瀏覽器，CLI 文字報告
-make up                       # 產品用：建 Docker 映像 + 起 nginx（見「用 nginx 部署」）
+make up                       # 產品用：起 nginx + 內容 volume（見「用 nginx 部署」）
 make help                     # 所有 target
 ```
 
@@ -37,24 +37,61 @@ app 開場顯示套件內建範例；按「開啟 JSON…」或把 `.json` 拖�
 
 ### 用 nginx 部署
 
-要對外給人看（或給 Electron 載）時不要用 dev server。`make up` 會建一個多階段 Docker
-映像——node 階段跑 `npm ci` + `vite build`，runtime 只留 `nginx:alpine` 加 `app/dist`
-的靜態檔：
+要對外給人看（或給 Electron 載）時不要用 dev server。**網頁內容與 nginx 是分開的兩層**，
+可以各自替換：
 
-```bash
-make up            # 建映像 + 起容器，開 http://localhost:8080
-make down          # 停掉並移除
-make docker-build  # 只建映像不啟動
-make build         # 只跑 vite build 產出 app/dist（不碰 Docker）
+```
+                       ┌─ trace-sankey-content  (busybox + dist，3MB)
+build 階段（node:22）──┤        │ 開機倒進共享 volume
+  npm ci + vite build  │        ▼
+                       │  [volume] ──► nginx:1.27-alpine（官方映像，零客製）
+                       │                    ▲
+                       └─ trace-sankey      │ 掛 deploy/conf.d/
+                          （自足映像，次要）
 ```
 
-- 對外 port 在 `docker-compose.yml`（預設 `8080:80`），容器內固定 80。
-- nginx 設定在 `deploy/nginx.conf`：`try_files $uri $uri/ /index.html` 的 SPA fallback、
-  `index.html` 不快取、`/assets/`（Vite 的 content hash 檔名）永久快取、gzip。
+```bash
+make up            # 分離式：建 content 映像 + 起官方 nginx，開 http://localhost:8080
+make down          # 停掉並移除（兩種跑法都關）
+make up-dev        # nginx 直接讀主機的 app/dist（要先 make build），改檔即生效
+make build         # 只跑 vite build 產出 app/dist（不碰 Docker）
+make docker-build  # 自足映像：一個 image 全包，適合交付給不想管 compose 的人
+```
+
+三件事各自怎麼換：
+
+| 要改什麼 | 怎麼做 | 要重建嗎 |
+|---|---|---|
+| nginx 設定 | 改 `deploy/conf.d/default.conf` → `docker compose exec web nginx -s reload` | 完全不用 |
+| 網頁內容 | `make up`（只重建 3MB 的 content 映像，nginx 容器不重啟） | 只重建 content |
+| nginx 版本 | 改 `docker-compose.yml` 的 `nginx:1.27-alpine` tag | 不用 |
+| 對外 port | `make up PORT=9000` | 不用 |
+
+- nginx 設定在 `deploy/conf.d/default.conf`：`try_files $uri $uri/ /index.html` 的 SPA
+  fallback、`index.html` 不快取、`/assets/`（Vite 的 content hash 檔名）永久快取、gzip。
+  **掛的是整個 `conf.d/` 目錄不是單一檔案**——Docker 的單檔 bind mount 綁 inode，
+  而 vim／VS Code／`sed -i` 存檔都是換掉 inode，容器裡那支檔案會直接消失。
+- 對外 port 只有 `PORT` 一個來源（`Makefile` 傳給 compose），不必兩邊手動同步。
 - 服務在根路徑 `/`。要掛子路徑得在 `app/vite.config.js` 加 `base`，並同步改 nginx 的
   `location` 與 `try_files` 目標。
 - **純靜態、沒有後端**：拖放與「開啟 JSON…」都是瀏覽器本機讀檔（`file.text()`），
   檔案不會經過 nginx，行為與 dev server 完全一樣。
+- 之後 `useTraceDoc.js` 改吃 API 時要注意：Vite 會在 **build 時**把 URL 烤進 bundle，
+  同一個 content 映像要跨環境共用的話得另外做一個執行期讀的 `config.json`（尚未做）。
+
+#### 上 Kubernetes
+
+同一套心智模型：initContainer 把 content 映像倒進 emptyDir，nginx 唯讀掛來端，
+設定走 ConfigMap。
+
+```bash
+kubectl apply -k deploy      # kustomization.yaml 在 deploy/，不是 deploy/k8s/
+kubectl kustomize deploy     # 只看 render 結果
+```
+
+ConfigMap 由 `configMapGenerator` **直接讀 `deploy/conf.d/default.conf`**，設定不會有第二份
+拷貝；generator 會在名字後面加內容 hash，所以改設定就自動觸發 rolling restart。
+換網頁改 `deploy/kustomization.yaml` 的 `images:` tag。Ingress／TLS 留給部署端自己加。
 
 #### Electron BrowserView 端
 
@@ -72,7 +109,7 @@ make build         # 只跑 vite build 產出 app/dist（不碰 Docker）
 
 - 用 http origin 而不是 `file://`：localStorage 續存（`trace-sankey/custom`）綁在 origin 上，
   `file://` 下不穩。對外 port 改了就等於換 origin，存過的自訂 JSON 會讀不到。
-- `deploy/nginx.conf` 的 `X-Frame-Options: DENY` 不會擋 BrowserView——它是獨立的
+- `deploy/conf.d/default.conf` 的 `X-Frame-Options: DENY` 不會擋 BrowserView——它是獨立的
   top-level WebContents，不是 frame；擋的是真的被別人 `<iframe>` 進去。
 
 ### 當套件用
@@ -445,9 +482,13 @@ stress/                      縮放平移的壓力測試資料與產生器（刻
                              免得 make check 被超大檔拖慢）
 tools/trace_sankey.py        CLI：文字報告 / Mermaid / plotly
 tools/golden.mjs             重構對拍：dump 所有範例輸出，前後 diff -r
-Dockerfile                   多階段：node 建置 → nginx:alpine 端靜態檔
-docker-compose.yml           make up / make down 的實作（對外 8080）
-deploy/nginx.conf            nginx server 區塊：try_files SPA fallback、快取、gzip
+Dockerfile                   多階段；--target content = 只有 dist 的小映像（主要），
+                             不帶 target = nginx 全包的自足映像（次要）
+docker-compose.yml           分離式：content 映像倒進 volume + 官方 nginx（make up）
+docker-compose.dev.yml       nginx 直接 bind mount 主機 app/dist（make up-dev）
+deploy/conf.d/default.conf   nginx server 區塊：try_files SPA fallback、快取、gzip
+deploy/kustomization.yaml    k8s：ConfigMap 直接讀上面那支 conf，不複製第二份
+deploy/k8s/                  k8s Deployment（initContainer 倒內容）與 Service
 ```
 
 Mermaid 匯出目前只在 CLI（網頁版的匯出分頁已隨舊靜態頁移除）。

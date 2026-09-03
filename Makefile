@@ -9,7 +9,7 @@ IMAGE  ?= trace-sankey
 PORT   ?= 8080
 
 .DEFAULT_GOAL := help
-.PHONY: help dev serve build docker-build up down draw mermaid html check golden clean
+.PHONY: help dev serve build docker-build content-build up up-dev down draw mermaid html check golden clean
 
 help:  ## 列出所有 target
 	@echo "追查 Sankey — 可用指令："
@@ -17,7 +17,9 @@ help:  ## 列出所有 target
 	  | awk -F':.*?## ' '{printf "  make %-10s %s\n", $$1, $$2}'
 	@echo ""
 	@echo "變數：FILE=<追查 JSON>  KIND=sankey|flow  OUT=<輸出 html>  DIR=<golden 輸出>"
-	@echo "      IMAGE=<映像名>  PORT=<對外 port，改了要同步改 docker-compose.yml>"
+	@echo "      IMAGE=<映像名>  PORT=<對外 port，會傳給 compose，不必改 yml>"
+	@echo ""
+	@echo "上 Kubernetes：kubectl apply -k deploy（設定走 ConfigMap，見 README）"
 
 dev:  ## 起 React app 的 dev server（第一次要先 npm install）
 	@npm run dev --workspace app
@@ -27,15 +29,23 @@ serve: dev  ## dev 的別名（沿用舊指令習慣）
 build:  ## 建置前端靜態檔到 app/dist
 	@npm run build --workspace app
 
-docker-build:  ## 只建 nginx 映像，不啟動
+docker-build:  ## 只建自足映像（nginx + 靜態檔全包），不啟動
 	@docker build -t $(IMAGE) .
 
-up:  ## 起 nginx 容器（預設 http://localhost:8080）
-	@docker compose up -d --build
+content-build:  ## 只建內容映像（幾 MB，給 compose / k8s 掛載用）
+	@docker build --target content -t $(IMAGE)-content .
+
+up:  ## 起分離式的 nginx + 內容 volume（預設 http://localhost:8080）
+	@PORT=$(PORT) docker compose up -d --build
 	@echo "開 http://localhost:$(PORT)"
 
-down:  ## 停掉並移除容器
+up-dev:  ## 起 nginx 直接讀主機的 app/dist（要先 make build；改檔即生效）
+	@PORT=$(PORT) docker compose -f docker-compose.dev.yml up -d
+	@echo "開 http://localhost:$(PORT)（bind mount app/dist）"
+
+down:  ## 停掉並移除容器（兩種跑法都關）
 	@docker compose down
+	@docker compose -f docker-compose.dev.yml down
 
 draw:  ## CLI 文字報告（FILE=trace.json）
 	@$(CLI) $(FILE)
