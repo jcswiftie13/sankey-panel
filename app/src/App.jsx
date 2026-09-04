@@ -65,8 +65,16 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKey);
   }, [focus]);
 
-  /* 拖放：掛 document 層。兩個防呆都是舊靜態頁踩過的坑——
-     hasFiles() 讓拖選取文字不觸發；depth 計數讓游標掃過子元素時提示不閃爍 */
+  /* 拖放：掛 document 層的 capture 階段。三個防呆都是踩過的坑——
+     hasFiles() 讓拖選取文字不觸發；depth 計數讓游標掃過子元素時提示不閃爍；
+     而 preventDefault() 一律先呼叫、不看 hasFiles()——這是被 Electron 鑲嵌時
+     「整頁跳去 file://…json」的唯一防線。原因：dragover 沒被取消的話，Chromium
+     根本不會把 drop 事件送進頁面，而是直接導航到那個檔案；host 端該設的
+     will-navigate 白名單不在我們手上（見 README「被 Electron 鑲嵌時」）。
+     舊寫法先問 hasFiles() 再攔，判定不成 Files 的拖放（有些來源不給
+     dataTransfer.types）就整個沒攔到，那就是縫。用 capture 是為了不被任何
+     子層的 stopPropagation() 繞過。代價：拖文字進「顯示門檻」輸入框的原生
+     行為會失效，可接受。 */
   useEffect(() => {
     let depth = 0;
     function hasFiles(ev) {
@@ -76,12 +84,13 @@ export default function App() {
       return dt.types && Array.prototype.indexOf.call(dt.types, 'Files') >= 0;
     }
     function onEnter(ev) {
+      ev.preventDefault();
       if (!hasFiles(ev)) return;
-      ev.preventDefault(); depth++; setDragging(true);
+      depth++; setDragging(true);
     }
     function onOver(ev) {
-      if (!hasFiles(ev)) return;
       ev.preventDefault();
+      if (!hasFiles(ev)) return;
       if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
     }
     function onLeave(ev) {
@@ -90,19 +99,21 @@ export default function App() {
       if (!depth) setDragging(false);
     }
     function onDrop(ev) {
+      ev.preventDefault();
       if (!hasFiles(ev)) return;
-      ev.preventDefault(); depth = 0; setDragging(false);
+      depth = 0; setDragging(false);
       openFileRef.current(ev.dataTransfer.files[0]);
     }
-    document.addEventListener('dragenter', onEnter);
-    document.addEventListener('dragover', onOver);
-    document.addEventListener('dragleave', onLeave);
-    document.addEventListener('drop', onDrop);
+    /* capture:true 的 listener 一定要用同樣的旗標移除，否則解不掉 */
+    document.addEventListener('dragenter', onEnter, true);
+    document.addEventListener('dragover', onOver, true);
+    document.addEventListener('dragleave', onLeave, true);
+    document.addEventListener('drop', onDrop, true);
     return () => {
-      document.removeEventListener('dragenter', onEnter);
-      document.removeEventListener('dragover', onOver);
-      document.removeEventListener('dragleave', onLeave);
-      document.removeEventListener('drop', onDrop);
+      document.removeEventListener('dragenter', onEnter, true);
+      document.removeEventListener('dragover', onOver, true);
+      document.removeEventListener('dragleave', onLeave, true);
+      document.removeEventListener('drop', onDrop, true);
     };
   }, []);
 
