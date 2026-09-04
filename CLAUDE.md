@@ -31,7 +31,7 @@ repo 名 `sankey-panel` 只是倉庫名）。使用情境：你在某台 switch 
 
 ## 2. 架構與技術棧
 
-npm workspaces monorepo-lite，三個部分：
+npm workspaces monorepo-lite，三個部分（外加一個**刻意不在 workspaces 裡**的 `electron/`，見下）：
 
 - **`packages/trace-sankey/`——核心套件**。零依賴、純 ESM、**無 build step**（package.json 的
   exports 直接指 `src/`）。`build()`/`render()` 是純函式（`render(model)` 回傳 SVG 字串、
@@ -53,7 +53,17 @@ npm workspaces monorepo-lite，三個部分：
   `add_header` 不繼承**，`= /index.html` 與 `/assets/` 兩個 location 各自重寫一份安全標頭，
   改標頭要三處一起改。消費端是 **Electron BrowserView**（`http://localhost:8080`，不是 iframe——
   `useTraceDoc.js:15-17` 那則 iframe 註解已非現況）：host 端必須用 `will-navigate` 白名單擋掉
-  預設的拖放導航，否則整頁跳去 `file://…json`，drop handler 不會跑（README 有程式片段）。
+  預設的拖放導航，否則整頁跳去 `file://…json`。**但 host 端不是我們能控制的**，所以
+  App.jsx 自己也無條件 `preventDefault()`（見 §4）。README 的「被 Electron 鑲嵌時」整章
+  列了 host 的哪些設定會影響我們、以及 nginx／網頁該怎麼因應（CSP 的 `style-src` 必須有
+  `'unsafe-inline'`、Trusted Types 會打死 `mount.js` 的 `innerHTML`、iframe 才會被
+  `X-Frame-Options` 擋、API 化之後一律走同源 `proxy_pass`……）。
+- **`electron/`——Electron 測試殼**，同時是 host 端的參考實作。`main.js` 一支（CJS，
+  刻意不跟 repo 的 ESM），環境變數 `VIEW_API`／`GUARD`／`SESSION`／`CSP`／`EMBED` 可以
+  重現各種 host 設錯的情況，對應 README 那章的每一節。`make electron` 啟動。
+  **不在 npm workspaces 裡也不進 docker build context**（`.dockerignore` 有排除）：
+  Dockerfile 的 build 階段只 COPY 三份 manifest 就 `npm ci`，加進 workspaces 會直接壞掉，
+  而且會讓每次 docker build 都下載上百 MB 的 Electron 執行檔。
 - **`tools/trace_sankey.py`——Python CLI**。與 model.js 邏輯一一鏡像，只需要 python3
   （`--plotly` 是唯一可選相依；語法需 3.10+）。Mermaid 匯出現在**只有 CLI 有**
   （網頁版 exports.js 已隨舊靜態頁移除）。
@@ -81,6 +91,8 @@ packages/trace-sankey/
   styles/trace-sankey.css 圖表與 tooltip 樣式；CSS 變數 scope 在 .trace-sankey，不進 :root
   types/index.d.ts        手寫型別（JS 原始碼不轉 TS）
 app/                      Vite + React 使用端：App.jsx（全部 UI 接線）、app.css（頁面版面）
+electron/                 Electron 測試殼：main.js（CJS）＋ fallback.html ＋ embed.html。
+                          不在 workspaces、不進 docker build context；自己 npm install
 samples/*.json            同一批範例的檔案版（CLI 與 make check 用；與 src/samples.js 重複維護，見 §11）
 stress/                   縮放平移壓力測試資料 + gen.py。刻意不放 samples/（make check 會 glob 它）
 tools/trace_sankey.py     CLI：文字報告 / --mermaid / --plotly / --json；與 model.js 一一鏡像
@@ -127,6 +139,9 @@ app 端約束（`App.jsx`）：門檻重畫 debounce 200ms、提示文字不 deb
 續存，沿用舊鍵 `trace-sankey/custom`；壞檔只設 error 不動現有 doc）——未來 iframe 鑲嵌＋
 API 取數時只改這個檔（替換法在檔頭註解），App 的圖零改動。開檔 input 的 `value` 每次要清空
 （同檔連選兩次也要觸發）；拖放的 `hasFiles`／depth 計數兩個防呆別拆。
+**拖放的 `preventDefault()` 一律先呼叫、不看 `hasFiles()`，而且掛在 capture 階段**：
+`dragover` 沒被取消的話 Chromium 根本不會把 `drop` 送進頁面，會直接導航到 `file://…json`——
+這是 host 沒設 `will-navigate` 白名單時唯一擋得住的地方，別為了「拖文字進輸入框」改回去。
 舊版 query string／分頁／編輯器仍為移除狀態。
 
 ## 5. 輸入 JSON 契約（濃縮版；完整版在 README.md）

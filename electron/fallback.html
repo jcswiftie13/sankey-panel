@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>連不上追查 Sankey</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: #0b1017; color: #cbd5e1;
+    font: 14px/1.7 system-ui, "Noto Sans TC", sans-serif;
+  }
+  .box { max-width: 520px; padding: 28px 32px; border: 1px solid #1e293b; border-radius: 10px; background: #0f172a; }
+  h1 { margin: 0 0 12px; font-size: 17px; color: #f87171; }
+  code { background: #1e293b; padding: 1px 6px; border-radius: 4px; color: #22d3ee; }
+  .u { color: #22d3ee; word-break: break-all; }
+  .err { color: #64748b; font-size: 12px; margin-top: 14px; }
+  ol { margin: 12px 0 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>載不到追查 Sankey</h1>
+    <div>目標：<span class="u" id="u">—</span></div>
+    <ol>
+      <li>在 repo 根目錄跑 <code>make up</code>（或 <code>make up-dev</code>）</li>
+      <li>用 <code>curl -sI localhost:8080</code> 確認回 200</li>
+      <li>回到這個視窗按 <code>F5</code>（macOS 也可以 <code>Cmd+R</code>）重試</li>
+    </ol>
+    <div class="err" id="e"></div>
+  </div>
+  <!-- 這頁唯一的 script：把 main.js 傳進來的 query 顯示出來。
+       不用它的話就只能寫死一個 URL，換 PORT 之後會騙人。 -->
+  <script>
+    var q = new URLSearchParams(location.search);
+    document.getElementById('u').textContent = q.get('u') || '(未知)';
+    var e = q.get('e');
+    if (e) document.getElementById('e').textContent = 'Chromium 回報：' + e;
+  </script>
+</body>
+</html>

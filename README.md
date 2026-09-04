@@ -95,22 +95,21 @@ ConfigMap 由 `configMapGenerator` **直接讀 `deploy/conf.d/default.conf`**，
 
 #### Electron BrowserView 端
 
-若用 Electron 的 BrowserView 指向這個服務（`loadURL('http://localhost:8080')`）：
+若用 Electron 的 BrowserView（或 WebContentsView）指向這個服務
+（`loadURL('http://localhost:8080')`），**最低限度要擋掉預設的拖放導航**，
+否則拖 `.json` 進去會整頁跳到 `file://…`：
 
-- **一定要擋預設的拖放導航**，否則拖 `.json` 進去會整頁跳到 `file://…`，
-  React 的 drop handler 根本沒機會跑：
+```js
+contents.on('will-navigate', (e, url) => {
+  if (new URL(url).origin !== 'http://localhost:8080') e.preventDefault();
+});
+contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+```
 
-  ```js
-  contents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('http://localhost:8080')) e.preventDefault();
-  });
-  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  ```
-
-- 用 http origin 而不是 `file://`：localStorage 續存（`trace-sankey/custom`）綁在 origin 上，
-  `file://` 下不穩。對外 port 改了就等於換 origin，存過的自訂 JSON 會讀不到。
-- `deploy/conf.d/default.conf` 的 `X-Frame-Options: DENY` 不會擋 BrowserView——它是獨立的
-  top-level WebContents，不是 frame；擋的是真的被別人 `<iframe>` 進去。
+`electron/` 底下有一支可跑的測試殼（`make electron`），既是參考實作，
+也能用環境變數重現各種「host 設錯」的情況。
+**host 端的設定不是你能控制的**，你這一側該怎麼防守看
+[被 Electron 鑲嵌時](#被-electron-鑲嵌時host-端不受你控制)。
 
 ### 當套件用
 
@@ -153,6 +152,178 @@ if (model.ok) fs.writeFileSync('out.svg', render(model));
   是兩件事：那兩個是宣告「上游已經截斷過」的 metadata，程式不拿它們過濾。
 - CLI（`tools/trace_sankey.py`）沒有對應的旗標，只有網頁版有
   （`build(doc, { minBps })` 的第二個參數）。
+
+## 被 Electron 鑲嵌時（host 端不受你控制）
+
+這個網頁的消費端是**別人的 Electron**：畫面被塞進一個 `BrowserView` 裡，指向前面那台 nginx。
+關鍵前提是 **host 那一側的設定不是你能改的**——你能控制的只有三樣東西：`app/` 的網頁、
+`deploy/conf.d/default.conf` 的 nginx，以及未來的後端 API。
+
+這一章逐項列出：**host 的哪個設定會影響你 → 你在自己這一側能怎麼因應**。
+每一節都可以用 `electron/` 底下的測試殼現場重現（開關表見 [electron/README.md](electron/README.md)）。
+
+### 先講兩個橫向結論
+
+**一、`BrowserView` 與 `WebContentsView` 對你這邊完全等價。**
+兩者都是**獨立的 top-level WebContents**——發一樣的 HTTP 請求、同一個 origin、
+一樣有完整的 localStorage，而且**都不是 frame**（所以 `X-Frame-Options: DENY` 擋不到它們）。
+差別只在 host 端的寫法與版本要求：`WebContentsView` 需要 Electron 30 以上，
+`BrowserView` 自 30 起被標記 deprecated（且內部已經是前者的相容包裝）。
+**host 選哪一個，你的網頁與 nginx 都不用改一行**，可以用
+`VIEW_API=webcontentsview` 自己驗一次。
+
+**二、真正會影響你的是 host 的「行為設定」**，不是 view 的類別——
+而那些正好都是你管不到的。以下就是防守清單。
+
+### 1. 拖一個 `.json` 進去，整頁跳成 `file://…`
+
+**host 端的原因**：沒有設 `will-navigate` 白名單。正確的 host 應該要有：
+
+```js
+contents.on('will-navigate', (e, url) => {
+  if (new URL(url).origin !== 'http://localhost:8080') e.preventDefault();
+});
+contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+```
+
+**你這邊的因應（網頁，已實作）**：`app/src/App.jsx` 的拖放 effect **無條件先呼叫
+`preventDefault()`**，再用 `hasFiles()` 決定要不要真的處理，而且掛在 document 的
+**capture 階段**。原因：`dragover` 沒被取消的話，Chromium 根本不會把 `drop` 事件送進頁面，
+而是直接導航到那個檔案。舊寫法是「先問 `hasFiles()` 再攔」，遇到不給
+`dataTransfer.types` 的拖放來源就整個沒攔到——那就是縫。
+
+代價是拖文字進「顯示門檻」輸入框的原生行為會失效，可接受。
+**nginx 端無能為力**：這是 renderer 的行為，不經過 HTTP。
+
+> 重現：`GUARD=off npm start`。
+
+### 2. host 改用 `<iframe>` / `<webview>` 嵌 → 一片空白
+
+**原因**：`deploy/conf.d/default.conf` 的 `X-Frame-Options: DENY`。
+BrowserView／WebContentsView 不受影響（它們不是 frame），真的被 `<iframe>` 嵌才會被擋。
+
+**nginx 端的因應**：改用 CSP 的 `frame-ancestors` 白名單對方的 origin：
+
+```nginx
+# 只有在確定 host 用 iframe 嵌時才開
+add_header Content-Security-Policy "frame-ancestors 'self' <host 的 origin>" always;
+```
+
+⚠️ **`add_header` 不繼承**：`server` 層、`= /index.html`、`/assets/` **三個地方都要改**，
+漏一個就會出現「首頁能嵌、重整後資源被擋」這種難查的半殘狀態。
+另外 Electron 的 host 頁常常是 `file://` 或自訂 scheme，`frame-ancestors` 對這兩種的
+支援看 Chromium 版本；若怎麼設都擋著，最後手段是整組移除 `X-Frame-Options`
+（並在設定檔註明這是刻意放寬的）。
+
+**預設維持 `DENY`**——不要為了還沒發生的需求先把防護拆掉。
+
+> 重現：`EMBED=iframe npm start`。
+
+### 3. 使用者一直拿到舊版的 bundle
+
+**host 端的原因**：BrowserView 沒有網址列、沒有 `Ctrl+F5`，使用者**無法自己強制重整**，
+host 也不一定給了重載的按鈕或快捷鍵。
+
+**nginx 端就是唯一防線，而且現況已經正確——不要動它**：
+`= /index.html` 送 `Cache-Control: no-cache, must-revalidate`，
+`/assets/` 的檔名帶 content hash 所以可以 `immutable`。
+改了網頁只要 `make up` 換掉內容，使用者下次開 app 就會拿到新的。
+
+可補的保險：在網頁裡自己放一顆「重新載入」按鈕（`location.reload()`），
+不依賴 host 有沒有給快捷鍵。
+
+### 4. 存過的自訂 JSON 不見了
+
+`localStorage`（鍵 `trace-sankey/custom`）綁在 **origin** 上，三種 host 設定都會弄丟它：
+
+- host 用了非持久 session（`partition` 名稱不以 `persist:` 開頭），關掉 app 就全清空；
+- host 換了 URL 的 port **或 hostname 寫法**——`http://localhost:8080` 與
+  `http://127.0.0.1:8080` 是**兩個不同的 origin**，儲存空間完全不共用；
+- host 用 `file://` 載（opaque origin，連能不能存都不保證）。
+
+**網頁端**：`app/src/useTraceDoc.js` 已經把所有 `localStorage` 存取包在 try/catch，
+被擋只會退回內建範例、不會壞掉；但「存得進去、下次讀不到」擋不了。
+
+**nginx 端可做（預設不開）**：強制單一 canonical origin，避免 host 隨手換寫法就換掉整個儲存空間：
+
+```nginx
+# 代價：該機器若解不到 localhost 就會壞，只在確定環境開
+if ($host = "127.0.0.1") { return 301 http://localhost:$server_port$request_uri; }
+```
+
+**根本解**：等資料改成從 API 取（見 §7），續存就不再綁 origin。
+
+> 重現：`SESSION=temp npm start`、或 `SANKEY_URL=http://127.0.0.1:8080 npm start`。
+
+### 5. host 注入 CSP → 圖畫不出來
+
+有些 host 會用 `session.webRequest.onHeadersReceived` 硬加一份 CSP。
+這份網頁的**實際需求**是：
+
+- **`style-src` 必須含 `'unsafe-inline'`**：`render.js` 產出的 SVG 文字用
+  `style="fill:…"` 屬性上色（ns 顏色、金額標籤的描邊），`tooltip.js` 也直接寫
+  `.style.left/.top` 定位。少了它 → 文字顏色跑掉、tooltip 黏在畫面左上角。
+- **不能開 Trusted Types**：`mount.js` 是 `chart.innerHTML = render(m)`。
+  一旦 CSP 有 `require-trusted-types-for 'script'`，這行直接 throw、**整張圖不見**。
+
+**nginx 端該做的：自己先送一份 CSP。** Chromium 對多份 CSP 是「每一份都要通過」（取交集），
+所以你送的不會蓋掉 host 那份，但能對「host 沒送」的情況直接生效，也等於把需求寫成契約：
+
+```nginx
+# 三處 add_header 都要加。connect-src 'self' 的前提是 API 走同源 proxy（見 §7）
+add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'" always;
+```
+
+若 host 真的開了 Trusted Types，唯一的解是**改套件不要用 `innerHTML`**
+（改成 `DOMParser` 逐節點 append，或註冊一個 trusted policy）——那是套件層的改動，目前沒做。
+
+> 重現：`CSP=strict npm start`、`CSP=trusted-types npm start`。
+
+### 6. 視窗尺寸由 host 決定（已經處理好，不用重做）
+
+host 會用 `setBounds()` 指定 view 的像素大小，也可能一開始給 0×0。
+`zoom.js` 已經綁了 `window.resize → refresh`，`setBounds` 會讓頁面收到 `resize`；
+`ctm()` 對 `display:none` 與寬高 0 也有防護。列在這裡是為了讓人知道**這項已經處理過**。
+
+### 7. 未來改成打 API 取資料之後
+
+先講結論：**view 的類別依然無關；但 API 化會新增一批 host 相關的坑，而它們有同一個解——
+讓 nginx `proxy_pass /api/` 到後端，網頁只打相對路徑 `/api/...`。**
+一招解掉四件事：
+
+| 坑 | 網頁直接打後端 origin | 走 nginx 同源 proxy |
+|---|---|---|
+| CORS | 後端要送 `Access-Control-Allow-Origin`，而且 **host 一改 port 就得改白名單** | 同源，**完全沒有 CORS**、沒有 preflight |
+| CSP `connect-src` | 要把後端 origin 寫進去；host 若注入 `connect-src 'self'` 就直接死 | `'self'` 就夠 |
+| build 時烤死 URL | Vite 在 **build 時**把 `VITE_API_URL` 烤進 bundle，同一個 content 映像不能跨環境 → 得另做執行期 `config.json` | 相對路徑，**沒有東西要設定** |
+| cookie / 認證 | 跨站 cookie 要 `SameSite=None; Secure`，純 http 的 localhost 很難搞 | 同源 cookie，正常運作 |
+
+其他要記住的：
+
+- **不要靠 host 的 `webSecurity: false`**。那會讓 CORS 靜默失效——在對方的 Electron 跑得好好的，
+  換一台、換個瀏覽器就爛，而且問題在你這邊爆。
+- **session 是非持久的話，登入 cookie 每次開 app 都會掉**（同 §4）。要做認證就別假設
+  cookie 活得過重開。
+- **`file://` 載入時相對路徑的 `/api/` 完全失效**，`Origin` 還會是 `null`——
+  這是必須要求 host 用 http origin 的第二個理由（第一個是 localStorage）。
+- **API 失敗要有網頁自己的錯誤 UI**，不要依賴 host 有沒有處理 `did-fail-load`；
+  沿用現有的 `error-banner`（載入失敗只出橫幅、不動正在顯示的圖）。
+- 想給 host 或 k8s probe 探活的話（預設沒開）：
+
+  ```nginx
+  location = /healthz { access_log off; return 200 "ok\n"; }
+  ```
+
+### 8. 已確認**沒有**影響的項目（省得下次重查）
+
+- **`setWindowOpenHandler(() => ({ action: 'deny' }))`**：網頁裡沒有任何 `window.open`
+  或 `target="_blank"`，被 deny 也不痛。**要維持的紀律：不要加**。
+- **`nodeIntegration: true` 的老派 host**：會把 `require`／`module` 注入頁面全域，
+  UMD 形式的第三方庫會誤判環境而壞掉。這個網頁是 `<script type="module">` 的 ESM、
+  而且 `trace-sankey` 零第三方依賴，不受影響。**要維持的紀律：不要引入 UMD 版的函式庫。**
+- **Vite 的 `base`**：預設 `'/'`，產出 `/assets/…` 絕對路徑。若哪天 host 堅持用 `file://`
+  直接載檔案，要改成 `base: './'`；但相對路徑會和 nginx 的 `try_files … /index.html`
+  ＋未來的前端路由互斥（子路徑下會解錯），所以**只當備案、預設不改**。
 
 ## 看圖：縮放與平移
 
@@ -477,6 +648,9 @@ packages/trace-sankey/       npm 套件（零依賴、純 ESM、無 build step�
   styles/trace-sankey.css    圖與 tooltip 的樣式（trace-sankey/style.css）
   types/index.d.ts           TypeScript 型別
 app/                         Vite + React 使用端：圖 + 顯示門檻 + 圖例 + 縮放工具列
+electron/                    Electron 測試殼（make electron）：BrowserView 載 nginx，
+                             可用環境變數重現各種「host 設錯」的情況。
+                             刻意不在 npm workspaces 裡，見 electron/README.md
 samples/*.json               範例 JSON（CLI 也吃同一份；make check 會全部跑一次）
 stress/                      縮放平移的壓力測試資料與產生器（刻意不放 samples/，
                              免得 make check 被超大檔拖慢）
