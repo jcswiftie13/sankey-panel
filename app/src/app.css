@@ -5,6 +5,8 @@
   --fg:#e6edf5; --dim:#93a4b8; --dim2:#6b7f95;
   --cyan:#22d3ee; --cyan-d:#0e7490; --amber:#f59e0b; --rose:#fb7185; --gray:#94a3b8;
 }
+/* color-scheme:dark 讓 datetime-local 的原生日曆圖示與下拉在深色底上看得見 */
+html{color-scheme:dark}
 *{box-sizing:border-box}
 html,body,#root{margin:0;padding:0;height:100%}
 body{
@@ -22,14 +24,26 @@ body{
 .brand .dot{width:12px;height:12px;border-radius:50%;background:var(--cyan);box-shadow:0 0 14px var(--cyan);flex:none}
 .topbar h1{margin:0;font-size:17px;font-weight:650;letter-spacing:.2px}
 
+/* ---------- 輸入框共用色票 ---------- */
+/* 查詢表單與顯示門檻共用這一組，不要各抄一份色碼（頁面色票已經是第三份了） */
+.q-input{background:#0e1620;border:1px solid var(--line2);border-radius:8px;
+  color:var(--fg);font-family:inherit;font-size:13px;padding:7px 10px}
+.q-input:focus{outline:none;border-color:var(--cyan)}
+
+/* ---------- 查詢條件表單 ---------- */
+.query-bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:flex-end}
+.field{display:flex;flex-direction:column;gap:3px}
+.field label{font-size:12px;color:var(--dim);white-space:nowrap}
+.field .hint{font-size:11.5px;color:var(--dim2);max-width:30ch;line-height:1.35}
+.f-host .q-input{width:20ch}
+/* 數字欄右對齊＋等寬數字，跟顯示門檻同一個作風 */
+.f-num .q-input{width:12ch;text-align:right;font-variant-numeric:tabular-nums}
+
 /* ---------- 顯示門檻 ---------- */
 .min-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px;color:var(--dim)}
 /* 17ch 不是隨便挑的：number input 右邊要留 spinner 的位置，
    14ch 會把 1500000000 這種十位數從左邊裁掉一個字 */
-#minBps{width:17ch;background:#0e1620;border:1px solid var(--line2);border-radius:8px;
-  color:var(--fg);font-family:inherit;font-size:13px;padding:7px 10px;text-align:right;
-  font-variant-numeric:tabular-nums}
-#minBps:focus{outline:none;border-color:var(--cyan)}
+#minBps{width:17ch;text-align:right;font-variant-numeric:tabular-nums}
 .min-row .unit{font-size:12.5px;color:var(--dim2)}
 /* tabular-nums：翻譯文字跟著打字一直重算，等寬數字才不會左右跳 */
 .unit-hint{font-size:12.5px;color:#c8f4ff;border:1px dashed var(--line2);border-radius:99px;
@@ -63,23 +77,19 @@ body{
 .btn{background:#152232;border:1px solid var(--line2);color:var(--fg);border-radius:99px;
   padding:5px 11px;font-size:12.5px;cursor:pointer;font-family:inherit}
 .btn:hover{border-color:var(--cyan-d)}
+/* 主要動作（查詢）：定義一定要排在 .btn 後面，同特異性是後者勝 */
+.btn-primary{background:var(--cyan-d);border-color:var(--cyan-d);color:#eafcff;padding:7px 18px}
+.btn-primary:hover:not(:disabled){background:#0b6b85;border-color:var(--cyan)}
+.btn:disabled{opacity:.55;cursor:default}
 .zbtn{min-width:34px;text-align:center}
 .zpct{min-width:60px;font-variant-numeric:tabular-nums;color:var(--dim)}
 
-/* ---------- 開檔 / 拖放 ---------- */
-.file-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.file-name{font-size:12.5px;color:var(--dim);border:1px dashed var(--line2);border-radius:99px;
-  padding:5px 12px;max-width:44ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.file-name.ok{color:#c8f4ff;border-color:var(--cyan-d);border-style:solid}
-.drop-hint{position:fixed;inset:0;z-index:60;background:rgba(11,16,23,.78);
-  display:flex;align-items:center;justify-content:center;pointer-events:none}
-.drop-box{border:2px dashed var(--cyan);border-radius:10px;padding:28px 44px;
-  color:#c8f4ff;font-size:16px;background:rgba(34,211,238,.07)}
+/* ---------- 錯誤橫幅 ---------- */
 .error-banner{border:1px solid var(--rose);border-radius:10px;padding:10px 14px;
   font-size:13px;color:var(--rose);background:rgba(251,113,133,.07)}
 .error-banner b{display:block;margin-bottom:4px;color:var(--fg)}
 
-/* ---------- 錯誤 ---------- */
+/* ---------- 空狀態／契約錯誤 ---------- */
 .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:4px;text-align:center;color:var(--dim);font-size:13.5px}
 .empty b{color:var(--fg);margin-bottom:6px;font-size:15px}

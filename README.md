@@ -1,6 +1,7 @@
 # Interface Increment 追查 Sankey
 
-讀入一份規範格式的追查 JSON，畫成守恆的 Sankey。
+向後端 API 查一次追查，把回傳的規範格式追查 JSON 畫成守恆的 Sankey。
+（CLI 則是直接讀檔案，見「CLI」一節。）
 
 追一台 switch 的 interface increment 時，一跳可能有多條 uplink，所以下游看到的 out 增加
 可以大於你剛追進來的那一條 in（A→B 10G，B→C 20G）。這個工具把那個現象畫出來，
@@ -17,7 +18,7 @@
 ## 快速開始
 
 兩個部分：`packages/trace-sankey`（畫圖的 npm 套件，零依賴純 ESM）與 `app/`
-（Vite + React 使用端，只有圖和顯示門檻）。CLI 另外只需要 `python3`。
+（Vite + React 使用端：查詢表單 + 圖 + 顯示門檻）。CLI 另外只需要 `python3`。
 
 ```bash
 git clone <repo> && cd sankey-panel
@@ -29,11 +30,18 @@ make up                       # 產品用：起 nginx + 內容 volume（見「�
 make help                     # 所有 target
 ```
 
-app 開場顯示套件內建範例；按「開啟 JSON…」或把 `.json` 拖進頁面就換成你的追查
-（純瀏覽器本機讀，不上傳；存 localStorage，重新整理還在，「還原範例」清掉）。
-壞檔（語法錯誤／不合契約）只出錯誤橫幅，不會毀掉正在看的圖。
-資料來源整個關在 `app/src/useTraceDoc.js`——未來前後端分離改從 API 取 JSON 時，
-只改這個檔（替換法寫在檔頭註解）。
+app 開場是空的：在上方填查詢條件（起點 switch、時間範圍、追多深…）按「查詢」，
+由後端 API 跑追查、回傳一份追查 JSON，網頁直接畫出來。參數見「查詢 API」一節。
+查詢失敗（連不到、HTTP 錯誤、回應不是 JSON、回應不合契約）只出錯誤橫幅，
+**不會毀掉你正在看的圖**。資料來源整個關在 `app/src/useTraceDoc.js`、
+API 呼叫關在 `app/src/api.js`，換端點只改 `api.js` 裡的一個常數。
+
+開發時 dev server 會把 `/api` 代理到 `http://localhost:8000`（正式環境由 nginx 做同一件事），
+後端不在那裡就指過去：
+
+```bash
+VITE_DEV_API=http://10.0.0.5:8000 make dev
+```
 
 ### 用 nginx 部署
 
@@ -74,10 +82,16 @@ make docker-build  # 自足映像：一個 image 全包，適合交付給不想�
 - 對外 port 只有 `PORT` 一個來源（`Makefile` 傳給 compose），不必兩邊手動同步。
 - 服務在根路徑 `/`。要掛子路徑得在 `app/vite.config.js` 加 `base`，並同步改 nginx 的
   `location` 與 `try_files` 目標。
-- **純靜態、沒有後端**：拖放與「開啟 JSON…」都是瀏覽器本機讀檔（`file.text()`），
-  檔案不會經過 nginx，行為與 dev server 完全一樣。
-- 之後 `useTraceDoc.js` 改吃 API 時要注意：Vite 會在 **build 時**把 URL 烤進 bundle，
-  同一個 content 映像要跨環境共用的話得另外做一個執行期讀的 `config.json`（尚未做）。
+- **`/api/` 反向代理到追查 API**：前端只打同源相對路徑（免 CORS），後端位置寫在
+  `deploy/conf.d/default.conf` 的 `set $trace_api http://api:8000;` 那一行。
+  這是刻意的——Vite 會在 **build 時**把網址烤進 bundle，前端一旦寫死後端網址，
+  同一顆 content 映像就沒辦法跨環境共用了。換環境只要改設定 + `nginx -s reload`。
+- `proxy_pass` 寫成**變數 + `resolver`** 而不是固定 hostname：nginx 啟動時就會解析固定
+  hostname，API 還沒起來會直接「host not found in upstream」**啟動失敗**，連靜態頁都端不出來。
+  寫成變數會把 DNS 延到每次請求才查，API 晚起來最多是 502。k8s 上要把 `resolver` 換成
+  kube-dns 的 ClusterIP。
+- **API 不要對外 publish port**：只有 nginx 需要連得到它。這個工具沒有帳號驗證，
+  連得到 `/api/` 的人就查得到全部資料（見「查詢 API」一節）。
 
 #### 上 Kubernetes
 
@@ -105,6 +119,13 @@ contents.on('will-navigate', (e, url) => {
 });
 contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 ```
+
+另外兩點：
+
+- 用 http origin 而不是 `file://`：查詢打的是同源相對路徑 `/api/…`，`file://` 下沒有
+  可用的同源可言，代理不會生效。
+- `deploy/conf.d/default.conf` 的 `X-Frame-Options: DENY` 不會擋 BrowserView——它是獨立的
+  top-level WebContents，不是 frame；擋的是真的被別人 `<iframe>` 進去。
 
 `electron/` 底下有一支可跑的測試殼（`make electron`），既是參考實作，
 也能用環境變數重現各種「host 設錯」的情況。
@@ -186,16 +207,21 @@ contents.on('will-navigate', (e, url) => {
 contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 ```
 
-**你這邊的因應（網頁，已實作）**：`app/src/App.jsx` 的拖放 effect **無條件先呼叫
-`preventDefault()`**，再用 `hasFiles()` 決定要不要真的處理，而且掛在 document 的
+**你這邊的因應（網頁，已實作）**：`app/src/App.jsx` 有一個 effect **無條件對
+`dragenter`／`dragover`／`drop` 呼叫 `preventDefault()`**，掛在 document 的
 **capture 階段**。原因：`dragover` 沒被取消的話，Chromium 根本不會把 `drop` 事件送進頁面，
-而是直接導航到那個檔案。舊寫法是「先問 `hasFiles()` 再攔」，遇到不給
-`dataTransfer.types` 的拖放來源就整個沒攔到——那就是縫。
+而是直接導航到那個檔案。不看 `dataTransfer.types` 是刻意的——有些拖放來源不給 types，
+「先問再攔」就會漏；掛 capture 是為了不被任何子層的 `stopPropagation()` 繞過。
+
+⚠️ **這個 effect 沒有任何功能，只有這道防線**：開檔與拖放讀 JSON 的功能已經隨
+「JSON 改由 API 查詢」移除了，但 effect 要留著。看到它「什麼都沒做」就順手刪掉，
+會安靜地把這個防護一起刪掉。
 
 代價是拖文字進「顯示門檻」輸入框的原生行為會失效，可接受。
 **nginx 端無能為力**：這是 renderer 的行為，不經過 HTTP。
 
-> 重現：`GUARD=off npm start`。
+> 驗證：`GUARD=off npm start`，然後拖一個 `.json` 進視窗——**應該什麼都不發生**。
+> 整頁真的跳成 `file://…` 就代表上面那個 effect 壞了或被刪了。
 
 ### 2. host 改用 `<iframe>` / `<webview>` 嵌 → 一片空白
 
@@ -232,28 +258,27 @@ host 也不一定給了重載的按鈕或快捷鍵。
 可補的保險：在網頁裡自己放一顆「重新載入」按鈕（`location.reload()`），
 不依賴 host 有沒有給快捷鍵。
 
-### 4. 存過的自訂 JSON 不見了
+### 4. 存過的自訂 JSON 不見了（已不再適用，但 origin 仍然要看）
 
-`localStorage`（鍵 `trace-sankey/custom`）綁在 **origin** 上，三種 host 設定都會弄丟它：
+**原本的坑**：自訂 JSON 存在 `localStorage`（鍵 `trace-sankey/custom`），而 `localStorage`
+綁在 **origin** 上，三種 host 設定都會弄丟它——非持久 session、`localhost` 與 `127.0.0.1`
+被當成兩個 origin、以及用 `file://` 載。
 
-- host 用了非持久 session（`partition` 名稱不以 `persist:` 開頭），關掉 app 就全清空；
-- host 換了 URL 的 port **或 hostname 寫法**——`http://localhost:8080` 與
-  `http://127.0.0.1:8080` 是**兩個不同的 origin**，儲存空間完全不共用；
-- host 用 `file://` 載（opaque origin，連能不能存都不保證）。
+**現況：這個坑消失了**。JSON 改成每次查 API 拿，網頁**完全不再寫 `localStorage`**，
+沒有東西可以掉。
 
-**網頁端**：`app/src/useTraceDoc.js` 已經把所有 `localStorage` 存取包在 try/catch，
-被擋只會退回內建範例、不會壞掉；但「存得進去、下次讀不到」擋不了。
+**但 origin 還是有意義**，只是理由換了：查詢打的是同源相對路徑 `/api/…`，
+所以 host 必須用 http origin 載（`file://` 下 `/api/` 直接失效，見 §7）。
+host 換 port／hostname 寫法不再會弄丟資料，但仍會換掉未來的 cookie 儲存空間。
 
-**nginx 端可做（預設不開）**：強制單一 canonical origin，避免 host 隨手換寫法就換掉整個儲存空間：
+**nginx 端可做（預設不開）**：強制單一 canonical origin：
 
 ```nginx
 # 代價：該機器若解不到 localhost 就會壞，只在確定環境開
 if ($host = "127.0.0.1") { return 301 http://localhost:$server_port$request_uri; }
 ```
 
-**根本解**：等資料改成從 API 取（見 §7），續存就不再綁 origin。
-
-> 重現：`SESSION=temp npm start`、或 `SANKEY_URL=http://127.0.0.1:8080 npm start`。
+> 重現：`SESSION=temp npm start`（現在應該**看不到**任何差異——那就是對的）。
 
 ### 5. host 注入 CSP → 圖畫不出來
 
@@ -285,10 +310,11 @@ host 會用 `setBounds()` 指定 view 的像素大小，也可能一開始給 0�
 `zoom.js` 已經綁了 `window.resize → refresh`，`setBounds` 會讓頁面收到 `resize`；
 `ctm()` 對 `display:none` 與寬高 0 也有防護。列在這裡是為了讓人知道**這項已經處理過**。
 
-### 7. 未來改成打 API 取資料之後
+### 7. 打 API 取資料（已實作）
 
 先講結論：**view 的類別依然無關；但 API 化會新增一批 host 相關的坑，而它們有同一個解——
-讓 nginx `proxy_pass /api/` 到後端，網頁只打相對路徑 `/api/...`。**
+讓 nginx `proxy_pass /api/` 到後端，網頁只打相對路徑 `/api/...`。這個解已經落地**
+（`deploy/conf.d/default.conf` 的 `/api/` location，網頁端在 `app/src/api.js`）。
 一招解掉四件事：
 
 | 坑 | 網頁直接打後端 origin | 走 nginx 同源 proxy |
@@ -305,7 +331,7 @@ host 會用 `setBounds()` 指定 view 的像素大小，也可能一開始給 0�
 - **session 是非持久的話，登入 cookie 每次開 app 都會掉**（同 §4）。要做認證就別假設
   cookie 活得過重開。
 - **`file://` 載入時相對路徑的 `/api/` 完全失效**，`Origin` 還會是 `null`——
-  這是必須要求 host 用 http origin 的第二個理由（第一個是 localStorage）。
+  這是必須要求 host 用 http origin 的**主要**理由（見 §4）。
 - **API 失敗要有網頁自己的錯誤 UI**，不要依賴 host 有沒有處理 `did-fail-load`；
   沿用現有的 `error-banner`（載入失敗只出橫幅、不動正在顯示的圖）。
 - 想給 host 或 k8s probe 探活的話（預設沒開）：
@@ -343,6 +369,35 @@ switch 與 interface 一多，圖就會遠大於畫面。圖區是一塊固定�
 
 開場是「符合視窗，但不放大超過原始大小」——小圖維持原尺寸，大圖才縮到看得見全貌。
 換一份資料或改門檻會重新回到這個開場視角；同一份資料與門檻下的重畫則會保留你的縮放。
+
+## 查詢 API
+
+網頁按下「查詢」後打的是**同源相對路徑**，由 nginx（開發時是 Vite dev server）代理到後端：
+
+```
+GET /api/trace?hostname=tor-01&from_ts=1757000000000&to_ts=1757003600000
+    &max_hops=7&top_n=3&threshold=10&track_dir=source
+```
+
+| query 參數 | 型別 | 預設 | UI 欄位 |
+|---|---|---|---|
+| `hostname` | string，必填 | — | 起點交換器 hostname |
+| `from_ts` | int，epoch **毫秒** | 現在時間 −1 小時 | 起始時間 |
+| `to_ts` | int，epoch **毫秒** | 現在時間 | 結束時間 |
+| `max_hops` | int ≥ 1 | 7 | 最多追查層數（跳） |
+| `top_n` | int ≥ 1 | 3 | 每台取前幾大 interface |
+| `threshold` | float 0–100 | 10 | 貢獻門檻（％） |
+| `track_dir` | `source` \| `destination` | `source` | 追查方向 |
+
+- 七個參數**一律顯式帶上**（含預設值），後端不必猜、log 也看得出這次查了什麼。
+- 時間是 epoch **毫秒**，由輸入框的本地時間換算（不是 UTC 字串）。
+- 回應**直接就是下面那份追查 JSON 契約本體**，不包 envelope。前端拿到後照樣跑
+  `validate(doc)` 才畫，不合契約會出橫幅、圖留在上一次的結果。
+- 端點路徑目前是 `/api/trace`；後端不同就改 `app/src/api.js` 的 `ENDPOINT` 常數。
+
+**沒有存取控制**：這個工具沒有帳號、token 或 session，連得到服務的人就查得到全部資料
+（瀏覽器的同源政策／CORS 只約束網頁裡的 JS，擋不住 curl）。要限制的話請在部署層做——
+API 不對外開 port、nginx 綁內網或加 IP 白名單。
 
 ## 輸入 JSON 規格
 
@@ -647,7 +702,11 @@ packages/trace-sankey/       npm 套件（零依賴、純 ESM、無 build step�
   src/samples.js             九個內建範例（trace-sankey/samples）
   styles/trace-sankey.css    圖與 tooltip 的樣式（trace-sankey/style.css）
   types/index.d.ts           TypeScript 型別
-app/                         Vite + React 使用端：圖 + 顯示門檻 + 圖例 + 縮放工具列
+app/                         Vite + React 使用端
+  src/api.js                 追查 API 的唯一出入口（組 query、fetch、翻譯錯誤）
+  src/useTraceDoc.js         資料來源 hook：查詢、abort、契約驗證
+  src/TraceQueryBar.jsx      查詢條件表單（七個欄位 + 送出前檢查）
+  src/App.jsx                圖、顯示門檻、圖例、縮放工具列的接線
 electron/                    Electron 測試殼（make electron）：BrowserView 載 nginx，
                              可用環境變數重現各種「host 設錯」的情況。
                              刻意不在 npm workspaces 裡，見 electron/README.md
@@ -660,7 +719,7 @@ Dockerfile                   多階段；--target content = 只有 dist 的小�
                              不帶 target = nginx 全包的自足映像（次要）
 docker-compose.yml           分離式：content 映像倒進 volume + 官方 nginx（make up）
 docker-compose.dev.yml       nginx 直接 bind mount 主機 app/dist（make up-dev）
-deploy/conf.d/default.conf   nginx server 區塊：try_files SPA fallback、快取、gzip
+deploy/conf.d/default.conf   nginx server 區塊：/api/ 反向代理、SPA fallback、快取、gzip
 deploy/kustomization.yaml    k8s：ConfigMap 直接讀上面那支 conf，不複製第二份
 deploy/k8s/                  k8s Deployment（initContainer 倒內容）與 Service
 ```
