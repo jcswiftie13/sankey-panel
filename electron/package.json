@@ -1,0 +1,13 @@
+{
+  "name": "trace-sankey-shell",
+  "private": true,
+  "version": "0.0.0",
+  "description": "追查 Sankey 的 Electron 測試殼：用 BrowserView / WebContentsView 載 nginx 上的網頁",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.1.1"
+  }
+}

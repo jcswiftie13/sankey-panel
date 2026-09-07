@@ -9,7 +9,7 @@ IMAGE  ?= trace-sankey
 PORT   ?= 8080
 
 .DEFAULT_GOAL := help
-.PHONY: help dev serve build docker-build content-build up up-dev down draw mermaid html check golden clean
+.PHONY: help dev serve build docker-build content-build up up-dev down electron draw mermaid html check golden clean
 
 help:  ## 列出所有 target
 	@echo "追查 Sankey — 可用指令："
@@ -17,7 +17,7 @@ help:  ## 列出所有 target
 	  | awk -F':.*?## ' '{printf "  make %-10s %s\n", $$1, $$2}'
 	@echo ""
 	@echo "變數：FILE=<追查 JSON>  KIND=sankey|flow  OUT=<輸出 html>  DIR=<golden 輸出>"
-	@echo "      IMAGE=<映像名>  PORT=<對外 port，會傳給 compose，不必改 yml>"
+	@echo "      IMAGE=<映像名>  PORT=<對外 port，會傳給 compose 與 make electron，不必改 yml>"
 	@echo ""
 	@echo "上 Kubernetes：kubectl apply -k deploy（設定走 ConfigMap，見 README）"
 
@@ -46,6 +46,11 @@ up-dev:  ## 起 nginx 直接讀主機的 app/dist（要先 make build；改檔�
 down:  ## 停掉並移除容器（兩種跑法都關）
 	@docker compose down
 	@docker compose -f docker-compose.dev.yml down
+
+electron:  ## 起 Electron 測試殼載 nginx 的畫面（先 make up；開關見 electron/README.md）
+	@test -d electron/node_modules || { \
+	  echo "先跑：cd electron && npm install"; exit 1; }
+	@cd electron && env -u ELECTRON_RUN_AS_NODE SANKEY_URL=http://localhost:$(PORT) npm start
 
 draw:  ## CLI 文字報告（FILE=trace.json）
 	@$(CLI) $(FILE)

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>iframe 嵌入模式</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #0b1017; }
+  /* 故意鋪滿：若畫面是一片空的深色底，就是 iframe 被 X-Frame-Options: DENY 擋了 */
+  iframe { display: block; width: 100%; height: 100%; border: 0; }
+</style>
+</head>
+<body>
+  <iframe id="f" referrerpolicy="no-referrer"></iframe>
+  <!-- EMBED=iframe 專用：模擬「host 不是用 BrowserView，而是拿自己的頁面
+       <iframe> 你」的情況。這時 deploy/conf.d/default.conf 的
+       X-Frame-Options: DENY 就會真的生效，畫面應該是全空的。
+       src 從 query 帶進來，才不會把 URL 寫死。 -->
+  <script>
+    var u = new URLSearchParams(location.search).get('u');
+    if (u) document.getElementById('f').src = u;
+  </script>
+</body>
+</html>
