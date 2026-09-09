@@ -1,7 +1,7 @@
 # 壓力測試資料
 
 畫面縮放平移的測試檔，**不是**真的追查結果，也不是給人看的範例
-（範例在 `samples/`，`make check` 只跑那一個目錄）。
+（範例在 `samples/`）。`make check` 會連這個目錄一起 build 一遍當迴歸哨兵。
 
 拖進頁面就會畫。實測數字（1600×1000 視窗、Chrome）：
 
@@ -20,6 +20,16 @@
 滾輪每格約 130ms（其他檔案約 33ms），會有明顯頓挫。這是手寫 SVG 的規模上限，
 不是縮放本身的問題；真要撐這種量得做視野裁剪。它的 viewBox 高達 426022，
 是既有版面演算法把 4096 個葉節點直堆成一欄造成的。
+
+這五支就是用下面的指令產生的（`gen.py` 輸出 elements wire 格式）：
+
+```
+python3 stress/gen.py --depth 3 --fan 3 --gbps 64 -o stress/01-small.json
+python3 stress/gen.py --depth 4 --fan 3 --gbps 64 -o stress/02-medium.json
+python3 stress/gen.py --depth 5 --fan 3 --gbps 64 -o stress/03-large.json
+python3 stress/gen.py --chain 16 --fan 6 --gbps 64 -o stress/04-wide.json
+python3 stress/gen.py --depth 6 --fan 4 --gbps 64 -o stress/05-huge.json
+```
 
 自己調大小：
 

@@ -42,7 +42,7 @@ export function useTraceDoc() {
 
     const errs = validate(d);
     if (errs.length) {
-      setError({ title: '回應不合追查 JSON 契約', messages: errs });
+      setError({ title: '回應不合 elements wire JSON 契約（見 README「輸入 JSON 規格」）', messages: errs });
       setLoading(false);
       return;
     }

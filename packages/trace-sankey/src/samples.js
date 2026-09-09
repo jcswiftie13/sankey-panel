@@ -1,5 +1,23 @@
-/* 範例追查 JSON。純資料，不抓 counter、不掃網。 */
+/* 範例追查 JSON（elements wire 格式）。純資料，不抓 counter、不掃網。
+   三個簡寫只是省字，不是轉換器：G(10) = 10 Gbps、N(...) = 一個節點、E(...) = 一條 network-flow 邊。 */
 var G = function (n) { return Math.round(n * 1e9); };
+/* N(id, type, name?, extra?)：extra 直接合併進 data（labels／other_*_bps） */
+function N(id, type, name, extra) {
+  var d = { id: id, type: type };
+  if (name) d.name = name;
+  if (extra) Object.keys(extra).forEach(function (k) { d[k] = extra[k]; });
+  return { data: d };
+}
+/* E(id, source, source_iface, target, target_iface, bps)：iface 給空字串就不寫進 labels（k8s 內部沒有 switch iface） */
+function E(id, src, sif, dst, dif, bps) {
+  var d = { id: id, type: 'network-flow', source: src, target: dst };
+  var labels = {};
+  if (sif) labels.source_iface = sif;
+  if (dif) labels.target_iface = dif;
+  if (sif || dif) d.labels = labels;
+  d.metrics = { delta_bps: bps };
+  return { data: d };
+}
 
 var SAMPLES = [
   {
@@ -9,178 +27,137 @@ var SAMPLES = [
     json: {
       kind: 'destination',
       investigation: {
-        switchId: 'sw-edge-a', iface: 'xe-0/0/1', direction: 'in', deltaBps: G(10),
+        node_id: 'sw-edge-a', iface: 'xe-0/0/1', delta_bps: G(10), direction: 'in',
         note: 'Edge A 的 access port 進來 +10 Gbps'
       },
-      pruning: { topN: 3, minShare: 0.10 },
-      hops: [
-        {
-          switchId: 'sw-edge-a', label: 'Edge A', role: 'switch',
-          outputs: [
-            { iface: 'et-0/0/48', deltaBps: G(20), peerKind: 'switch', peerSwitchId: 'sw-core-1', peerIface: 'et-1/0/1' }
-          ]
-        },
-        {
-          switchId: 'sw-core-1', label: 'Core 1', role: 'switch',
-          outputs: [
-            { iface: 'et-1/0/9', deltaBps: G(20), peerKind: 'host', peerId: 'srv-db-07', peerIface: 'eno1' }
-          ]
-        }
-      ]
+      elements: {
+        nodes: [
+          N('sw-edge-a', 'switch', 'Edge A'),
+          N('sw-core-1', 'switch', 'Core 1'),
+          N('srv-db-07', 'host')
+        ],
+        edges: [
+          E('e0', 'sw-edge-a', 'et-0/0/48', 'sw-core-1', 'et-1/0/1', G(20)),
+          E('e1', 'sw-core-1', 'et-1/0/9', 'srv-db-07', 'eno1', G(20))
+        ]
+      }
     }
   },
 
   {
     key: 'dual-uplink',
     name: '雙 uplink',
-    desc: '同一台 core 在 hops 出現兩次（兩條 uplink 匯入），要合併成一個盒子，不是兩台。',
+    desc: '兩條 uplink 匯入同一台 core：同一對節點之間兩條邊，各自一條帶；core 往下的兩筆量測相加成一條。',
     json: {
       kind: 'destination',
-      investigation: { switchId: 'sw-edge-a', iface: 'xe-0/0/1', direction: 'in', deltaBps: G(10) },
-      pruning: { topN: 3, minShare: 0.10 },
-      hops: [
-        {
-          switchId: 'sw-edge-a', label: 'Edge A', role: 'switch',
-          outputs: [
-            { iface: 'et-0/0/48', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'sw-core-1', peerIface: 'et-1/0/1' },
-            { iface: 'et-0/0/49', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'sw-core-1', peerIface: 'et-1/0/2' }
-          ]
-        },
-        {
-          switchId: 'sw-core-1', label: 'Core 1', role: 'switch',
-          outputs: [
-            { iface: 'et-1/0/24', deltaBps: G(9), peerKind: 'switch', peerSwitchId: 'sw-agg-9', peerIface: 'et-9/0/1' }
-          ]
-        },
-        {
-          switchId: 'sw-core-1', label: 'Core 1', role: 'switch',
-          outputs: [
-            { iface: 'et-1/0/24', deltaBps: G(7), peerKind: 'switch', peerSwitchId: 'sw-agg-9', peerIface: 'et-9/0/1' }
-          ]
-        },
-        {
-          switchId: 'sw-agg-9', label: 'Agg 9', role: 'switch',
-          outputs: [
-            { iface: 'xe-9/0/12', deltaBps: G(11), peerKind: 'host', peerId: 'srv-cache-02', peerIface: 'bond0' },
-            { iface: 'xe-9/0/13', deltaBps: G(5), peerKind: 'host', peerId: 'srv-cache-03', peerIface: 'bond0' }
-          ]
-        }
-      ]
+      investigation: { node_id: 'sw-edge-a', iface: 'xe-0/0/1', delta_bps: G(10), direction: 'in' },
+      elements: {
+        nodes: [
+          N('sw-edge-a', 'switch', 'Edge A'),
+          N('sw-core-1', 'switch', 'Core 1'),
+          N('sw-agg-9', 'switch', 'Agg 9'),
+          N('srv-cache-02', 'host'),
+          N('srv-cache-03', 'host')
+        ],
+        edges: [
+          E('e0', 'sw-edge-a', 'et-0/0/48', 'sw-core-1', 'et-1/0/1', G(6)),
+          E('e1', 'sw-edge-a', 'et-0/0/49', 'sw-core-1', 'et-1/0/2', G(4)),
+          /* 同 (source, target, iface) 的兩筆 9G＋7G 已合成一筆；拆成兩條邊也會自動加總 */
+          E('e2', 'sw-core-1', 'et-1/0/24', 'sw-agg-9', 'et-9/0/1', G(16)),
+          E('e3', 'sw-agg-9', 'xe-9/0/12', 'srv-cache-02', 'bond0', G(11)),
+          E('e4', 'sw-agg-9', 'xe-9/0/13', 'srv-cache-03', 'bond0', G(5))
+        ]
+      }
     }
   },
 
   {
     key: 'campus',
     name: '校園骨幹',
-    desc: '宿網 → 匯聚 → 核心 → 出口／機房。每層都有沒追的上聯與沒跟的出口。',
+    desc: '宿網 → 匯聚 → 核心 → 出口／機房。每層都有沒追的上聯與沒跟的出口；rtr-tanet 從兩台接進來，是一張多邊葉卡。',
     json: {
       kind: 'destination',
       investigation: {
-        switchId: 'sw-dorm-b3', iface: 'ae0', direction: 'in', deltaBps: G(8),
+        node_id: 'sw-dorm-b3', iface: 'ae0', delta_bps: G(8), direction: 'in',
         note: '宿舍 B3 上聯 ae0 進向 +8 Gbps'
       },
-      pruning: { topN: 3, minShare: 0.10 },
-      hops: [
-        {
-          switchId: 'sw-dorm-b3', label: '宿網 B3', role: 'switch',
-          outputs: [
-            { iface: 'et-0/0/50', deltaBps: G(22), peerKind: 'switch', peerSwitchId: 'sw-agg-dorm', peerIface: 'et-2/0/3' }
-          ]
-        },
-        {
-          switchId: 'sw-agg-dorm', label: '宿區匯聚', role: 'switch',
-          outputs: [
-            { iface: 'ae10', deltaBps: G(18), peerKind: 'switch', peerSwitchId: 'sw-core-n', peerIface: 'ae1' },
-            { iface: 'xe-2/0/7', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'fw-campus', peerIface: 'xe-0/0/0' }
-          ]
-        },
-        {
-          switchId: 'sw-core-n', label: '核心 North', role: 'switch',
-          outputs: [
-            { iface: 'et-0/0/1', deltaBps: G(12), peerKind: 'router', peerId: 'rtr-tanet', peerIface: 'Te0/1/0' },
-            { iface: 'et-0/0/2', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'sw-dc-spine', peerIface: 'et-1/1/1' }
-          ]
-        },
-        {
-          switchId: 'fw-campus', label: '校園防火牆', role: 'switch',
-          outputs: [
-            { iface: 'xe-0/0/1', deltaBps: G(6), peerKind: 'router', peerId: 'rtr-tanet', peerIface: 'Te0/1/1' }
-          ]
-        },
-        {
-          switchId: 'sw-dc-spine', label: '機房 Spine', role: 'switch',
-          outputs: [
-            { iface: 'et-1/1/9', deltaBps: G(4), peerKind: 'host', peerId: 'srv-nas-01', peerIface: 'ens5f0' }
-          ]
-        }
-      ]
+      elements: {
+        nodes: [
+          N('sw-dorm-b3', 'switch', '宿網 B3'),
+          N('sw-agg-dorm', 'switch', '宿區匯聚'),
+          N('sw-core-n', 'switch', '核心 North'),
+          N('fw-campus', 'switch', '校園防火牆'),
+          N('sw-dc-spine', 'switch', '機房 Spine'),
+          N('rtr-tanet', 'router'),
+          N('srv-nas-01', 'host')
+        ],
+        edges: [
+          E('e0', 'sw-dorm-b3', 'et-0/0/50', 'sw-agg-dorm', 'et-2/0/3', G(22)),
+          E('e1', 'sw-agg-dorm', 'ae10', 'sw-core-n', 'ae1', G(18)),
+          E('e2', 'sw-agg-dorm', 'xe-2/0/7', 'fw-campus', 'xe-0/0/0', G(6)),
+          E('e3', 'sw-core-n', 'et-0/0/1', 'rtr-tanet', 'Te0/1/0', G(12)),
+          E('e4', 'sw-core-n', 'et-0/0/2', 'sw-dc-spine', 'et-1/1/1', G(4)),
+          E('e5', 'fw-campus', 'xe-0/0/1', 'rtr-tanet', 'Te0/1/1', G(6)),
+          E('e6', 'sw-dc-spine', 'et-1/1/9', 'srv-nas-01', 'ens5f0', G(4))
+        ]
+      }
     }
   },
 
   {
     key: 'pruned',
     name: '截斷殘差',
-    desc: '這層有 9 個 port 在漲，只跟前 3 名（≥10%）。沒跟的併成其他輸出，用等比的虛線色塊貼在右邊。',
+    desc: '這層有 9 個 port 在漲，只跟前 3 名（≥10%）。沒跟的併成其他輸出（other_out_bps 顯式給），用等比的虛線色塊貼在右邊。',
     json: {
       kind: 'destination',
-      investigation: { switchId: 'sw-tor-14', iface: 'et-0/0/52', direction: 'in', deltaBps: G(40) },
-      pruning: { topN: 3, minShare: 0.10 },
-      hops: [
-        {
-          switchId: 'sw-tor-14', label: 'ToR 14', role: 'switch',
-          otherOutBps: G(9),
-          outputs: [
-            { iface: 'xe-0/0/1', deltaBps: G(18), peerKind: 'switch', peerSwitchId: 'sw-leaf-3', peerIface: 'et-3/0/1' },
-            { iface: 'xe-0/0/2', deltaBps: G(9), peerKind: 'host', peerId: 'srv-app-11', peerIface: 'eno2' },
-            { iface: 'xe-0/0/3', deltaBps: G(6), peerKind: 'host', peerId: 'srv-app-12', peerIface: 'eno2' }
-          ]
-        },
-        {
-          switchId: 'sw-leaf-3', label: 'Leaf 3', role: 'switch',
-          otherOutBps: G(3),
-          outputs: [
-            { iface: 'xe-3/0/8', deltaBps: G(10), peerKind: 'host', peerId: 'srv-log-01', peerIface: 'bond0' },
-            { iface: 'xe-3/0/9', deltaBps: G(5), peerKind: 'host', peerId: 'srv-log-02', peerIface: 'bond0' }
-          ]
-        }
-      ]
+      investigation: { node_id: 'sw-tor-14', iface: 'et-0/0/52', delta_bps: G(40), direction: 'in' },
+      elements: {
+        nodes: [
+          N('sw-tor-14', 'switch', 'ToR 14', { other_out_bps: G(9) }),
+          N('sw-leaf-3', 'switch', 'Leaf 3', { other_out_bps: G(3) }),
+          N('srv-app-11', 'host'),
+          N('srv-app-12', 'host'),
+          N('srv-log-01', 'host'),
+          N('srv-log-02', 'host')
+        ],
+        edges: [
+          E('e0', 'sw-tor-14', 'xe-0/0/1', 'sw-leaf-3', 'et-3/0/1', G(18)),
+          E('e1', 'sw-tor-14', 'xe-0/0/2', 'srv-app-11', 'eno2', G(9)),
+          E('e2', 'sw-tor-14', 'xe-0/0/3', 'srv-app-12', 'eno2', G(6)),
+          E('e3', 'sw-leaf-3', 'xe-3/0/8', 'srv-log-01', 'bond0', G(10)),
+          E('e4', 'sw-leaf-3', 'xe-3/0/9', 'srv-log-02', 'bond0', G(5))
+        ]
+      }
     }
   },
 
   {
     key: 'source',
     name: '追來源',
-    desc: '看到某條 out 增加，往回追貢獻大的 in。起點釘在最右，封包方向照樣左到右。',
+    desc: '看到某條 out 增加，往回追貢獻大的 in。起點釘在最右，邊仍一律照封包方向寫（上游 → 下游）。',
     json: {
       kind: 'source',
       investigation: {
-        switchId: 'sw-core-1', iface: 'et-1/0/9', direction: 'out', deltaBps: G(20),
+        node_id: 'sw-core-1', iface: 'et-1/0/9', delta_bps: G(20), direction: 'out',
         note: 'Core 1 出向 et-1/0/9 +20 Gbps，問誰灌的'
       },
-      pruning: { topN: 3, minShare: 0.10 },
-      hops: [
-        {
-          switchId: 'sw-core-1', label: 'Core 1', role: 'switch',
-          inputs: [
-            { iface: 'et-1/0/1', deltaBps: G(12), peerKind: 'switch', peerSwitchId: 'sw-edge-a', peerIface: 'et-0/0/48' },
-            { iface: 'et-1/0/2', deltaBps: G(6), peerKind: 'switch', peerSwitchId: 'sw-edge-b', peerIface: 'et-0/0/48' }
-          ]
-        },
-        {
-          switchId: 'sw-edge-a', label: 'Edge A', role: 'switch',
-          inputs: [
-            { iface: 'xe-0/0/1', deltaBps: G(7), peerKind: 'host', peerId: 'lab-gpu-01', peerIface: 'eno1' },
-            { iface: 'xe-0/0/2', deltaBps: G(3), peerKind: 'host', peerId: 'lab-gpu-02', peerIface: 'eno1' }
-          ]
-        },
-        {
-          switchId: 'sw-edge-b', label: 'Edge B', role: 'switch',
-          otherInBps: G(2),
-          inputs: [
-            { iface: 'xe-0/0/5', deltaBps: G(4), peerKind: 'host', peerId: 'backup-relay', peerIface: 'eth0' }
-          ]
-        }
-      ]
+      elements: {
+        nodes: [
+          N('sw-core-1', 'switch', 'Core 1'),
+          N('sw-edge-a', 'switch', 'Edge A'),
+          N('sw-edge-b', 'switch', 'Edge B', { other_in_bps: G(2) }),
+          N('lab-gpu-01', 'host'),
+          N('lab-gpu-02', 'host'),
+          N('backup-relay', 'host')
+        ],
+        edges: [
+          E('e0', 'sw-edge-a', 'et-0/0/48', 'sw-core-1', 'et-1/0/1', G(12)),
+          E('e1', 'sw-edge-b', 'et-0/0/48', 'sw-core-1', 'et-1/0/2', G(6)),
+          E('e2', 'lab-gpu-01', 'eno1', 'sw-edge-a', 'xe-0/0/1', G(7)),
+          E('e3', 'lab-gpu-02', 'eno1', 'sw-edge-a', 'xe-0/0/2', G(3)),
+          E('e4', 'backup-relay', 'eth0', 'sw-edge-b', 'xe-0/0/5', G(4))
+        ]
+      }
     }
   },
 
@@ -188,41 +165,37 @@ var SAMPLES = [
     key: 'k8s',
     name: 'Switch → Node → Pod → NS',
     desc: '同一條 Sankey 接下去。node 是虛線盒、pod 是中繼小卡，流量匯進 namespace 終點——' +
-      'telemetry 跨兩台 node 的 pod 合進同一個 ns 節點。k8s hop 的 port 可省略 iface；' +
-      'node 也能當葉（沒列 pod 就整台補成其他輸出）。',
+      'telemetry 跨兩台 node 的 pod 合進同一個 ns 節點。k8s 內部的邊可以不寫 iface；' +
+      'node 也能當葉（沒有往下的邊就整台補成其他輸出）。',
     json: {
       kind: 'destination',
-      investigation: { switchId: 'sw-tor-k8s', iface: 'et-0/0/48', direction: 'in', deltaBps: G(30) },
-      pruning: { topN: 3, minShare: 0.10 },
-      hops: [
-        {
-          switchId: 'sw-tor-k8s', label: 'ToR k8s', role: 'switch',
-          outputs: [
-            { iface: 'xe-0/0/11', deltaBps: G(14), peerKind: 'node', peerSwitchId: 'node-w-11', peerIface: 'bond0' },
-            { iface: 'xe-0/0/12', deltaBps: G(8), peerKind: 'node', peerSwitchId: 'node-w-12', peerIface: 'bond0' },
-            { iface: 'xe-0/0/13', deltaBps: G(5), peerKind: 'node', peerSwitchId: 'node-w-13', peerIface: 'bond0' },
-            { iface: 'xe-0/0/20', deltaBps: G(3), peerKind: 'host', peerId: 'srv-log-01', peerIface: 'eno1' }
-          ]
-        },
-        {
-          switchId: 'node-w-11', label: 'node-w-11', role: 'node',
-          otherOutBps: G(2.5),
-          outputs: [
-            { iface: 'veth3a1f', deltaBps: G(8), peerKind: 'pod', peerId: 'ingest-7d9c', namespace: 'telemetry' },
-            { iface: 'veth9b02', deltaBps: G(3.5), peerKind: 'pod', peerId: 'kafka-2', namespace: 'stream' }
-          ]
-        },
-        {
-          /* k8s node 的 port 沒有 switch iface：iface 省略，靠 peerId 認 port */
-          switchId: 'node-w-12', label: 'node-w-12', role: 'node',
-          outputs: [
-            { deltaBps: G(5.5), peerKind: 'pod', peerId: 'ingest-4f11', namespace: 'telemetry' },
-            { deltaBps: G(2.5), peerKind: 'pod', peerId: 'debug-shell', namespace: 'debug' }
-          ]
-        },
-        /* node 當葉：沒列 pod，進來的 5G 由平衡式補成其他輸出 */
-        { switchId: 'node-w-13', label: 'node-w-13', role: 'node' }
-      ]
+      investigation: { node_id: 'sw-tor-k8s', iface: 'et-0/0/48', delta_bps: G(30), direction: 'in' },
+      elements: {
+        nodes: [
+          N('sw-tor-k8s', 'switch', 'ToR k8s'),
+          N('node-w-11', 'node', 'node-w-11', { other_out_bps: G(2.5) }),
+          N('node-w-12', 'node', 'node-w-12'),
+          /* node 當葉：沒有往下的邊，進來的 5G 由平衡式補成其他輸出 */
+          N('node-w-13', 'node', 'node-w-13'),
+          N('srv-log-01', 'host'),
+          /* pod 的 ns 用 labels.namespace（也可以用 parent 鏈接到 type:"namespace" 的群組節點） */
+          N('ingest-7d9c', 'pod', null, { labels: { namespace: 'telemetry' } }),
+          N('kafka-2', 'pod', null, { labels: { namespace: 'stream' } }),
+          N('ingest-4f11', 'pod', null, { labels: { namespace: 'telemetry' } }),
+          N('debug-shell', 'pod', null, { labels: { namespace: 'debug' } })
+        ],
+        edges: [
+          E('e0', 'sw-tor-k8s', 'xe-0/0/11', 'node-w-11', 'bond0', G(14)),
+          E('e1', 'sw-tor-k8s', 'xe-0/0/12', 'node-w-12', 'bond0', G(8)),
+          E('e2', 'sw-tor-k8s', 'xe-0/0/13', 'node-w-13', 'bond0', G(5)),
+          E('e3', 'sw-tor-k8s', 'xe-0/0/20', 'srv-log-01', 'eno1', G(3)),
+          E('e4', 'node-w-11', 'veth3a1f', 'ingest-7d9c', '', G(8)),
+          E('e5', 'node-w-11', 'veth9b02', 'kafka-2', '', G(3.5)),
+          /* k8s node 內部沒有 switch iface：兩邊都不寫 */
+          E('e6', 'node-w-12', '', 'ingest-4f11', '', G(5.5)),
+          E('e7', 'node-w-12', '', 'debug-shell', '', G(2.5))
+        ]
+      }
     }
   },
 
@@ -230,36 +203,32 @@ var SAMPLES = [
     key: 'k8s-source',
     name: 'NS → Pod → Node → Switch（追來源）',
     desc: '追來源方向的 k8s：namespace 終點在最左欄，batch 兩個 pod 跨 node 匯進同一個 ns；' +
-      'node-w-21 的 port 全省略 iface。',
+      'node-w-21 的邊全省略 iface。',
     json: {
       kind: 'source',
       investigation: {
-        switchId: 'sw-tor-k8s', iface: 'et-0/0/48', direction: 'out', deltaBps: G(18),
+        node_id: 'sw-tor-k8s', iface: 'et-0/0/48', delta_bps: G(18), direction: 'out',
         note: 'ToR uplink 出量 +18G，追是哪些 pod 打出來的'
       },
-      hops: [
-        {
-          switchId: 'sw-tor-k8s', label: 'ToR k8s', role: 'switch',
-          inputs: [
-            { iface: 'xe-0/0/21', deltaBps: G(12), peerKind: 'node', peerSwitchId: 'node-w-21', peerIface: 'bond0' },
-            { iface: 'xe-0/0/22', deltaBps: G(6), peerKind: 'node', peerSwitchId: 'node-w-22', peerIface: 'bond0' }
-          ]
-        },
-        {
-          switchId: 'node-w-21', label: 'node-w-21', role: 'node',
-          inputs: [
-            { deltaBps: G(7), peerKind: 'pod', peerId: 'web-6f8d', namespace: 'frontend' },
-            { deltaBps: G(3), peerKind: 'pod', peerId: 'cache-1', namespace: 'frontend' },
-            { deltaBps: G(2), peerKind: 'pod', peerId: 'batch-9k', namespace: 'batch' }
-          ]
-        },
-        {
-          switchId: 'node-w-22', label: 'node-w-22', role: 'node',
-          inputs: [
-            { iface: 'veth71aa', deltaBps: G(6), peerKind: 'pod', peerId: 'job-runner-5c', namespace: 'batch' }
-          ]
-        }
-      ]
+      elements: {
+        nodes: [
+          N('sw-tor-k8s', 'switch', 'ToR k8s'),
+          N('node-w-21', 'node', 'node-w-21'),
+          N('node-w-22', 'node', 'node-w-22'),
+          N('web-6f8d', 'pod', null, { labels: { namespace: 'frontend' } }),
+          N('cache-1', 'pod', null, { labels: { namespace: 'frontend' } }),
+          N('batch-9k', 'pod', null, { labels: { namespace: 'batch' } }),
+          N('job-runner-5c', 'pod', null, { labels: { namespace: 'batch' } })
+        ],
+        edges: [
+          E('e0', 'node-w-21', 'bond0', 'sw-tor-k8s', 'xe-0/0/21', G(12)),
+          E('e1', 'node-w-22', 'bond0', 'sw-tor-k8s', 'xe-0/0/22', G(6)),
+          E('e2', 'web-6f8d', '', 'node-w-21', '', G(7)),
+          E('e3', 'cache-1', '', 'node-w-21', '', G(3)),
+          E('e4', 'batch-9k', '', 'node-w-21', '', G(2)),
+          E('e5', 'job-runner-5c', '', 'node-w-22', 'veth71aa', G(6))
+        ]
+      }
     }
   },
 
@@ -267,192 +236,76 @@ var SAMPLES = [
     key: 'dci-tier',
     name: '同層互連（tier）',
     desc: 'bdr 與 dci 實際是同一層。不標 tier 時 bdr↔dci 互連會把 bdr 拆成兩欄；' +
-      '同層的 hop 都標 tier: "border" 就鎖在同一欄，互連畫成右側弧帶。',
-    json: {
-      kind: 'destination',
-      investigation: {
-        switchId: 'core-1', iface: 'et-0/0/0', direction: 'in', deltaBps: G(24),
-        note: 'core 進來 +24 Gbps，跨 DC 流量經 dci 繞回同層 bdr'
-      },
-      hops: [
-        {
-          switchId: 'core-1', label: 'Core', role: 'switch',
-          outputs: [
-            { iface: 'et-0/0/1', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-1', peerIface: 'et-1/0/1' },
-            { iface: 'et-0/0/2', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-2', peerIface: 'et-1/0/1' },
-            { iface: 'et-0/0/3', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-3', peerIface: 'et-1/0/1' },
-            { iface: 'et-0/0/4', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-4', peerIface: 'et-1/0/1' },
-            { iface: 'et-0/0/5', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-5', peerIface: 'et-1/0/1' },
-            { iface: 'et-0/0/6', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-6', peerIface: 'et-1/0/1' }
-          ]
+      '同層的節點都標 labels.tier: "border" 就鎖在同一欄，互連畫成右側弧帶。',
+    json: (function () {
+      var T = { labels: { tier: 'border' } };
+      var nodes = [N('core-1', 'switch', 'Core')];
+      [1, 2, 3].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, T)); });
+      [1, 2].forEach(function (i) { nodes.push(N('dci-' + i, 'switch', 'DCI ' + i, T)); });
+      [4, 5, 6].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, T)); });
+      [1, 2, 3].forEach(function (i) { nodes.push(N('spn-' + i, 'switch', 'SPN ' + i)); });
+      [1, 2, 3, 4].forEach(function (i) { nodes.push(N('tor-' + i, 'switch', 'ToR ' + i)); });
+      [1, 2, 3, 4].forEach(function (i) { nodes.push(N('srv-a-0' + i, 'host')); });
+      var edges = [], seq = 0;
+      var add = function (src, sif, dst, dif, bps) { edges.push(E('e' + (seq++), src, sif, dst, dif, bps)); };
+      [1, 2, 3, 4, 5, 6].forEach(function (i) { add('core-1', 'et-0/0/' + i, 'bdr-' + i, 'et-1/0/1', G(4)); });
+      /* bdr-1..3：1G 到 dci-1、1G 到 dci-2（同層互連 → 弧帶）、2G 到自己那台 spn */
+      [1, 2, 3].forEach(function (i) {
+        add('bdr-' + i, 'et-1/1/1', 'dci-1', 'ae0', G(1));
+        add('bdr-' + i, 'et-1/1/2', 'dci-2', 'ae0', G(1));
+        add('bdr-' + i, 'et-1/2/1', 'spn-' + i, 'et-2/0/' + i, G(2));
+      });
+      /* dci 再回到同層的 bdr-4..6 */
+      [1, 2].forEach(function (j) {
+        [4, 5, 6].forEach(function (i, k) { add('dci-' + j, 'et-9/0/' + (k + 1), 'bdr-' + i, 'et-1/0/' + (j + 1), G(1)); });
+      });
+      [4, 5, 6].forEach(function (i) {
+        [1, 2, 3].forEach(function (s) { add('bdr-' + i, 'et-1/2/' + s, 'spn-' + s, 'et-2/0/' + i, G(2)); });
+      });
+      [1, 2, 3].forEach(function (s) {
+        [1, 2, 3, 4].forEach(function (t) { add('spn-' + s, 'et-2/1/' + t, 'tor-' + t, 'et-3/0/' + s, G(2)); });
+      });
+      [1, 2, 3, 4].forEach(function (t) { add('tor-' + t, 'xe-3/0/10', 'srv-a-0' + t, 'eno1', G(6)); });
+      return {
+        kind: 'destination',
+        investigation: {
+          node_id: 'core-1', iface: 'et-0/0/0', delta_bps: G(24), direction: 'in',
+          note: 'core 進來 +24 Gbps，跨 DC 流量經 dci 繞回同層 bdr'
         },
-        {
-          switchId: 'bdr-1', label: 'BDR 1', role: 'switch', tier: 'border',
-          outputs: [
-            { iface: 'et-1/1/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-1', peerIface: 'ae0' },
-            { iface: 'et-1/1/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-2', peerIface: 'ae0' },
-            { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1', peerIface: 'et-2/0/1' }
-          ]
-        },
-        {
-          switchId: 'bdr-2', label: 'BDR 2', role: 'switch', tier: 'border',
-          outputs: [
-            { iface: 'et-1/1/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-1', peerIface: 'ae0' },
-            { iface: 'et-1/1/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-2', peerIface: 'ae0' },
-            { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2', peerIface: 'et-2/0/2' }
-          ]
-        },
-        {
-          switchId: 'bdr-3', label: 'BDR 3', role: 'switch', tier: 'border',
-          outputs: [
-            { iface: 'et-1/1/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-1', peerIface: 'ae0' },
-            { iface: 'et-1/1/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-2', peerIface: 'ae0' },
-            { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3', peerIface: 'et-2/0/3' }
-          ]
-        },
-        {
-          switchId: 'dci-1', label: 'DCI 1', role: 'switch', tier: 'border',
-          outputs: [
-            { iface: 'et-9/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-4', peerIface: 'et-1/0/2' },
-            { iface: 'et-9/0/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-5', peerIface: 'et-1/0/2' },
-            { iface: 'et-9/0/3', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-6', peerIface: 'et-1/0/2' }
-          ]
-        },
-        {
-          switchId: 'dci-2', label: 'DCI 2', role: 'switch', tier: 'border',
-          outputs: [
-            { iface: 'et-9/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-4', peerIface: 'et-1/0/3' },
-            { iface: 'et-9/0/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-5', peerIface: 'et-1/0/3' },
-            { iface: 'et-9/0/3', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-6', peerIface: 'et-1/0/3' }
-          ]
-        },
-        {
-          switchId: 'bdr-4', label: 'BDR 4', role: 'switch', tier: 'border',
-          outputs: [
-            { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1', peerIface: 'et-2/0/4' },
-            { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2', peerIface: 'et-2/0/4' },
-            { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3', peerIface: 'et-2/0/4' }
-          ]
-        },
-        {
-          switchId: 'bdr-5', label: 'BDR 5', role: 'switch', tier: 'border',
-          outputs: [
-            { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1', peerIface: 'et-2/0/5' },
-            { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2', peerIface: 'et-2/0/5' },
-            { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3', peerIface: 'et-2/0/5' }
-          ]
-        },
-        {
-          switchId: 'bdr-6', label: 'BDR 6', role: 'switch', tier: 'border',
-          outputs: [
-            { iface: 'et-1/2/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-1', peerIface: 'et-2/0/6' },
-            { iface: 'et-1/2/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-2', peerIface: 'et-2/0/6' },
-            { iface: 'et-1/2/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'spn-3', peerIface: 'et-2/0/6' }
-          ]
-        },
-        {
-          switchId: 'spn-1', label: 'SPN 1', role: 'switch',
-          outputs: [
-            { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1', peerIface: 'et-3/0/1' },
-            { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2', peerIface: 'et-3/0/1' },
-            { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3', peerIface: 'et-3/0/1' },
-            { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4', peerIface: 'et-3/0/1' }
-          ]
-        },
-        {
-          switchId: 'spn-2', label: 'SPN 2', role: 'switch',
-          outputs: [
-            { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1', peerIface: 'et-3/0/2' },
-            { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2', peerIface: 'et-3/0/2' },
-            { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3', peerIface: 'et-3/0/2' },
-            { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4', peerIface: 'et-3/0/2' }
-          ]
-        },
-        {
-          switchId: 'spn-3', label: 'SPN 3', role: 'switch',
-          outputs: [
-            { iface: 'et-2/1/1', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-1', peerIface: 'et-3/0/3' },
-            { iface: 'et-2/1/2', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-2', peerIface: 'et-3/0/3' },
-            { iface: 'et-2/1/3', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-3', peerIface: 'et-3/0/3' },
-            { iface: 'et-2/1/4', deltaBps: G(2), peerKind: 'switch', peerSwitchId: 'tor-4', peerIface: 'et-3/0/3' }
-          ]
-        },
-        {
-          switchId: 'tor-1', label: 'ToR 1', role: 'switch',
-          outputs: [
-            { iface: 'xe-3/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-a-01', peerIface: 'eno1' }
-          ]
-        },
-        {
-          switchId: 'tor-2', label: 'ToR 2', role: 'switch',
-          outputs: [
-            { iface: 'xe-3/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-a-02', peerIface: 'eno1' }
-          ]
-        },
-        {
-          switchId: 'tor-3', label: 'ToR 3', role: 'switch',
-          outputs: [
-            { iface: 'xe-3/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-a-03', peerIface: 'eno1' }
-          ]
-        },
-        {
-          switchId: 'tor-4', label: 'ToR 4', role: 'switch',
-          outputs: [
-            { iface: 'xe-3/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-a-04', peerIface: 'eno1' }
-          ]
-        }
-      ]
-    }
+        elements: { nodes: nodes, edges: edges }
+      };
+    })()
   },
   (function () {
     /* 跨層回頭：core → bdr → dci → bdr、core → bdr → spn → tor。
        bdr 全同 tier；dci 與 spn 同 tier；tor 同 tier。dci 只回打 bdr，
        跟 bdr→dci/spn 的主流向繞成環 → 多數決排欄，6 條 dci→bdr 畫成回流帶。
        數字全守恆：每台 bdr in = 4G(core)+1G(dci 回打) = out = 1G(dci)+4G(spn)。 */
-    var hops = [{
-      switchId: 'core-1', label: 'Core 1', role: 'core',
-      outputs: [1, 2, 3, 4, 5, 6].map(function (i) {
-        return { iface: 'et-0/0/' + i, deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'bdr-' + i, peerIface: 'et-1/0/1' };
-      })
-    }];
+    var nodes = [N('core-1', 'switch', 'Core 1')];
+    [1, 2, 3, 4, 5, 6].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, { labels: { tier: 'bdr' } })); });
+    [1, 2, 3].forEach(function (j) { nodes.push(N('dci-' + j, 'switch', 'DCI ' + j, { labels: { tier: 'dci-spn' } })); });
+    [1, 2, 3].forEach(function (s) { nodes.push(N('spn-' + s, 'switch', 'SPN ' + s, { labels: { tier: 'dci-spn' } })); });
+    [1, 2, 3, 4].forEach(function (k) { nodes.push(N('tor-' + k, 'switch', 'ToR ' + k, { labels: { tier: 'tor' } })); });
+    [1, 2, 3, 4].forEach(function (k) { nodes.push(N('srv-' + k, 'host')); });
+    var edges = [], seq = 0;
+    var add = function (src, sif, dst, dif, bps) { edges.push(E('e' + (seq++), src, sif, dst, dif, bps)); };
+    [1, 2, 3, 4, 5, 6].forEach(function (i) { add('core-1', 'et-0/0/' + i, 'bdr-' + i, 'et-1/0/1', G(4)); });
     var pair = function (i) { return Math.ceil(i / 2); };        /* bdr-1,2→dci-1/spn-1 … */
     [1, 2, 3, 4, 5, 6].forEach(function (i) {
-      hops.push({
-        switchId: 'bdr-' + i, label: 'BDR ' + i, role: 'border', tier: 'bdr',
-        outputs: [
-          { iface: 'et-2/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'dci-' + pair(i), peerIface: 'ae0' },
-          { iface: 'et-2/0/2', deltaBps: G(4), peerKind: 'switch', peerSwitchId: 'spn-' + pair(i), peerIface: 'et-0/0/' + i }
-        ]
-      });
+      add('bdr-' + i, 'et-2/0/1', 'dci-' + pair(i), 'ae0', G(1));
+      add('bdr-' + i, 'et-2/0/2', 'spn-' + pair(i), 'et-0/0/' + i, G(4));
     });
     /* dci 回打錯開（dci-1→bdr-3,4；dci-2→bdr-5,6；dci-3→bdr-1,2）：環繞多台而非成對回彈 */
     [1, 2, 3].forEach(function (j) {
       var t1 = (j * 2 + 1) > 6 ? (j * 2 + 1) - 6 : (j * 2 + 1);
       var t2 = (j * 2 + 2) > 6 ? (j * 2 + 2) - 6 : (j * 2 + 2);
-      hops.push({
-        switchId: 'dci-' + j, label: 'DCI ' + j, role: 'switch', tier: 'dci-spn',
-        outputs: [
-          { iface: 'et-9/0/1', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-' + t1, peerIface: 'et-1/1/1' },
-          { iface: 'et-9/0/2', deltaBps: G(1), peerKind: 'switch', peerSwitchId: 'bdr-' + t2, peerIface: 'et-1/1/1' }
-        ]
-      });
+      add('dci-' + j, 'et-9/0/1', 'bdr-' + t1, 'et-1/1/1', G(1));
+      add('dci-' + j, 'et-9/0/2', 'bdr-' + t2, 'et-1/1/1', G(1));
     });
     [[1, [[1, 4], [2, 4]]], [2, [[2, 2], [3, 6]]], [3, [[1, 2], [4, 6]]]].forEach(function (s) {
-      hops.push({
-        switchId: 'spn-' + s[0], label: 'SPN ' + s[0], role: 'spine', tier: 'dci-spn',
-        outputs: s[1].map(function (o) {
-          return { iface: 'et-3/0/' + o[0], deltaBps: G(o[1]), peerKind: 'switch', peerSwitchId: 'tor-' + o[0], peerIface: 'et-0/0/' + s[0] };
-        })
-      });
+      s[1].forEach(function (o) { add('spn-' + s[0], 'et-3/0/' + o[0], 'tor-' + o[0], 'et-0/0/' + s[0], G(o[1])); });
     });
-    [1, 2, 3, 4].forEach(function (k) {
-      hops.push({
-        switchId: 'tor-' + k, label: 'ToR ' + k, role: 'tor', tier: 'tor',
-        outputs: [
-          { iface: 'xe-0/0/10', deltaBps: G(6), peerKind: 'host', peerId: 'srv-' + k, peerIface: 'eno1' }
-        ]
-      });
-    });
+    [1, 2, 3, 4].forEach(function (k) { add('tor-' + k, 'xe-0/0/10', 'srv-' + k, 'eno1', G(6)); });
     return {
       key: 'dci-uturn',
       name: '跨層回頭（bdr→dci→bdr）',
@@ -461,13 +314,432 @@ var SAMPLES = [
       json: {
         kind: 'destination',
         investigation: {
-          switchId: 'core-1', iface: 'et-0/0/0', direction: 'in', deltaBps: G(24),
+          node_id: 'core-1', iface: 'et-0/0/0', delta_bps: G(24), direction: 'in',
           note: 'core 進來 +24 Gbps，部分流量經 dci 繞回 bdr 再下去'
         },
-        hops: hops
+        elements: { nodes: nodes, edges: edges }
       }
     };
-  })()
+  })(),
+
+  {
+    key: 'storage',
+    name: 'NetApp → aggr → SVM → PVC → pod → app → NS',
+    desc: '參考面板（kube-state-graph-frontend）的 demo fixture 原封不動：storage-flow 邊的 read／write 各一條帶、' +
+      'status 外框色、usage 副標、FlexGroup 從 SVM 起頭、split 歸因、未排程 pod、沒有 application 的 pod 直接接 namespace。' +
+      '沒有 investigation，所以沒有錨卡；netapp-node 是源頭，不補其他輸入。',
+    /* 來源：https://github.com/akira-core/kube-state-graph-frontend
+       public/demo/storage-graph.json @ 9e568c784b2ecb5ce87b201c73989fb21cb88c56（Apache-2.0）。
+       samples/storage.json 是同一份檔案；改一邊記得改另一邊。 */
+    json: {
+      apiVersion: 'v1',
+      clusters: ['prod'],
+      elements: {
+        nodes: [
+          {
+            data: { id: 'storage-cluster/ontap-prod', name: 'ontap-prod', type: 'storage-cluster' }
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/ontap-prod-01',
+              status: 'normal',
+              name: 'ontap-prod-01',
+              type: 'netapp-node',
+              parent: 'storage-cluster/ontap-prod',
+              health: 'online',
+              hardware: { model: 'AFF-A400', vendor: 'NetApp' },
+              labels: { ontap_cluster: 'ontap-prod' }
+            }
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/ontap-prod-02',
+              status: 'critical',
+              name: 'ontap-prod-02',
+              type: 'netapp-node',
+              parent: 'storage-cluster/ontap-prod',
+              health: 'degraded',
+              hardware: { model: 'AFF-A400' },
+              perf: { cpu_busy_pct: 41.2, total_ops: 18200, total_latency_us: 640, total_bytes_per_sec: 5767168 },
+              alerts: [
+                { name: 'NodeDegraded', severity: 'warning', time: 1748692200 },
+                { name: 'NetAppControllerDegraded', state: 'firing', severity: 'critical' }
+              ],
+              labels: { ontap_cluster: 'ontap-prod' }
+            }
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/aggr/aggr1',
+              status: 'warning',
+              name: 'aggr1',
+              type: 'netapp-aggr',
+              parent: 'netapp/ontap-prod/ontap-prod-01',
+              health: 'online',
+              usage: { used_bytes: 700000000000, capacity_bytes: 1000000000000 },
+              alerts: [
+                { name: 'AggrFilling', state: 'firing' }
+              ],
+              labels: { ontap_cluster: 'ontap-prod', node: 'ontap-prod-01' }
+            }
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/aggr/aggr2',
+              status: 'normal',
+              name: 'aggr2',
+              type: 'netapp-aggr',
+              parent: 'netapp/ontap-prod/ontap-prod-02',
+              health: 'online',
+              usage: { used_bytes: 400000000000, capacity_bytes: 2000000000000 },
+              labels: { ontap_cluster: 'ontap-prod', node: 'ontap-prod-02' }
+            }
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/svm/svm_shop',
+              name: 'svm_shop',
+              type: 'netapp-svm',
+              parent: 'storage-cluster/ontap-prod',
+              labels: { ontap_cluster: 'ontap-prod' }
+            }
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/svm/svm_dr',
+              name: 'svm_dr',
+              type: 'netapp-svm',
+              parent: 'storage-cluster/ontap-prod',
+              labels: { ontap_cluster: 'ontap-prod' }
+            }
+          },
+          {
+            data: { id: 'cluster/prod', name: 'prod', type: 'cluster' }
+          },
+          {
+            data: { id: 'prod/ns/prod', name: 'prod', type: 'namespace', parent: 'cluster/prod' }
+          },
+          {
+            data: { id: 'prod/app/mongodb', name: 'mongodb', type: 'application', parent: 'prod/ns/prod' }
+          },
+          {
+            data: { id: 'prod/ctrl/StatefulSet/mongodb', name: 'mongodb', type: 'controller', parent: 'prod/app/mongodb' }
+          },
+          {
+            data: { id: 'prod/ctrl/Job/batch', name: 'batch', type: 'controller', parent: 'prod/ns/prod' }
+          },
+          {
+            data: {
+              id: 'node/worker-0',
+              status: 'normal',
+              name: 'worker-0',
+              type: 'node',
+              parent: 'cluster/prod',
+              labels: { cluster: 'prod' }
+            }
+          },
+          {
+            data: {
+              id: 'node/worker-1',
+              status: 'warning',
+              name: 'worker-1',
+              type: 'node',
+              parent: 'cluster/prod',
+              labels: { cluster: 'prod' }
+            }
+          },
+          {
+            data: {
+              id: 'pod/mongo-0',
+              status: 'normal',
+              name: 'mongo-0',
+              type: 'pod',
+              parent: 'prod/ctrl/StatefulSet/mongodb',
+              labels: { namespace: 'prod', cluster: 'prod', node: 'node/worker-0' }
+            }
+          },
+          {
+            data: {
+              id: 'pod/mongo-1',
+              status: 'normal',
+              name: 'mongo-1',
+              type: 'pod',
+              parent: 'prod/ctrl/StatefulSet/mongodb',
+              labels: { namespace: 'prod', cluster: 'prod', node: 'node/worker-1' }
+            }
+          },
+          {
+            data: {
+              id: 'pvc/data-mongo-0',
+              status: 'normal',
+              name: 'data-mongo-0',
+              type: 'pvc',
+              parent: 'prod/app/mongodb',
+              storageclass: 'netapp-nas',
+              usage: { used_bytes: 7516192768, capacity_bytes: 10737418240 },
+              labels: { namespace: 'prod', volumename: 'pvc-9f3a1b2c', svm: 'svm_shop' }
+            }
+          },
+          {
+            data: {
+              id: 'pvc/data-mongo-1',
+              status: 'normal',
+              name: 'data-mongo-1',
+              type: 'pvc',
+              parent: 'prod/app/mongodb',
+              storageclass: 'netapp-nas',
+              usage: { used_bytes: 2147483648, capacity_bytes: 10737418240 },
+              labels: { namespace: 'prod', volumename: 'pvc-7e5d4c3b', svm: 'svm_dr' }
+            }
+          },
+          {
+            data: {
+              id: 'pvc/data-scratch',
+              status: 'normal',
+              name: 'data-scratch',
+              type: 'pvc',
+              parent: 'prod/app/mongodb',
+              storageclass: 'netapp-nas',
+              labels: { namespace: 'prod', volumename: 'pvc-scratch', svm: 'svm_shop' }
+            }
+          },
+          {
+            data: {
+              id: 'netapp/ontap-prod/svm/svm_jobs',
+              name: 'svm_jobs',
+              type: 'netapp-svm',
+              parent: 'storage-cluster/ontap-prod',
+              labels: { ontap_cluster: 'ontap-prod' }
+            }
+          },
+          {
+            data: {
+              id: 'pod/orphan-0',
+              status: 'normal',
+              name: 'orphan-0',
+              type: 'pod',
+              parent: 'prod/ctrl/Job/batch',
+              labels: { namespace: 'prod', cluster: 'prod', node: 'node/worker-0' }
+            }
+          },
+          {
+            data: {
+              id: 'pod/batch-pending',
+              status: 'warning',
+              name: 'batch-pending',
+              type: 'pod',
+              parent: 'prod/ctrl/Job/batch',
+              labels: { namespace: 'prod', cluster: 'prod' }
+            }
+          },
+          {
+            data: {
+              id: 'pvc/data-orphan',
+              status: 'normal',
+              name: 'data-orphan',
+              type: 'pvc',
+              parent: 'prod/ns/prod',
+              storageclass: 'netapp-nas',
+              labels: { namespace: 'prod', volumename: 'pvc-orphan', svm: 'svm_jobs' }
+            }
+          },
+          {
+            data: {
+              id: 'pvc/data-pending',
+              status: 'normal',
+              name: 'data-pending',
+              type: 'pvc',
+              parent: 'prod/ns/prod',
+              storageclass: 'netapp-nas',
+              labels: { namespace: 'prod', volumename: 'pvc-pending', svm: 'svm_jobs' }
+            }
+          }
+        ],
+        edges: [
+          {
+            data: {
+              id: 'sf-na-1',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/ontap-prod-01',
+              target: 'netapp/ontap-prod/aggr/aggr1',
+              labels: { tier: 'node-aggr' },
+              metrics: { read_bytes_per_sec: 5505024, write_bytes_per_sec: 1048576 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-as-1',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/aggr/aggr1',
+              target: 'netapp/ontap-prod/svm/svm_shop',
+              labels: { tier: 'aggr-svm' },
+              metrics: { read_bytes_per_sec: 5505024, write_bytes_per_sec: 1048576 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-sp-1',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/svm/svm_shop',
+              target: 'pvc/data-mongo-0',
+              labels: { tier: 'svm-pvc' },
+              metrics: { read_ops: 150, write_ops: 40, read_latency_us: 830, write_latency_us: 1200, read_bytes_per_sec: 5242880, write_bytes_per_sec: 1048576, max_iops: 5000, max_bytes_per_sec: 104857600 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-sp-fg',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/svm/svm_shop',
+              target: 'pvc/data-scratch',
+              labels: { tier: 'svm-pvc' },
+              metrics: { read_bytes_per_sec: 262144 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pp-1',
+              type: 'storage-flow',
+              source: 'pvc/data-mongo-0',
+              target: 'pod/mongo-0',
+              labels: { tier: 'pvc-pod' },
+              metrics: { read_bytes_per_sec: 5242880, write_bytes_per_sec: 1048576 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pp-fg-0',
+              type: 'storage-flow',
+              source: 'pvc/data-scratch',
+              target: 'pod/mongo-0',
+              labels: { tier: 'pvc-pod', attribution: 'split' },
+              metrics: { read_bytes_per_sec: 131072 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pp-fg-1',
+              type: 'storage-flow',
+              source: 'pvc/data-scratch',
+              target: 'pod/mongo-1',
+              labels: { tier: 'pvc-pod', attribution: 'split' },
+              metrics: { read_bytes_per_sec: 131072 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pn-0',
+              type: 'storage-flow',
+              source: 'pod/mongo-0',
+              target: 'node/worker-0',
+              labels: { tier: 'pod-node' },
+              metrics: { read_bytes_per_sec: 5373952, write_bytes_per_sec: 1048576 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-na-2',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/ontap-prod-02',
+              target: 'netapp/ontap-prod/aggr/aggr2',
+              labels: { tier: 'node-aggr' },
+              metrics: { read_bytes_per_sec: 262144, write_bytes_per_sec: 49152 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-as-2',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/aggr/aggr2',
+              target: 'netapp/ontap-prod/svm/svm_dr',
+              labels: { tier: 'aggr-svm' },
+              metrics: { read_bytes_per_sec: 262144, write_bytes_per_sec: 49152 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-sp-2',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/svm/svm_dr',
+              target: 'pvc/data-mongo-1',
+              labels: { tier: 'svm-pvc' },
+              metrics: { read_bytes_per_sec: 262144, write_bytes_per_sec: 49152 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pp-2',
+              type: 'storage-flow',
+              source: 'pvc/data-mongo-1',
+              target: 'pod/mongo-1',
+              labels: { tier: 'pvc-pod' },
+              metrics: { read_bytes_per_sec: 262144, write_bytes_per_sec: 49152 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pn-1',
+              type: 'storage-flow',
+              source: 'pod/mongo-1',
+              target: 'node/worker-1',
+              labels: { tier: 'pod-node' },
+              metrics: { read_bytes_per_sec: 393216, write_bytes_per_sec: 49152 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-sp-orphan',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/svm/svm_jobs',
+              target: 'pvc/data-orphan',
+              labels: { tier: 'svm-pvc' },
+              metrics: { read_bytes_per_sec: 8192 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pp-orphan',
+              type: 'storage-flow',
+              source: 'pvc/data-orphan',
+              target: 'pod/orphan-0',
+              labels: { tier: 'pvc-pod' },
+              metrics: { read_bytes_per_sec: 8192 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pn-orphan',
+              type: 'storage-flow',
+              source: 'pod/orphan-0',
+              target: 'node/worker-0',
+              labels: { tier: 'pod-node' },
+              metrics: { read_bytes_per_sec: 8192 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-sp-pending',
+              type: 'storage-flow',
+              source: 'netapp/ontap-prod/svm/svm_jobs',
+              target: 'pvc/data-pending',
+              labels: { tier: 'svm-pvc' },
+              metrics: { read_bytes_per_sec: 4096 }
+            }
+          },
+          {
+            data: {
+              id: 'sf-pp-pending',
+              type: 'storage-flow',
+              source: 'pvc/data-pending',
+              target: 'pod/batch-pending',
+              labels: { tier: 'pvc-pod' },
+              metrics: { read_bytes_per_sec: 4096 }
+            }
+          }
+        ]
+      }
+    }
+  }
 ];
 
 var byKey = {};

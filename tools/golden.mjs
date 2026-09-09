@@ -1,37 +1,18 @@
 /* golden 對拍工具：把所有範例（內建 samples ＋ samples/*.json ＋ stress/*.json）
    的 render()/summary() 輸出逐字 dump 成檔案，重構前後 diff -r 比對，要求逐 byte 相同。
-   門檻（minBps）除 0 之外另跑一組 5e8，鎖住過濾路徑的行為。
+   門檻（minBps）除 0 之外另跑一組 5e8，鎖住過濾路徑的行為；圖上有 read／write 通道的範例
+   另跑一組 channels:'read'（只有 storage 資料會多出這組檔案，switch 資料的檔案集合不變）。
 
    用法：
-     node tools/golden.mjs --legacy dump <outDir>   # 從舊版 assets/js（IIFE 全域）載入
-     node tools/golden.mjs dump <outDir>            # 從 packages/trace-sankey/src（ESM）載入
-     diff -r <before> <after>
-
-   --legacy 模式只在遷移前的 commit 有效（assets/js 移除後就沒得載了）；
-   留著是為了讓 git 歷史記錄 baseline 是怎麼產生的。 */
+     node tools/golden.mjs dump <outDir>    # dump 所有輸出
+     node tools/golden.mjs check            # 所有範例 build 都要 ok（make check）
+     diff -r <before> <after> */
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import vm from 'node:vm';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIN_BPS = [0, 5e8];
-
-function loadLegacy() {
-  /* IIFE 檔案尾端 })(window)：給 sandbox 一個指向自己的 window 即可 */
-  const sandbox = {};
-  sandbox.window = sandbox;
-  vm.createContext(sandbox);
-  for (const f of ['samples.js', 'model.js', 'render.js']) {
-    vm.runInContext(readFileSync(join(ROOT, 'assets/js', f), 'utf8'), sandbox, { filename: f });
-  }
-  return {
-    build: sandbox.TraceModel.build,
-    render: sandbox.TraceRender.render,
-    summary: sandbox.TraceRender.summary,
-    samples: sandbox.TraceSamples.list,
-  };
-}
 
 async function loadEsm() {
   const src = (f) => import(join(ROOT, 'packages/trace-sankey/src', f));
@@ -50,22 +31,21 @@ function inputs(samples) {
   return docs;
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  const legacy = args[0] === '--legacy';
-  if (legacy) args.shift();
-  const [cmd, outDir] = args;
-  if (cmd !== 'dump' || !outDir) {
-    console.error('usage: node tools/golden.mjs [--legacy] dump <outDir>');
-    process.exit(2);
-  }
-  const api = legacy ? loadLegacy() : await loadEsm();
+function variants(api, doc) {
+  const out = [];
+  for (const min of MIN_BPS) out.push({ tag: '.min' + min, opts: { minBps: min } });
+  const m = api.build(doc, { minBps: 0 });
+  if (m.ok && m.edges.some((e) => e.channel)) out.push({ tag: '.read', opts: { channels: 'read' } });
+  return out;
+}
+
+async function dump(api, outDir) {
   mkdirSync(outDir, { recursive: true });
   let n = 0;
   for (const { name, doc } of inputs(api.samples)) {
-    for (const min of MIN_BPS) {
-      const tag = name + '.min' + min;
-      const model = api.build(doc, { minBps: min });
+    for (const v of variants(api, doc)) {
+      const tag = name + v.tag;
+      const model = api.build(doc, v.opts);
       if (!model.ok) {
         writeFileSync(join(outDir, tag + '.errors.json'), JSON.stringify(model.errors, null, 2) + '\n');
         continue;
@@ -77,6 +57,31 @@ async function main() {
     }
   }
   console.log('dumped ' + n + ' files to ' + outDir);
+}
+
+/* 迴歸哨兵：每份範例在每個變體下都要 build 成功且 render 不炸 */
+function check(api) {
+  let fail = 0, total = 0;
+  for (const { name, doc } of inputs(api.samples)) {
+    for (const v of variants(api, doc)) {
+      total++;
+      const model = api.build(doc, v.opts);
+      if (!model.ok) { fail++; console.error('FAIL ' + name + v.tag + ': ' + model.errors.join(' / ')); continue; }
+      try { api.render(model); api.summary(model); }
+      catch (e) { fail++; console.error('FAIL ' + name + v.tag + ': render threw ' + e.message); }
+    }
+  }
+  if (fail) { console.error(fail + ' / ' + total + ' 失敗。'); process.exit(1); }
+  console.log('所有範例都通過（' + total + ' 組）。');
+}
+
+async function main() {
+  const [cmd, outDir] = process.argv.slice(2);
+  const api = await loadEsm();
+  if (cmd === 'dump' && outDir) return dump(api, outDir);
+  if (cmd === 'check') return check(api);
+  console.error('usage: node tools/golden.mjs dump <outDir> | check');
+  process.exit(2);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

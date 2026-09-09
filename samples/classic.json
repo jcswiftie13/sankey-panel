@@ -1,44 +1,66 @@
 {
   "kind": "destination",
   "investigation": {
-    "switchId": "sw-edge-a",
+    "node_id": "sw-edge-a",
     "iface": "xe-0/0/1",
+    "delta_bps": 10000000000,
     "direction": "in",
-    "deltaBps": 10000000000,
     "note": "Edge A 的 access port 進來 +10 Gbps"
   },
-  "pruning": {
-    "topN": 3,
-    "minShare": 0.1
-  },
-  "hops": [
-    {
-      "switchId": "sw-edge-a",
-      "label": "Edge A",
-      "role": "switch",
-      "outputs": [
-        {
-          "iface": "et-0/0/48",
-          "deltaBps": 20000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "sw-core-1",
-          "peerIface": "et-1/0/1"
+  "elements": {
+    "nodes": [
+      {
+        "data": {
+          "id": "sw-edge-a",
+          "type": "switch",
+          "name": "Edge A"
         }
-      ]
-    },
-    {
-      "switchId": "sw-core-1",
-      "label": "Core 1",
-      "role": "switch",
-      "outputs": [
-        {
-          "iface": "et-1/0/9",
-          "deltaBps": 20000000000,
-          "peerKind": "host",
-          "peerId": "srv-db-07",
-          "peerIface": "eno1"
+      },
+      {
+        "data": {
+          "id": "sw-core-1",
+          "type": "switch",
+          "name": "Core 1"
         }
-      ]
-    }
-  ]
+      },
+      {
+        "data": {
+          "id": "srv-db-07",
+          "type": "host"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "data": {
+          "id": "e0",
+          "type": "network-flow",
+          "source": "sw-edge-a",
+          "target": "sw-core-1",
+          "labels": {
+            "source_iface": "et-0/0/48",
+            "target_iface": "et-1/0/1"
+          },
+          "metrics": {
+            "delta_bps": 20000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e1",
+          "type": "network-flow",
+          "source": "sw-core-1",
+          "target": "srv-db-07",
+          "labels": {
+            "source_iface": "et-1/0/9",
+            "target_iface": "eno1"
+          },
+          "metrics": {
+            "delta_bps": 20000000000
+          }
+        }
+      }
+    ]
+  }
 }

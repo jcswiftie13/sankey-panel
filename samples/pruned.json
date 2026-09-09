@@ -1,66 +1,130 @@
 {
   "kind": "destination",
   "investigation": {
-    "switchId": "sw-tor-14",
+    "node_id": "sw-tor-14",
     "iface": "et-0/0/52",
-    "direction": "in",
-    "deltaBps": 40000000000
+    "delta_bps": 40000000000,
+    "direction": "in"
   },
-  "pruning": {
-    "topN": 3,
-    "minShare": 0.1
-  },
-  "hops": [
-    {
-      "switchId": "sw-tor-14",
-      "label": "ToR 14",
-      "role": "switch",
-      "otherOutBps": 9000000000,
-      "outputs": [
-        {
-          "iface": "xe-0/0/1",
-          "deltaBps": 18000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "sw-leaf-3",
-          "peerIface": "et-3/0/1"
-        },
-        {
-          "iface": "xe-0/0/2",
-          "deltaBps": 9000000000,
-          "peerKind": "host",
-          "peerId": "srv-app-11",
-          "peerIface": "eno2"
-        },
-        {
-          "iface": "xe-0/0/3",
-          "deltaBps": 6000000000,
-          "peerKind": "host",
-          "peerId": "srv-app-12",
-          "peerIface": "eno2"
+  "elements": {
+    "nodes": [
+      {
+        "data": {
+          "id": "sw-tor-14",
+          "type": "switch",
+          "name": "ToR 14",
+          "other_out_bps": 9000000000
         }
-      ]
-    },
-    {
-      "switchId": "sw-leaf-3",
-      "label": "Leaf 3",
-      "role": "switch",
-      "otherOutBps": 3000000000,
-      "outputs": [
-        {
-          "iface": "xe-3/0/8",
-          "deltaBps": 10000000000,
-          "peerKind": "host",
-          "peerId": "srv-log-01",
-          "peerIface": "bond0"
-        },
-        {
-          "iface": "xe-3/0/9",
-          "deltaBps": 5000000000,
-          "peerKind": "host",
-          "peerId": "srv-log-02",
-          "peerIface": "bond0"
+      },
+      {
+        "data": {
+          "id": "sw-leaf-3",
+          "type": "switch",
+          "name": "Leaf 3",
+          "other_out_bps": 3000000000
         }
-      ]
-    }
-  ]
+      },
+      {
+        "data": {
+          "id": "srv-app-11",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "srv-app-12",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "srv-log-01",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "srv-log-02",
+          "type": "host"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "data": {
+          "id": "e0",
+          "type": "network-flow",
+          "source": "sw-tor-14",
+          "target": "sw-leaf-3",
+          "labels": {
+            "source_iface": "xe-0/0/1",
+            "target_iface": "et-3/0/1"
+          },
+          "metrics": {
+            "delta_bps": 18000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e1",
+          "type": "network-flow",
+          "source": "sw-tor-14",
+          "target": "srv-app-11",
+          "labels": {
+            "source_iface": "xe-0/0/2",
+            "target_iface": "eno2"
+          },
+          "metrics": {
+            "delta_bps": 9000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e2",
+          "type": "network-flow",
+          "source": "sw-tor-14",
+          "target": "srv-app-12",
+          "labels": {
+            "source_iface": "xe-0/0/3",
+            "target_iface": "eno2"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e3",
+          "type": "network-flow",
+          "source": "sw-leaf-3",
+          "target": "srv-log-01",
+          "labels": {
+            "source_iface": "xe-3/0/8",
+            "target_iface": "bond0"
+          },
+          "metrics": {
+            "delta_bps": 10000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e4",
+          "type": "network-flow",
+          "source": "sw-leaf-3",
+          "target": "srv-log-02",
+          "labels": {
+            "source_iface": "xe-3/0/9",
+            "target_iface": "bond0"
+          },
+          "metrics": {
+            "delta_bps": 5000000000
+          }
+        }
+      }
+    ]
+  }
 }

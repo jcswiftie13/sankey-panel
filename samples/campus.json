@@ -1,100 +1,168 @@
 {
   "kind": "destination",
   "investigation": {
-    "switchId": "sw-dorm-b3",
+    "node_id": "sw-dorm-b3",
     "iface": "ae0",
+    "delta_bps": 8000000000,
     "direction": "in",
-    "deltaBps": 8000000000,
     "note": "宿舍 B3 上聯 ae0 進向 +8 Gbps"
   },
-  "pruning": {
-    "topN": 3,
-    "minShare": 0.1
-  },
-  "hops": [
-    {
-      "switchId": "sw-dorm-b3",
-      "label": "宿網 B3",
-      "role": "switch",
-      "outputs": [
-        {
-          "iface": "et-0/0/50",
-          "deltaBps": 22000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "sw-agg-dorm",
-          "peerIface": "et-2/0/3"
+  "elements": {
+    "nodes": [
+      {
+        "data": {
+          "id": "sw-dorm-b3",
+          "type": "switch",
+          "name": "宿網 B3"
         }
-      ]
-    },
-    {
-      "switchId": "sw-agg-dorm",
-      "label": "宿區匯聚",
-      "role": "switch",
-      "outputs": [
-        {
-          "iface": "ae10",
-          "deltaBps": 18000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "sw-core-n",
-          "peerIface": "ae1"
-        },
-        {
-          "iface": "xe-2/0/7",
-          "deltaBps": 6000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "fw-campus",
-          "peerIface": "xe-0/0/0"
+      },
+      {
+        "data": {
+          "id": "sw-agg-dorm",
+          "type": "switch",
+          "name": "宿區匯聚"
         }
-      ]
-    },
-    {
-      "switchId": "sw-core-n",
-      "label": "核心 North",
-      "role": "switch",
-      "outputs": [
-        {
-          "iface": "et-0/0/1",
-          "deltaBps": 12000000000,
-          "peerKind": "router",
-          "peerId": "rtr-tanet",
-          "peerIface": "Te0/1/0"
-        },
-        {
-          "iface": "et-0/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "sw-dc-spine",
-          "peerIface": "et-1/1/1"
+      },
+      {
+        "data": {
+          "id": "sw-core-n",
+          "type": "switch",
+          "name": "核心 North"
         }
-      ]
-    },
-    {
-      "switchId": "fw-campus",
-      "label": "校園防火牆",
-      "role": "switch",
-      "outputs": [
-        {
-          "iface": "xe-0/0/1",
-          "deltaBps": 6000000000,
-          "peerKind": "router",
-          "peerId": "rtr-tanet",
-          "peerIface": "Te0/1/1"
+      },
+      {
+        "data": {
+          "id": "fw-campus",
+          "type": "switch",
+          "name": "校園防火牆"
         }
-      ]
-    },
-    {
-      "switchId": "sw-dc-spine",
-      "label": "機房 Spine",
-      "role": "switch",
-      "outputs": [
-        {
-          "iface": "et-1/1/9",
-          "deltaBps": 4000000000,
-          "peerKind": "host",
-          "peerId": "srv-nas-01",
-          "peerIface": "ens5f0"
+      },
+      {
+        "data": {
+          "id": "sw-dc-spine",
+          "type": "switch",
+          "name": "機房 Spine"
         }
-      ]
-    }
-  ]
+      },
+      {
+        "data": {
+          "id": "rtr-tanet",
+          "type": "router"
+        }
+      },
+      {
+        "data": {
+          "id": "srv-nas-01",
+          "type": "host"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "data": {
+          "id": "e0",
+          "type": "network-flow",
+          "source": "sw-dorm-b3",
+          "target": "sw-agg-dorm",
+          "labels": {
+            "source_iface": "et-0/0/50",
+            "target_iface": "et-2/0/3"
+          },
+          "metrics": {
+            "delta_bps": 22000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e1",
+          "type": "network-flow",
+          "source": "sw-agg-dorm",
+          "target": "sw-core-n",
+          "labels": {
+            "source_iface": "ae10",
+            "target_iface": "ae1"
+          },
+          "metrics": {
+            "delta_bps": 18000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e2",
+          "type": "network-flow",
+          "source": "sw-agg-dorm",
+          "target": "fw-campus",
+          "labels": {
+            "source_iface": "xe-2/0/7",
+            "target_iface": "xe-0/0/0"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e3",
+          "type": "network-flow",
+          "source": "sw-core-n",
+          "target": "rtr-tanet",
+          "labels": {
+            "source_iface": "et-0/0/1",
+            "target_iface": "Te0/1/0"
+          },
+          "metrics": {
+            "delta_bps": 12000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e4",
+          "type": "network-flow",
+          "source": "sw-core-n",
+          "target": "sw-dc-spine",
+          "labels": {
+            "source_iface": "et-0/0/2",
+            "target_iface": "et-1/1/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e5",
+          "type": "network-flow",
+          "source": "fw-campus",
+          "target": "rtr-tanet",
+          "labels": {
+            "source_iface": "xe-0/0/1",
+            "target_iface": "Te0/1/1"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e6",
+          "type": "network-flow",
+          "source": "sw-dc-spine",
+          "target": "srv-nas-01",
+          "labels": {
+            "source_iface": "et-1/1/9",
+            "target_iface": "ens5f0"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      }
+    ]
+  }
 }
