@@ -233,6 +233,7 @@ JSX 分支是死的，多牽一條引用就會安靜地把 30KB 範例烤進去�
 netapp-aggr, netapp-svm, pvc`）→ 盒子；群組（`namespace, application, cluster, storage-cluster, controller`）
 → 不畫、只在 `parent` 鏈上；其他任何 type → 灰色葉卡（葉不能再有往下走的 flow 邊，驗證錯誤）。
 **葉 pod** ＝ `type:"pod"` 且沒有往下走的邊 → pod 卡＋推導邊到 application／namespace；有往下走的邊＝proxy pod。
+**帶 `clients` 的葉**再推導出一欄 **owner 卡**（`role:'owner'`，不是 wire type、輸入裡沒有這種節點）。
 `netapp-*`／`pvc` 沒給 `labels.tier` 就自動以 type 當 tier（`AUTO_TIER`）鎖同欄；`switch/node/pod` 不自動。
 
 `weightOf(metrics)` 回**通道陣列**：有 `rate` → 空（RED 家族）；有 `delta_bps` → 一條 `unit:'bps'` 無通道；
@@ -269,6 +270,11 @@ build 分七步（門檻／通道散在步驟 2、4b、6 三處，用 ★ 標）
    **葉 pod 再接推導邊**（`linkPod`）：有 application 祖先 → pod→app（`appFor`，鍵帶 ns）＋ app→ns（全 app 共用一條，
    累加）；否則 pod→ns（`nsFor`）。第一次在 hop→pod 邊之後立刻建（邊序＝z-order），之後同 pod 只累加。
    推導邊 `unit` 沿用 pod 入邊、`channel:null`、`derived:true`。source 模式全部反接。
+   **葉再接 owner 卡**（`linkOwner`／`ownerFor`／`ownerGroups`）：依 `clients[].owner` 分組（沒 owner 的
+   全歸「未知 owner」，鍵用獨立變數 `unknownOwner` 不是字串，真有人叫這名字才不會被併掉），
+   同名 owner 全圖合一。**整張卡只有一組 owner 才把量帶過去**（`metered`，全額、算進 `meteredPorts`）；
+   一張卡掛多個 owner 就每組各一條 `owns:true` 的**歸屬線**：`bps` 恆 0、只表達歸屬——
+   按台數拆開就是 `5499b24` 移除過的攤分推估（見 §10.13）。owner 卡另記 `clientCount`／`portCount`。
 3. **錨卡** `__anchor__`：**有 `investigation` 才建**；root 若是 1b 丟掉的 node → `ok:false`；
    `root.noFlow = false`（錨邊就是它的流量）。★ 錨邊在過濾之後才建，所以追查起點永遠保留。
 4. **掛邊**；★ **4b 移除孤立節點**（`minBps > 0 || channels !== 'both'` 時）：**noFlow 卡豁免**，其餘一條邊都
@@ -315,6 +321,7 @@ anchorEdge|null, root|null, warnings, maxCol}`。
   `clientCols(n)` 決定畫哪幾欄（**某欄所有 client 都沒值就整欄不畫**），`clientW(n)` 算卡寬
   （欄寬總和＋`CLIENT_GAP 10`＋左右 `CLIENT_PAD 12`，下限 `LEAF_W`），
   `leafH(n) = 70 + (ns?14:0) + (named?14:0) + 14 表頭 + N*14`。
+  接了 owner 卡的葉（`n.ownerLinked`）左上角從「追查終止」改成 `port`。
   **合成 id 不當標題**（順著帶子回去就知道是哪台 switch 的哪個 iface），只有 `n.named`
   （輸入真的給了 `name`）才畫標題；**最後一行不重複 iface**、只印量。表頭沿用 `.leaf-stop`、
   分隔線沿用 `nodeBox` 那條內聯 `stroke="#22303f"`——不新增 CSS 類別與顏色。
@@ -328,7 +335,17 @@ anchorEdge|null, root|null, warnings, maxCol}`。
   `hostname || ip` 陣列），給「兩台以上時卡片標題不是 client 身分」補身分；
   照既有慣例只在有值時出現，所以沒有 clients 的圖 `data-tip` 逐 byte 不變。
   **`tooltip.js` 的帶是明確列鍵的**，加新鍵要同步在那裡加一列。
-- 卡片：`nodeBox`（hop）／`leafCard`／`podCard`／`groupCard`（ns／app 共用，`nsCard`/`appCard` 是薄殼）／`anchorCard`。
+- **歸屬線**（`e.owns`）：`ownLine()` 是 `ribbon()` 的中線版本，畫成 `fill:none` 的灰虛線
+  （`band band-own`，比照 `band-loop` 的描邊帶），**不印帶上數字**、tooltip 也不印速率——
+  `bps` 是 0，那不是「零流量」而是「沒有量」。線寬 `OWN_T` 同時是 hover 判定寬度，別再調細。
+  槽位厚度走 `e.__t`（`owns` 用 `OWN_T`、其餘 `thick(e.bps)`），不是直接 `thick(e.bps)`。
+- **槽位重排**（`reorderSlots`）：pod／ns／app 那組之外，`ownerLinked` 的葉與 owner 卡也要依對端 y 重排——
+  port 葉的出邊順序是 `clients` 的出現順序、owner 卡的入邊順序是建邊順序，都跟 y 無關，
+  一張 port 掛五個 owner 時歸屬線會整束交叉（實測過）。
+- 卡片：`nodeBox`（hop）／`leafCard`／`podCard`／`groupCard`（ns／app 共用，`nsCard`/`appCard` 是薄殼）／
+  `ownerCard`／`anchorCard`。`ownerCard` 寬度是 `NODE_W`（owner 是自由字串，`LEAF_W` 截太兇；
+  欄寬下限本來就是 `NODE_W`，不會把後面的欄推開）、高 84；**量與台數分兩行**，
+  `meteredPorts < portCount` 標「（部分 port）」、`bps` 為 0 印「量停在 port」，**絕不印 0**。
   **每張卡的 `<g>` 都帶 `data-tip`**（`nodeTip()` 產生 `{node:1, title, rows:[[k,v],…]}`，render 已格式化好；
   順序照參考面板：型別／名稱、id、ns、ontap_cluster、流量、usage、status、health、model、perf(raw)、alerts、no-flow）。
   `nodeBox` 外框色優先序 **status（critical `#fb7185`／warning `#f59e0b`）> isRoot 青 > 設備天藍 > 預設**，
@@ -401,7 +418,9 @@ anchorEdge|null, root|null, warnings, maxCol}`。
     真的遇到幾十台再加一個 `CLIENT_MAX` 常數截，**不要順手改成「一個 client 一張卡」**——
     後端量得到的只有整個 port 的 Δ bps，N 張卡各帶全額會讓 `tracedOut` 變 `N×V`、
     其他輸入被灌水 `(N−1)×V`，而且四種殘差情況裡有三種完全不發警告；攤分則是 `5499b24`
-    移除過的推估。量停在 port 是刻意的。
+    移除過的推估。量停在 port 是刻意的。**owner 層就是在這個限制下的解法**：
+    整張卡同一個 owner 才帶量（重新分組），混合就只畫不帶量的歸屬線——
+    別為了「圖比較好看」把歸屬線改成按台數攤分。
 
 ## 11. 部署：網頁與 nginx 是分開的兩層
 
