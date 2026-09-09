@@ -323,6 +323,83 @@ var SAMPLES = [
   })(),
 
   {
+    key: 'client',
+    name: '無鄰居 port 的 client',
+    desc: '追到 access port 就沒有 LLDP 鄰居了。後端改用 ARP／MAC table／DHCP／CMDB 查出這個 port 上掛了誰，' +
+      '寫成 nodes[].data.clients；一個 port 一張葉卡（量測不到 per-client 流量，不做攤分），卡上列 IP／hostname／owner。' +
+      '最後一張是沒有 clients 的對照組。',
+    json: {
+      kind: 'destination',
+      investigation: {
+        node_id: 'sw-tor-1', iface: 'et-0/0/49', delta_bps: G(50), direction: 'in',
+        note: 'ToR 1 的 uplink 進來 +50 Gbps，往下的 access port 多半沒有 LLDP 鄰居'
+      },
+      elements: {
+        nodes: [
+          N('sw-tor-1', 'switch', 'ToR 1'),
+          /* 單一 client、三個欄位齊全：節點沒給 name，標題用 client 的 hostname */
+          N('sw-tor-1:xe-0/0/12', 'host', null, {
+            clients: [{ ip: '10.42.7.31', hostname: 'lab-gpu-01', owner: '網管部 王小明' }]
+          }),
+          /* 只有 IP：卡上一行、沒有 owner 行；帶 ns 色條驗證色條跟著卡長高 */
+          N('sw-tor-1:xe-0/0/13', 'host', null, {
+            labels: { namespace: 'lab' },
+            clients: [{ ip: '10.42.7.32' }]
+          }),
+          /* 多個 client：卡上只印前兩筆＋「還有 N 個…」，完整清單在 tooltip。
+             最後一筆只有 owner，認不出是哪台機器，靜默丟棄（所以是 3 個不是 4 個）。 */
+          N('sw-tor-1:xe-0/0/14', 'host', '未管理小 switch', {
+            clients: [
+              { ip: '10.42.7.41', hostname: 'ipphone-3f-07', owner: '總務處 李美華' },
+              { ip: '10.42.7.42', hostname: 'desk-pc-3f-07' },
+              { hostname: 'desk-nas-3f-07', owner: '總務處 李美華' },
+              { owner: '沒有 ip 也沒有 hostname，這筆會被靜默丟棄' }
+            ]
+          }),
+          /* 超長 hostname／owner：驗卡面截斷（完整值仍在 tooltip）；status 外框色仍優先 */
+          N('sw-tor-1:xe-0/0/15', 'host', null, {
+            status: 'warning',
+            clients: [{
+              ip: '10.42.7.51',
+              hostname: 'lab-workstation-rendering-farm-node-42.corp.example.internal',
+              owner: '研究發展二部 平台工程組 陳大文（分機 4721）'
+            }]
+          }),
+          /* 六台：驗證卡面列出全部（不再截成「還有 N 個…」），並混一筆只有 IP、一筆只有 hostname */
+          N('sw-tor-1:xe-0/0/17', 'host', null, {
+            clients: [
+              { ip: '10.42.9.11', hostname: 'wsA-3f-01', owner: '設計部 張三' },
+              { ip: '10.42.9.12', hostname: 'wsA-3f-02', owner: '設計部 李四' },
+              { ip: '10.42.9.13', hostname: 'wsA-3f-03' },
+              { ip: '10.42.9.14' },
+              { hostname: 'printer-3f', owner: '總務處 李美華' },
+              { ip: '10.42.9.16', hostname: 'ap-3f-north', owner: '網管部 王小明' }
+            ]
+          }),
+          /* 都沒有 owner：驗證 owner 欄整欄不畫、卡跟著變窄 */
+          N('sw-tor-1:xe-0/0/18', 'host', null, {
+            clients: [
+              { ip: '10.42.9.21', hostname: 'cam-lobby-01' },
+              { ip: '10.42.9.22', hostname: 'cam-lobby-02' }
+            ]
+          }),
+          /* 對照組：沒有 clients 的葉，外觀與舊版逐 byte 相同 */
+          N('srv-legacy-09', 'host')
+        ],
+        edges: [
+          E('c1', 'sw-tor-1', 'xe-0/0/12', 'sw-tor-1:xe-0/0/12', '', G(12)),
+          E('c2', 'sw-tor-1', 'xe-0/0/13', 'sw-tor-1:xe-0/0/13', '', G(8)),
+          E('c3', 'sw-tor-1', 'xe-0/0/14', 'sw-tor-1:xe-0/0/14', '', G(10)),
+          E('c4', 'sw-tor-1', 'xe-0/0/15', 'sw-tor-1:xe-0/0/15', '', G(6)),
+          E('c5', 'sw-tor-1', 'xe-0/0/16', 'srv-legacy-09', 'eno1', G(4)),
+          E('c6', 'sw-tor-1', 'xe-0/0/17', 'sw-tor-1:xe-0/0/17', '', G(7)),
+          E('c7', 'sw-tor-1', 'xe-0/0/18', 'sw-tor-1:xe-0/0/18', '', G(3))
+        ]
+      }
+    }
+  },
+
+  {
     key: 'storage',
     name: 'NetApp → aggr → SVM → PVC → pod → app → NS',
     desc: '參考面板（kube-state-graph-frontend）的 demo fixture 原封不動：storage-flow 邊的 read／write 各一條帶、' +

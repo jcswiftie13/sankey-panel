@@ -1,6 +1,10 @@
-/* 資料來源 hook：App 只消費 { doc, error, loading, lastQuery, run }，
+/* 資料來源 hook：App 只消費 { doc, error, loading, lastQuery, source, run, showDoc }，
    不知道 doc 是怎麼來的——「資料怎麼來」全部關在這一個檔案裡。
    （POC 時代這裡是開檔＋拖放＋localStorage 續存；現在改成查 API，介面換了但職責沒變。）
+
+   兩條進 doc 的路：run() 打 API，showDoc() 收現成的一份（dev 專用的內建範例與選檔）。
+   兩條都走同一個 validate()——手改的 JSON 打錯字時，錯誤要從 app 的橫幅出來，
+   不是從套件內部噴出來。
 
    兩個順序約束：
    - 新查詢送出時先 abort 前一個，否則慢的舊回應會蓋掉新結果。
@@ -14,6 +18,7 @@ export function useTraceDoc() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [lastQuery, setLastQuery] = useState(null);
+  const [source, setSource] = useState(null);    /* { kind:'api' } | { kind:'local', label } */
   const abortRef = useRef(null);
 
   useEffect(() => () => { if (abortRef.current) abortRef.current.abort(); }, []);
@@ -48,9 +53,28 @@ export function useTraceDoc() {
     }
     setDoc(d);
     setLastQuery(params);
+    setSource({ kind: 'api' });
     setError(null);
     setLoading(false);
   }, []);
 
-  return { doc, error, loading, lastQuery, run };
+  /* 本機來源：不打 API，但驗證與錯誤形狀跟 run() 完全一致。
+     一定要先 abort——慢的舊查詢回來會蓋掉你剛載進來的那份。
+     JSON.parse 失敗的呼叫端直接傳 json = null 進來就好：validate(null) 會回
+     「最外層必須是 JSON 物件。」，自然落進同一個橫幅，不必開第二條錯誤通道。 */
+  const showDoc = useCallback((json, label) => {
+    if (abortRef.current) abortRef.current.abort();
+    const errs = validate(json);
+    if (errs.length) {
+      setError({ title: label + '：不合 elements wire JSON 契約（見 README「輸入 JSON 規格」）', messages: errs });
+      setLoading(false);
+      return;
+    }
+    setDoc(json);
+    setSource({ kind: 'local', label });
+    setError(null);
+    setLoading(false);
+  }, []);
+
+  return { doc, error, loading, lastQuery, source, run, showDoc };
 }

@@ -17,7 +17,7 @@ function cleanMin(v) {
 
 export default function App() {
   /* 資料來源全部關在 useTraceDoc 裡（查 API；三種失敗都不動現有的 doc） */
-  const { doc, error: loadError, loading, run } = useTraceDoc();
+  const { doc, error: loadError, loading, source, run, showDoc } = useTraceDoc();
   const [formError, setFormError] = useState(null);  /* 表單自己的驗證錯誤，不送 API */
   const [minText, setMinText] = useState('');   /* 輸入框的原始字串 */
   const [min, setMin] = useState(0);            /* 真正生效的門檻（debounce 後） */
@@ -25,7 +25,18 @@ export default function App() {
   const [errors, setErrors] = useState(null);
   const [zoomPct, setZoomPct] = useState('—');
   const [focus, setFocus] = useState(false);
+  const [DevBar, setDevBar] = useState(null);   /* dev 專用的本機資料來源列，正式 build 永遠是 null */
   const chartRef = useRef(null);
+
+  /* 正式環境只能查 API，範例是開發時的東西。import.meta.env.DEV 在 production build
+     會被 Vite 靜態換成 false，這個 if 整段（含裡面的 import()）被消掉，
+     DevSampleBar 與它帶的範例資料都不會進 bundle——不是「載進來沒用」，是根本不存在。
+     用動態 import 而不是靜態 import＋條件渲染：後者要賭 Rollup 能證明那條 JSX 分支是死的，沒有硬保證。 */
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      import('./DevSampleBar.jsx').then(m => setDevBar(() => m.DevSampleBar));
+    }
+  }, []);
 
   /* 重畫 debounce 200ms；提示文字直接從 minText 算，不 debounce（打字就要跟著跳）。
      舊版「打了一個字又刪掉會套上舊值」的坑在這個寫法下不存在：
@@ -108,6 +119,7 @@ export default function App() {
           onInvalid={setFormError}
           onSubmit={params => { setFormError(null); run(params); }}
         />
+        {DevBar && <DevBar onDoc={(json, label) => { setFormError(null); showDoc(json, label); }} />}
         <div className="min-row">
           <label htmlFor="minBps">顯示門檻 &gt;</label>
           <input
@@ -124,6 +136,8 @@ export default function App() {
           <span className="unit">bps</span>
           <span className="unit-hint">{cleaned > 0 ? '＝ ' + fmtBps(cleaned) : '不過濾'}</span>
           <button className="btn" onClick={() => { setMinText(''); setMin(0); }}>清除</button>
+          {/* 現在看的不是查詢結果就講清楚；run() 成功時 source 才會變回 api */}
+          {source && source.kind === 'local' && <span className="pill">{source.label}</span>}
           {min > 0 && model && (
             <span className="pill">
               隱藏 {model.filtered.edges} 條帶

@@ -99,6 +99,8 @@ packages/trace-sankey/
   types/index.d.ts        手寫型別（JS 原始碼不轉 TS）
 app/                      Vite + React 使用端
   src/App.jsx             圖、顯示門檻、圖例、縮放、快捷鍵的接線
+  src/DevSampleBar.jsx    dev 專用的本機資料來源列（內建範例下拉＋選檔）；只被 App 的
+                          import.meta.env.DEV 動態 import 載入，正式 bundle 裡不存在
   src/api.js              追查 API 的唯一出入口：組 query、fetch、翻譯錯誤、時間轉換
   src/useTraceDoc.js      資料來源 hook：run() → fetch → validate；abort 舊查詢
   src/TraceQueryBar.jsx   查詢表單；buildParams() 是可測的純函式
@@ -161,7 +163,23 @@ app 端約束（`App.jsx`）：門檻重畫 debounce 200ms、提示文字不 deb
 **拖放 effect 要留著**：開檔與拖放功能已移除，但它無條件 `preventDefault()` 且掛在
 capture 階段，這是 host 沒設 `will-navigate` 白名單時唯一擋得住「整頁導航到
 `file://…json`」的地方——別因為「沒有開檔功能了」就把它一起刪掉。
-舊版 query string／分頁／編輯器／開檔／拖放／localStorage 續存均為移除狀態。
+舊版 query string／分頁／編輯器／localStorage 續存均為移除狀態；**開檔以 dev 專用的形式回來了**
+（見下），拖放沒有回來。
+**dev 專用的本機資料來源**（`DevSampleBar.jsx`：內建範例下拉＋選檔）整支關在 App 的
+`if (import.meta.env.DEV) { import('./DevSampleBar.jsx') }` 後面——`vite build` 把條件換成
+`false`、整段連同 `import()` 一起消掉，Rollup 因此**不產生那個 chunk**，正式 bundle 零範例位元組
+（這是「同一顆 content 映像跨環境共用」的延伸，見 §11）。所以那支檔案裡可以放心「靜態」
+import `trace-sankey/samples`。**不要**改成靜態 import ＋ 條件渲染：那要賭 Rollup 能證明那條
+JSX 分支是死的，多牽一條引用就會安靜地把 30KB 範例烤進去、沒有任何警告。
+動這塊之後一定要重跑驗證：`npm run build --workspace app` 後
+`grep -ra "sw-edge-a\|lab-gpu-01\|DevSampleBar\|trace-sankey/samples" app/dist/assets/*.js`
+必須沒有輸出，且 `find app/dist -name '*.js' | wc -l` 仍是 1。
+`make up-dev` 與 Electron 殼載的都是正式 build，**那裡沒有這一列是設計、不是壞掉**。
+資料進 doc 的第二條路是 `useTraceDoc` 的 `showDoc(json, label)`：先 abort 前一個查詢
+（否則慢的舊回應會蓋掉剛載進來的那份）、走**同一個** `validate()`、失敗只設 error 不動 doc。
+`JSON.parse` 失敗的呼叫端直接傳 `null` 進來就好，`validate(null)` 會回「最外層必須是 JSON 物件。」，
+落進同一個橫幅，不必開第二條錯誤通道。`source`（`{kind:'api'}`／`{kind:'local',label}`）
+**只在 `run()` 成功時**才變回 api——查詢失敗不動 doc，來源標示就得跟著圖走。
 **app 沒有 `channels` 切換鈕**（刻意，那是給使用套件的人接的 API）；圖例在 model 有通道邊時
 自動換成 read／write 兩色、有 status 時多一行外框色說明。
 
@@ -183,6 +201,8 @@ capture 階段，這是 host 沒設 `will-navigate` 白名單時唯一擋得住�
       "status": "normal|warning|critical",  // 其他值視同沒有
       "usage": { "used_bytes": 0, "capacity_bytes": 0 },   // 兩欄各自獨立、絕不填 0
       "health": "…", "hardware": {…}, "perf": {…}, "alerts": [...],   // 只進 tooltip
+      "clients": [{ "ip": "…", "hostname": "…", "owner": "…" }],       // 無鄰居 port 上查到的 client；
+                                                                       // 三欄全選填但至少要有 ip 或 hostname，否則靜默丟棄；只有葉卡畫到卡面
       "other_in_bps": 0, "other_out_bps": 0 // ≥ 0；不給就由平衡式補
     }}],
     "edges": [{ "data": {
@@ -277,6 +297,23 @@ anchorEdge|null, root|null, warnings, maxCol}`。
   只在有值時出現的 `backward/ns/unit/channel/tier/attr/extra`——**用 `undefined` 讓 stringify 丟掉**，舊資料的
   data-tip 才不變）與原生 `<title>`（headless 備援，`tooltip.bind()` 會剝掉）。lateral 帶另輸出 `.lat-arrow`
   （write 加 `arrow-w`），**必須是 band 的兄弟節點**。回流帶維持玫瑰、不分通道。
+- `leafCard` 有 `clients` 時走另一條分支，畫成 `hostname` / `ip` / `owner` 三欄表格：
+  `clientCols(n)` 決定畫哪幾欄（**某欄所有 client 都沒值就整欄不畫**），`clientW(n)` 算卡寬
+  （欄寬總和＋`CLIENT_GAP 10`＋左右 `CLIENT_PAD 12`，下限 `LEAF_W`），
+  `leafH(n) = 70 + (ns?14:0) + (named?14:0) + 14 表頭 + N*14`。
+  **合成 id 不當標題**（順著帶子回去就知道是哪台 switch 的哪個 iface），只有 `n.named`
+  （輸入真的給了 `name`）才畫標題；**最後一行不重複 iface**、只印量。表頭沿用 `.leaf-stop`、
+  分隔線沿用 `nodeBox` 那條內聯 `stroke="#22303f"`——不新增 CSS 類別與顏色。
+  **沒有 `clients` 的節點完全不走這條分支，輸出逐 byte 與舊版相同。**
+- `CLIENT_COLS` 的 `w` 必須容得下 `budget + 1` 個估寬單位：`clip()` 截完會再補一個 `…`，
+  照 `budget` 抓欄寬會讓最長的那格戳進欄距（實測 24 單位的 hostname 截完是 127px）。
+  一個半形單位實測 5.09～5.12px（`.leaf-sub` 10px），取 5.15 留餘裕；`ip` 欄要放得下完整 IPv4。
+- 加寬葉卡是安全的：`layout()` 的欄寬是 `list.reduce(max(n.w), NODE_W)`——每欄取該欄最寬、
+  下限 `NODE_W`，同欄所有卡片共用同一個 `x`。加寬只會撐寬自己那一欄、把後面的欄整體右移。
+- 帶的 `data-tip` 多一個 `clients` 鍵（`clientsMeta()`：取封包下游那端節點的
+  `hostname || ip` 陣列），給「兩台以上時卡片標題不是 client 身分」補身分；
+  照既有慣例只在有值時出現，所以沒有 clients 的圖 `data-tip` 逐 byte 不變。
+  **`tooltip.js` 的帶是明確列鍵的**，加新鍵要同步在那裡加一列。
 - 卡片：`nodeBox`（hop）／`leafCard`／`podCard`／`groupCard`（ns／app 共用，`nsCard`/`appCard` 是薄殼）／`anchorCard`。
   **每張卡的 `<g>` 都帶 `data-tip`**（`nodeTip()` 產生 `{node:1, title, rows:[[k,v],…]}`，render 已格式化好；
   順序照參考面板：型別／名稱、id、ns、ontap_cluster、流量、usage、status、health、model、perf(raw)、alerts、no-flow）。
@@ -346,6 +383,11 @@ anchorEdge|null, root|null, warnings, maxCol}`。
     沒有任何 flow 邊的 hop。
 12. 卡片 `<g>` 的 `data-tip` 是本次新加的：**golden 對拍時要用 `perl -pe 's/<g data-tip="[^"]*">/<g>/g'`
     正規化掉才比得出真正的版面差異**（帶子的 `data-tip` 不要正規化，它必須逐 byte 相同）。
+13. client 很多的 port 卡會很高（每台 14px）也會很寬（三欄齊全 364px），目前都**沒有上限**。
+    真的遇到幾十台再加一個 `CLIENT_MAX` 常數截，**不要順手改成「一個 client 一張卡」**——
+    後端量得到的只有整個 port 的 Δ bps，N 張卡各帶全額會讓 `tracedOut` 變 `N×V`、
+    其他輸入被灌水 `(N−1)×V`，而且四種殘差情況裡有三種完全不發警告；攤分則是 `5499b24`
+    移除過的推估。量停在 port 是刻意的。
 
 ## 11. 部署：網頁與 nginx 是分開的兩層
 

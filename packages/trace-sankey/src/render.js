@@ -22,8 +22,63 @@ function esc(s) {
   });
 }
 
-/* 帶 namespace 的葉多一行資訊（ns 標示），卡要高一階；沒 ns 的 pod 跟一般葉一樣高 */
-function leafH(n) { return n.namespace ? 80 : 70; }
+/* SVG 沒有 text-overflow，長字串會直接戳出卡外：卡面文字自己截。
+   以半形 1、CJK（含全形標點）2 估寬——不精確，但 .leaf-sub 是等寬感的 10px 小字，
+   估寬夠用且不必量 DOM（render() 必須是純函式、Node 也要能跑）。完整值一律進 tooltip。 */
+function clip(s, budget) {
+  s = String(s == null ? '' : s);
+  var w = 0, i = 0;
+  for (; i < s.length; i++) {
+    w += s.charCodeAt(i) > 0x2e7f ? 2 : 1;
+    if (w > budget) return s.slice(0, i) + '…';
+  }
+  return s;
+}
+
+/* 葉卡上的 client 表格：一列一台、全部列出，欄位對齊並印表頭。
+   欄寬以「半形 1、CJK 2」的估寬單位換算（.leaf-sub 是 10px，實測 5.09～5.12px 一個半形單位，
+   取 5.15 留餘裕）。**欄寬要容得下 budget + 1 個單位**——clip() 截斷後還會再補一個 '…'，
+   照 budget 抓欄寬會讓最長的那格戳進欄距（實測 24 單位的 hostname 截完是 127px、欄寬只有 123px）。
+   ip 欄要放得下完整的 IPv4（255.255.255.255 ＝ 15 單位）才不會把位址截掉。
+   某一欄所有 client 都沒值就整欄不畫，卡也跟著窄——只有一個 IP 的 port 不該撐成一張大表。 */
+var CLIENT_COLS = [
+  { key: 'hostname', budget: 24, w: 130 },
+  { key: 'ip', budget: 16, w: 90 },
+  { key: 'owner', budget: 18, w: 100 }
+];
+var CLIENT_GAP = 10, CLIENT_PAD = 12;
+function clientCols(n) {
+  var cs = n.clients;
+  if (!cs || !cs.length) return [];
+  return CLIENT_COLS.filter(function (col) {
+    return cs.some(function (c) { return c[col.key]; });
+  });
+}
+/* 卡寬：欄寬總和＋欄距＋左右 padding，並以 LEAF_W 為下限（只有 ip 一欄時不要變成細長條） */
+function clientW(n) {
+  var cols = clientCols(n);
+  if (!cols.length) return LEAF_W;
+  var w = CLIENT_PAD * 2 + CLIENT_GAP * (cols.length - 1);
+  cols.forEach(function (col) { w += col.w; });
+  return Math.max(LEAF_W, w);
+}
+/* 一列一台，每格各自截斷；沒有值的格子留空（不要補「—」，空白本身就讀得出來） */
+function clientRows(n) {
+  var cols = clientCols(n);
+  if (!cols.length) return [];
+  return n.clients.map(function (c) {
+    return cols.map(function (col) { return c[col.key] ? clip(c[col.key], col.budget) : ''; });
+  });
+}
+
+/* 帶 namespace 的葉多一行資訊（ns 標示），卡要高一階；沒 ns 的 pod 跟一般葉一樣高。
+   有 clients 時多的是：name 那行（只有真的給了 name 才有）、表頭一行、每台一行。
+   沒有 clients 時回傳值與舊版完全相同。 */
+function leafH(n) {
+  var cols = clientCols(n);
+  if (!cols.length) return n.namespace ? 80 : 70;
+  return 70 + (n.namespace ? 14 : 0) + (n.named ? 14 : 0) + 14 + n.clients.length * 14;
+}
 
 /* hop 盒的標題區高度：有 usage 副標（兩欄都在才畫）就多一行 */
 function hasUsage(n) { return !!(n.usage && n.usage.used_bytes != null && n.usage.capacity_bytes != null); }
@@ -102,7 +157,7 @@ function layout(model) {
       n.w = NODE_W;
       n.h = headerH(n) + Math.max(lh, rh, BODY_MIN) + BODY_PAD;
     } else if (n.kind === 'leaf') {
-      n.w = LEAF_W; n.h = Math.max(leafH(n), lh, rh);
+      n.w = clientW(n); n.h = Math.max(leafH(n), lh, rh);
     } else {
       n.w = ANCHOR_W; n.h = Math.max(66, lh, rh);
     }
@@ -362,6 +417,9 @@ function render(model) {
       fi: e.fromIface, ti: e.toIface, bps: e.bps, anchor: !!e.isAnchor,
       backward: e.backward || undefined,    /* stringify 會把 undefined 丟掉：沒回流的圖輸出不變 */
       ns: e.namespace || undefined,         /* 同上：沒 ns 的圖輸出不變 */
+    /* 兩台以上 client 時卡片標題不是 client 身分（合成 id 或使用者給的 name），
+       hover 這條帶要知道那頭掛了誰就靠這個鍵。同樣只在有值時出現。 */
+    clients: clientsMeta(e, model) || undefined,
       /* storage 資料才有的鍵，同樣只在有值時出現：switch 追查資料的 data-tip 逐 byte 不變 */
       unit: e.unit === 'bytesPerSec' ? e.unit : undefined,
       channel: e.channel || undefined,
@@ -520,9 +578,23 @@ function nodeTip(n, model) {
     });
   }
   (info.alerts || []).forEach(function (a) { rows.push(['alert', a]); });
+  /* tooltip 不截斷、列出全部：卡面只放得下前兩筆，要看完整清單就是靠這裡 */
+  var cs = n.clients || [];
+  cs.forEach(function (c, i) {
+    rows.push([cs.length === 1 ? 'client' : 'client ' + (i + 1),
+      [c.ip, c.hostname, c.owner].filter(Boolean).join(' · ')]);
+  });
   return { node: 1, title: title, rows: rows };
 }
 function tipAttr(n, model) { return ' data-tip="' + esc(JSON.stringify(nodeTip(n, model))) + '"'; }
+
+/* 帶的 tooltip 要列的 client：取封包下游那一端的節點（追來源模式反過來），
+   有 clients 就回 hostname／IP 的字串陣列。完整欄位在卡片自己的 tooltip 裡。 */
+function clientsMeta(e, model) {
+  var far = model.nodeMap[model.dir === 'destination' ? e.toId : e.fromId];
+  if (!far || !far.clients) return null;
+  return far.clients.map(function (c) { return c.hostname || c.ip; });
+}
 
 function nodeBox(n, model, nsColor) {
   var isDevice = DEVICE_TYPES.indexOf(n.role) >= 0;   /* k8s node／pod、netapp 三型別：虛線框 */
@@ -576,18 +648,56 @@ function leafCard(n, model, nsColor) {
       '" rx="2" fill="' + nsc + '" fill-opacity=".85"/>');
   }
   s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">追查終止</text>');
-  s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 34) + '">' + esc(n.label) + '</text>');
-  var ly = n.y + 48;
-  if (n.namespace) {
-    s.push('<text class="leaf-sub" style="fill:' + nsc + '" x="' + (n.x + 12) + '" y="' + ly + '">ns/' +
-      esc(n.namespace) + '</text>');
+  var cols = clientCols(n), ly;
+  if (cols.length) {
+    /* 有 client 的卡：合成 id（sw-tor-1:xe-0/0/12）不當標題——順著帶子回去就知道是哪台
+       switch 的哪個 iface，抄在卡上是重複資訊。真的給了 name 才畫標題。
+       最後一行也不再重複 iface，只留量。 */
+    ly = n.y + 34;
+    if (n.named) {
+      s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + ly + '">' + esc(n.label) + '</text>');
+      ly += 14;
+    }
+    if (n.namespace) {
+      s.push('<text class="leaf-sub" style="fill:' + nsc + '" x="' + (n.x + 12) + '" y="' + ly + '">ns/' +
+        esc(n.namespace) + '</text>');
+      ly += 14;
+    }
+    /* 表頭用 wire 的欄位名（跟 tooltip 印 ontap_cluster／health 同一套慣例），
+       樣式沿用 .leaf-stop（灰小字），分隔線沿用 nodeBox 那條內聯 stroke——不新增類別與顏色。 */
+    var cx = n.x + CLIENT_PAD;
+    cols.forEach(function (col) {
+      s.push('<text class="leaf-stop" x="' + cx + '" y="' + ly + '">' + col.key + '</text>');
+      cx += col.w + CLIENT_GAP;
+    });
+    s.push('<line x1="' + (n.x + CLIENT_PAD) + '" y1="' + (ly + 4) + '" x2="' + (n.x + n.w - CLIENT_PAD) +
+      '" y2="' + (ly + 4) + '" stroke="#22303f"/>');
     ly += 14;
+    clientRows(n).forEach(function (cells) {
+      var rx = n.x + CLIENT_PAD;
+      cells.forEach(function (v, i) {
+        if (v) s.push('<text class="leaf-sub" x="' + rx + '" y="' + ly + '">' + esc(v) + '</text>');
+        rx += cols[i].w + CLIENT_GAP;
+      });
+      ly += 14;
+    });
+    s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">' + esc(A(n.bps, n.unit)) + '</text>');
+  } else {
+    s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 34) + '">' + esc(n.label) + '</text>');
+    ly = n.y + 48;
+    if (n.namespace) {
+      s.push('<text class="leaf-sub" style="fill:' + nsc + '" x="' + (n.x + 12) + '" y="' + ly + '">ns/' +
+        esc(n.namespace) + '</text>');
+      ly += 14;
+    }
+    var ifc = n.iface || n.localIface || '';
+    s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">' +
+      (ifc ? esc(ifc) + ' · ' : '') + esc(A(n.bps, n.unit)) + '</text>');
   }
-  var ifc = n.iface || n.localIface || '';
-  s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">' +
-    (ifc ? esc(ifc) + ' · ' : '') + esc(A(n.bps, n.unit)) + '</text>');
+  /* 查得到 client 就不是「不明終點」了：右上角換成 client 標記 */
+  var nc = n.clients ? n.clients.length : 0;
   s.push('<text class="leaf-stop" text-anchor="end" x="' + (n.x + n.w - 12) + '" y="' + (n.y + 17) +
-    '">未再往下追</text>');
+    '">' + (nc === 0 ? '未再往下追' : (nc === 1 ? 'client' : nc + ' 個 client')) + '</text>');
   s.push('</g>');
   return s.join('');
 }

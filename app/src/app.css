@@ -89,6 +89,13 @@ body{
 .zbtn{min-width:34px;text-align:center}
 .zpct{min-width:60px;font-variant-numeric:tabular-nums;color:var(--dim)}
 
+/* ---------- dev 專用的本機資料來源列 ---------- */
+/* 正式 build 不會渲染這塊（DevSampleBar 整支不進 bundle），樣式留著無害。
+   只用既有的 CSS 變數，不新增色票——配色是三處沒有連動的定義（見 CLAUDE.md §8）。 */
+.dev-src{display:flex;align-items:center;gap:6px}
+.dev-tag{font-size:11px;letter-spacing:.08em;color:var(--dim2);
+  border:1px dashed #2c3e52;border-radius:4px;padding:1px 5px}
+
 /* ---------- 錯誤橫幅 ---------- */
 .error-banner{border:1px solid var(--rose);border-radius:10px;padding:10px 14px;
   font-size:13px;color:var(--rose);background:rgba(251,113,133,.07)}

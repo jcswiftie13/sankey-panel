@@ -18,6 +18,16 @@ export interface WireUsage {
   capacity_bytes?: number;
 }
 
+/** 無鄰居 interface 上查到的 client（ARP／MAC table／DHCP／CMDB）。
+    三個欄位都選填，但至少要有 ip 或 hostname，否則該筆靜默丟棄。
+    認不得的鍵忽略——之後加 mac／vlan 不必改契約。 */
+export interface WireClient {
+  ip?: string;
+  hostname?: string;
+  owner?: string;
+  [k: string]: unknown;
+}
+
 export interface WireNodeData {
   /** 必填、不可重複 */
   id: string;
@@ -38,6 +48,9 @@ export interface WireNodeData {
   hardware?: { model?: string; [k: string]: unknown };
   perf?: { cpu_busy_pct?: number; total_ops?: number; total_latency_us?: number; total_bytes_per_sec?: number };
   alerts?: Array<{ name: string; severity?: string; [k: string]: unknown }>;
+  /** 我們的擴充：這個 port 上掛了誰。只有葉卡會畫到卡面上，其他型別只進 tooltip。
+      不是陣列是驗證錯誤 */
+  clients?: WireClient[];
   /** 我們的擴充：顯式殘差，≥ 0；不給就由平衡式自動補 */
   other_in_bps?: number;
   other_out_bps?: number;
