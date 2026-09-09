@@ -183,6 +183,8 @@ capture 階段，這是 host 沒設 `will-navigate` 白名單時唯一擋得住�
       "status": "normal|warning|critical",  // 其他值視同沒有
       "usage": { "used_bytes": 0, "capacity_bytes": 0 },   // 兩欄各自獨立、絕不填 0
       "health": "…", "hardware": {…}, "perf": {…}, "alerts": [...],   // 只進 tooltip
+      "clients": [{ "ip": "…", "hostname": "…", "owner": "…" }],       // 無鄰居 port 上查到的 client；
+                                                                       // 三欄全選填但至少要有 ip 或 hostname，否則靜默丟棄；只有葉卡畫到卡面
       "other_in_bps": 0, "other_out_bps": 0 // ≥ 0；不給就由平衡式補
     }}],
     "edges": [{ "data": {
@@ -277,6 +279,11 @@ anchorEdge|null, root|null, warnings, maxCol}`。
   只在有值時出現的 `backward/ns/unit/channel/tier/attr/extra`——**用 `undefined` 讓 stringify 丟掉**，舊資料的
   data-tip 才不變）與原生 `<title>`（headless 備援，`tooltip.bind()` 會剝掉）。lateral 帶另輸出 `.lat-arrow`
   （write 加 `arrow-w`），**必須是 band 的兄弟節點**。回流帶維持玫瑰、不分通道。
+- `leafCard` 的卡高會變：`leafH(n) = (ns ? 80 : 70) + clientLines(n).length * 14`，client 行插在 ns 行與
+  iface 行之間（單筆＝`ip · hostname` ＋ `owner` 兩行，多筆＝前兩筆各一行＋「還有 N 個…」，最多 3 行）；
+  右上角 `未再往下追` 換成 `client`／`N 個 client`。卡面文字用 `clip(s, budget)` 截（半形 1、CJK 2 估寬），
+  **有 `clients` 時連標題也截**（model 會拿 client 的 hostname 當標題）。
+  **沒有 `clients` 的節點完全不走這些分支，輸出逐 byte 與舊版相同。**
 - 卡片：`nodeBox`（hop）／`leafCard`／`podCard`／`groupCard`（ns／app 共用，`nsCard`/`appCard` 是薄殼）／`anchorCard`。
   **每張卡的 `<g>` 都帶 `data-tip`**（`nodeTip()` 產生 `{node:1, title, rows:[[k,v],…]}`，render 已格式化好；
   順序照參考面板：型別／名稱、id、ns、ontap_cluster、流量、usage、status、health、model、perf(raw)、alerts、no-flow）。
