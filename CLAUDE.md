@@ -297,11 +297,23 @@ anchorEdge|null, root|null, warnings, maxCol}`。
   只在有值時出現的 `backward/ns/unit/channel/tier/attr/extra`——**用 `undefined` 讓 stringify 丟掉**，舊資料的
   data-tip 才不變）與原生 `<title>`（headless 備援，`tooltip.bind()` 會剝掉）。lateral 帶另輸出 `.lat-arrow`
   （write 加 `arrow-w`），**必須是 band 的兄弟節點**。回流帶維持玫瑰、不分通道。
-- `leafCard` 的卡高會變：`leafH(n) = (ns ? 80 : 70) + clientLines(n).length * 14`，client 行插在 ns 行與
-  iface 行之間（單筆＝`ip · hostname` ＋ `owner` 兩行，多筆＝前兩筆各一行＋「還有 N 個…」，最多 3 行）；
-  右上角 `未再往下追` 換成 `client`／`N 個 client`。卡面文字用 `clip(s, budget)` 截（半形 1、CJK 2 估寬），
-  **有 `clients` 時連標題也截**（model 會拿 client 的 hostname 當標題）。
-  **沒有 `clients` 的節點完全不走這些分支，輸出逐 byte 與舊版相同。**
+- `leafCard` 有 `clients` 時走另一條分支，畫成 `hostname` / `ip` / `owner` 三欄表格：
+  `clientCols(n)` 決定畫哪幾欄（**某欄所有 client 都沒值就整欄不畫**），`clientW(n)` 算卡寬
+  （欄寬總和＋`CLIENT_GAP 10`＋左右 `CLIENT_PAD 12`，下限 `LEAF_W`），
+  `leafH(n) = 70 + (ns?14:0) + (named?14:0) + 14 表頭 + N*14`。
+  **合成 id 不當標題**（順著帶子回去就知道是哪台 switch 的哪個 iface），只有 `n.named`
+  （輸入真的給了 `name`）才畫標題；**最後一行不重複 iface**、只印量。表頭沿用 `.leaf-stop`、
+  分隔線沿用 `nodeBox` 那條內聯 `stroke="#22303f"`——不新增 CSS 類別與顏色。
+  **沒有 `clients` 的節點完全不走這條分支，輸出逐 byte 與舊版相同。**
+- `CLIENT_COLS` 的 `w` 必須容得下 `budget + 1` 個估寬單位：`clip()` 截完會再補一個 `…`，
+  照 `budget` 抓欄寬會讓最長的那格戳進欄距（實測 24 單位的 hostname 截完是 127px）。
+  一個半形單位實測 5.09～5.12px（`.leaf-sub` 10px），取 5.15 留餘裕；`ip` 欄要放得下完整 IPv4。
+- 加寬葉卡是安全的：`layout()` 的欄寬是 `list.reduce(max(n.w), NODE_W)`——每欄取該欄最寬、
+  下限 `NODE_W`，同欄所有卡片共用同一個 `x`。加寬只會撐寬自己那一欄、把後面的欄整體右移。
+- 帶的 `data-tip` 多一個 `clients` 鍵（`clientsMeta()`：取封包下游那端節點的
+  `hostname || ip` 陣列），給「兩台以上時卡片標題不是 client 身分」補身分；
+  照既有慣例只在有值時出現，所以沒有 clients 的圖 `data-tip` 逐 byte 不變。
+  **`tooltip.js` 的帶是明確列鍵的**，加新鍵要同步在那裡加一列。
 - 卡片：`nodeBox`（hop）／`leafCard`／`podCard`／`groupCard`（ns／app 共用，`nsCard`/`appCard` 是薄殼）／`anchorCard`。
   **每張卡的 `<g>` 都帶 `data-tip`**（`nodeTip()` 產生 `{node:1, title, rows:[[k,v],…]}`，render 已格式化好；
   順序照參考面板：型別／名稱、id、ns、ontap_cluster、流量、usage、status、health、model、perf(raw)、alerts、no-flow）。
@@ -371,6 +383,11 @@ anchorEdge|null, root|null, warnings, maxCol}`。
     沒有任何 flow 邊的 hop。
 12. 卡片 `<g>` 的 `data-tip` 是本次新加的：**golden 對拍時要用 `perl -pe 's/<g data-tip="[^"]*">/<g>/g'`
     正規化掉才比得出真正的版面差異**（帶子的 `data-tip` 不要正規化，它必須逐 byte 相同）。
+13. client 很多的 port 卡會很高（每台 14px）也會很寬（三欄齊全 364px），目前都**沒有上限**。
+    真的遇到幾十台再加一個 `CLIENT_MAX` 常數截，**不要順手改成「一個 client 一張卡」**——
+    後端量得到的只有整個 port 的 Δ bps，N 張卡各帶全額會讓 `tracedOut` 變 `N×V`、
+    其他輸入被灌水 `(N−1)×V`，而且四種殘差情況裡有三種完全不發警告；攤分則是 `5499b24`
+    移除過的推估。量停在 port 是刻意的。
 
 ## 11. 部署：網頁與 nginx 是分開的兩層
 

@@ -3,19 +3,29 @@
   "investigation": {
     "node_id": "sw-tor-1",
     "iface": "et-0/0/49",
-    "delta_bps": 40000000000,
+    "delta_bps": 50000000000,
     "direction": "in",
-    "note": "ToR 1 的 uplink 進來 +40 Gbps，往下的 access port 多半沒有 LLDP 鄰居"
+    "note": "ToR 1 的 uplink 進來 +50 Gbps，往下的 access port 多半沒有 LLDP 鄰居"
   },
   "elements": {
     "nodes": [
-      { "data": { "id": "sw-tor-1", "type": "switch", "name": "ToR 1" } },
+      {
+        "data": {
+          "id": "sw-tor-1",
+          "type": "switch",
+          "name": "ToR 1"
+        }
+      },
       {
         "data": {
           "id": "sw-tor-1:xe-0/0/12",
           "type": "host",
           "clients": [
-            { "ip": "10.42.7.31", "hostname": "lab-gpu-01", "owner": "網管部 王小明" }
+            {
+              "ip": "10.42.7.31",
+              "hostname": "lab-gpu-01",
+              "owner": "網管部 王小明"
+            }
           ]
         }
       },
@@ -23,9 +33,13 @@
         "data": {
           "id": "sw-tor-1:xe-0/0/13",
           "type": "host",
-          "labels": { "namespace": "lab" },
+          "labels": {
+            "namespace": "lab"
+          },
           "clients": [
-            { "ip": "10.42.7.32" }
+            {
+              "ip": "10.42.7.32"
+            }
           ]
         }
       },
@@ -35,10 +49,22 @@
           "type": "host",
           "name": "未管理小 switch",
           "clients": [
-            { "ip": "10.42.7.41", "hostname": "ipphone-3f-07", "owner": "總務處 李美華" },
-            { "ip": "10.42.7.42", "hostname": "desk-pc-3f-07" },
-            { "hostname": "desk-nas-3f-07", "owner": "總務處 李美華" },
-            { "owner": "沒有 ip 也沒有 hostname，這筆會被靜默丟棄" }
+            {
+              "ip": "10.42.7.41",
+              "hostname": "ipphone-3f-07",
+              "owner": "總務處 李美華"
+            },
+            {
+              "ip": "10.42.7.42",
+              "hostname": "desk-pc-3f-07"
+            },
+            {
+              "hostname": "desk-nas-3f-07",
+              "owner": "總務處 李美華"
+            },
+            {
+              "owner": "沒有 ip 也沒有 hostname，這筆會被靜默丟棄"
+            }
           ]
         }
       },
@@ -56,42 +82,161 @@
           ]
         }
       },
-      { "data": { "id": "srv-legacy-09", "type": "host" } }
+      {
+        "data": {
+          "id": "sw-tor-1:xe-0/0/17",
+          "type": "host",
+          "clients": [
+            {
+              "ip": "10.42.9.11",
+              "hostname": "wsA-3f-01",
+              "owner": "設計部 張三"
+            },
+            {
+              "ip": "10.42.9.12",
+              "hostname": "wsA-3f-02",
+              "owner": "設計部 李四"
+            },
+            {
+              "ip": "10.42.9.13",
+              "hostname": "wsA-3f-03"
+            },
+            {
+              "ip": "10.42.9.14"
+            },
+            {
+              "hostname": "printer-3f",
+              "owner": "總務處 李美華"
+            },
+            {
+              "ip": "10.42.9.16",
+              "hostname": "ap-3f-north",
+              "owner": "網管部 王小明"
+            }
+          ]
+        }
+      },
+      {
+        "data": {
+          "id": "sw-tor-1:xe-0/0/18",
+          "type": "host",
+          "clients": [
+            {
+              "ip": "10.42.9.21",
+              "hostname": "cam-lobby-01"
+            },
+            {
+              "ip": "10.42.9.22",
+              "hostname": "cam-lobby-02"
+            }
+          ]
+        }
+      },
+      {
+        "data": {
+          "id": "srv-legacy-09",
+          "type": "host"
+        }
+      }
     ],
     "edges": [
       {
         "data": {
-          "id": "c1", "type": "network-flow", "source": "sw-tor-1", "target": "sw-tor-1:xe-0/0/12",
-          "labels": { "source_iface": "xe-0/0/12" },
-          "metrics": { "delta_bps": 12000000000 }
+          "id": "c1",
+          "type": "network-flow",
+          "source": "sw-tor-1",
+          "target": "sw-tor-1:xe-0/0/12",
+          "labels": {
+            "source_iface": "xe-0/0/12"
+          },
+          "metrics": {
+            "delta_bps": 12000000000
+          }
         }
       },
       {
         "data": {
-          "id": "c2", "type": "network-flow", "source": "sw-tor-1", "target": "sw-tor-1:xe-0/0/13",
-          "labels": { "source_iface": "xe-0/0/13" },
-          "metrics": { "delta_bps": 8000000000 }
+          "id": "c2",
+          "type": "network-flow",
+          "source": "sw-tor-1",
+          "target": "sw-tor-1:xe-0/0/13",
+          "labels": {
+            "source_iface": "xe-0/0/13"
+          },
+          "metrics": {
+            "delta_bps": 8000000000
+          }
         }
       },
       {
         "data": {
-          "id": "c3", "type": "network-flow", "source": "sw-tor-1", "target": "sw-tor-1:xe-0/0/14",
-          "labels": { "source_iface": "xe-0/0/14" },
-          "metrics": { "delta_bps": 10000000000 }
+          "id": "c3",
+          "type": "network-flow",
+          "source": "sw-tor-1",
+          "target": "sw-tor-1:xe-0/0/14",
+          "labels": {
+            "source_iface": "xe-0/0/14"
+          },
+          "metrics": {
+            "delta_bps": 10000000000
+          }
         }
       },
       {
         "data": {
-          "id": "c4", "type": "network-flow", "source": "sw-tor-1", "target": "sw-tor-1:xe-0/0/15",
-          "labels": { "source_iface": "xe-0/0/15" },
-          "metrics": { "delta_bps": 6000000000 }
+          "id": "c4",
+          "type": "network-flow",
+          "source": "sw-tor-1",
+          "target": "sw-tor-1:xe-0/0/15",
+          "labels": {
+            "source_iface": "xe-0/0/15"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
         }
       },
       {
         "data": {
-          "id": "c5", "type": "network-flow", "source": "sw-tor-1", "target": "srv-legacy-09",
-          "labels": { "source_iface": "xe-0/0/16", "target_iface": "eno1" },
-          "metrics": { "delta_bps": 4000000000 }
+          "id": "c5",
+          "type": "network-flow",
+          "source": "sw-tor-1",
+          "target": "srv-legacy-09",
+          "labels": {
+            "source_iface": "xe-0/0/16",
+            "target_iface": "eno1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "c6",
+          "type": "network-flow",
+          "source": "sw-tor-1",
+          "target": "sw-tor-1:xe-0/0/17",
+          "labels": {
+            "source_iface": "xe-0/0/17"
+          },
+          "metrics": {
+            "delta_bps": 7000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "c7",
+          "type": "network-flow",
+          "source": "sw-tor-1",
+          "target": "sw-tor-1:xe-0/0/18",
+          "labels": {
+            "source_iface": "xe-0/0/18"
+          },
+          "metrics": {
+            "delta_bps": 3000000000
+          }
         }
       }
     ]

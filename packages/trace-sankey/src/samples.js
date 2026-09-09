@@ -331,8 +331,8 @@ var SAMPLES = [
     json: {
       kind: 'destination',
       investigation: {
-        node_id: 'sw-tor-1', iface: 'et-0/0/49', delta_bps: G(40), direction: 'in',
-        note: 'ToR 1 的 uplink 進來 +40 Gbps，往下的 access port 多半沒有 LLDP 鄰居'
+        node_id: 'sw-tor-1', iface: 'et-0/0/49', delta_bps: G(50), direction: 'in',
+        note: 'ToR 1 的 uplink 進來 +50 Gbps，往下的 access port 多半沒有 LLDP 鄰居'
       },
       elements: {
         nodes: [
@@ -365,6 +365,24 @@ var SAMPLES = [
               owner: '研究發展二部 平台工程組 陳大文（分機 4721）'
             }]
           }),
+          /* 六台：驗證卡面列出全部（不再截成「還有 N 個…」），並混一筆只有 IP、一筆只有 hostname */
+          N('sw-tor-1:xe-0/0/17', 'host', null, {
+            clients: [
+              { ip: '10.42.9.11', hostname: 'wsA-3f-01', owner: '設計部 張三' },
+              { ip: '10.42.9.12', hostname: 'wsA-3f-02', owner: '設計部 李四' },
+              { ip: '10.42.9.13', hostname: 'wsA-3f-03' },
+              { ip: '10.42.9.14' },
+              { hostname: 'printer-3f', owner: '總務處 李美華' },
+              { ip: '10.42.9.16', hostname: 'ap-3f-north', owner: '網管部 王小明' }
+            ]
+          }),
+          /* 都沒有 owner：驗證 owner 欄整欄不畫、卡跟著變窄 */
+          N('sw-tor-1:xe-0/0/18', 'host', null, {
+            clients: [
+              { ip: '10.42.9.21', hostname: 'cam-lobby-01' },
+              { ip: '10.42.9.22', hostname: 'cam-lobby-02' }
+            ]
+          }),
           /* 對照組：沒有 clients 的葉，外觀與舊版逐 byte 相同 */
           N('srv-legacy-09', 'host')
         ],
@@ -373,7 +391,9 @@ var SAMPLES = [
           E('c2', 'sw-tor-1', 'xe-0/0/13', 'sw-tor-1:xe-0/0/13', '', G(8)),
           E('c3', 'sw-tor-1', 'xe-0/0/14', 'sw-tor-1:xe-0/0/14', '', G(10)),
           E('c4', 'sw-tor-1', 'xe-0/0/15', 'sw-tor-1:xe-0/0/15', '', G(6)),
-          E('c5', 'sw-tor-1', 'xe-0/0/16', 'srv-legacy-09', 'eno1', G(4))
+          E('c5', 'sw-tor-1', 'xe-0/0/16', 'srv-legacy-09', 'eno1', G(4)),
+          E('c6', 'sw-tor-1', 'xe-0/0/17', 'sw-tor-1:xe-0/0/17', '', G(7)),
+          E('c7', 'sw-tor-1', 'xe-0/0/18', 'sw-tor-1:xe-0/0/18', '', G(3))
         ]
       }
     }

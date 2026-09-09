@@ -532,7 +532,7 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
 | --- | --- | --- |
 | **hop** | `switch`、`node`、`pod`、`netapp-node`、`netapp-aggr`、`netapp-svm`、`pvc` | 有槽位、算殘差的盒子。`switch`／`pvc` 實線框；`node`／`pod`／`netapp-*` 是「設備」，虛線框（root 的青框與 status 色優先）。副標：`id`，非 switch 加 ` · <type>` |
 | **群組** | `namespace`、`application`、`cluster`、`storage-cluster`、`controller` | **不直接畫**，只能出現在別的節點的 `parent` 鏈上；pod 的 application／namespace 終點卡由此推導。flow 邊接到群組是驗證錯誤 |
-| **葉** | 其他任何值（`host`、`router`…） | 灰色「追查終止」小卡（`追查終止`／`未再往下追`＋iface＋數量）。帶 `clients` 時右上角換成 client 標記、卡上多列 client 清單。**不能再有往下走的 flow 邊**（追終點：不能當 `source`；追來源：不能當 `target`）→ 驗證錯誤；要接下去請改用 hop 型 type |
+| **葉** | 其他任何值（`host`、`router`…） | 灰色「追查終止」小卡（`追查終止`／`未再往下追`＋iface＋數量）。帶 `clients` 時右上角換成 client 標記、卡面改成 client 表格（見「`clients`」）。**不能再有往下走的 flow 邊**（追終點：不能當 `source`；追來源：不能當 `target`）→ 驗證錯誤；要接下去請改用 hop 型 type |
 
 再細分幾條規則：
 
@@ -637,11 +637,19 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
 - 三個欄位**都選填**，但**至少要有 `ip` 或 `hostname`**，否則該筆靜默丟棄（只有 owner 在圖上
   認不出是哪台機器）。認不得的鍵忽略——之後後端先送 `mac`／`vlan` 也不會壞，只是還沒有畫面。
 - **一個 port ＝ 一張葉卡**，不是一個 client 一張卡／一條帶。後端量得到的是整個 port 的
-  Δ bps、量不到 per-client，攤分就是推估（見「不做的事」）。
+  Δ bps、量不到 per-client，攤分就是推估（見「不做的事」）。量停在 port 那一層，
+  卡上把這個 port 掛了誰列成一張表。
 - 放在**節點**上而不是邊上：一張葉卡可能有多條邊進來，放邊上就要合併清單。
 - 任何節點都可以帶 `clients`（hop 也行，只進 tooltip）；**只有葉卡會畫到卡面上**。
-- 卡面只放得下前兩筆、且會截斷長字串（`…`）；**完整清單一律在 tooltip**，不截斷。
-- 節點沒給 `name` 且剛好只有一筆 client 時，卡片標題用該 client 的 `hostname`（合成 id 仍在 tooltip）。
+- 卡面畫成 `hostname` / `ip` / `owner` 三欄的小表格（**有表頭**），**每台一列、全部列出**。
+  某一欄所有 client 都沒值就整欄不畫，卡也跟著窄；每格會截斷長字串（`…`），
+  **完整值一律在 tooltip**，不截斷。
+- 有 `clients` 的卡**不畫合成 id 當標題**（`sw-tor-1:xe-0/0/12` 順著帶子回去就知道了，
+  抄在卡上是重複資訊），**最後一行也不再重複 iface**、只留量。真的給了 `name` 才畫標題。
+- 節點沒給 `name` 且剛好只有一筆 client 時，節點的顯示名稱用該 client 的 `hostname`
+  （沒有 hostname 就用 `ip`）——**那條量測帶的 tooltip 讀的就是這個名稱**，
+  所以會顯示成 `sw-tor-1 → 10.42.7.32` 而不是合成 id。合成 id 仍在卡片的 tooltip 裡。
+  兩台以上時帶的 tooltip 改用 `client` 那一列列出清單。
 - 範例：`samples/client.json`。
 
 ### 畫面對照：每個欄位出現在哪
@@ -656,11 +664,12 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
 | 帶寬與帶上數字 | `metrics.delta_bps` 或 `read/write_bytes_per_sec`（加總後） |
 | 帶的顏色 | 無通道／read 青、write 燃橘、回流玫瑰（不分通道） |
 | 殘差色塊 | `other_in_bps`／`other_out_bps`，或平衡式自動補 |
-| 葉卡 | `type` 不是 hop／群組的節點：標題 `name`／`id`（沒有 `name` 且只有一筆 client 時用它的 `hostname`）、`labels.namespace` 色條、`clients`（前兩筆＋「還有 N 個…」，單筆時多印 `owner`）、iface、數量合計；右上角有 `clients` 時是 `client`／`N 個 client`，否則 `未再往下追` |
+| 葉卡 | `type` 不是 hop／群組的節點：標題 `name`／`id`、`labels.namespace` 色條、iface、數量合計；右上角 `未再往下追` |
+| 葉卡（帶 `clients`） | 標題只在有 `name` 時畫；`labels.namespace` 色條、`clients` 的 `hostname` / `ip` / `owner` 三欄表格（有表頭、每台一列、全部列出、空欄不畫）、數量合計（**不重複印 iface**）；右上角 `client`／`N 個 client` |
 | pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條（推導的 ns）、iface、數量 |
 | application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：標題＝群組的 `name`、合計、pod 數、成員最差 `status` 框 |
 | 錨卡 | `investigation`：`iface`、方向、`delta_bps`、`note`（tooltip） |
-| 帶的 tooltip | from／to、出口／入口 iface、速率（含 channel）、ns、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
+| 帶的 tooltip | from／to、出口／入口 iface、速率（含 channel）、ns、`client`（下游那端的葉有 `clients` 時）、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
 | 卡片的 tooltip | 型別／名稱、id、ns、ontap_cluster、已追查 in／out 與殘差（或合計＋pod 數）、usage、status、health、model、perf(raw)、alerts、no-flow、`clients`（每筆一列、不截斷） |
 | 欄標題 | 整欄同一非 switch 型別 → `第 N 跳 · <型別名>`；整欄 pod／application／namespace 各有文案 |
 
@@ -886,7 +895,8 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
   免得浮點雜訊在圖上長出一塊。圖與 hop 摘要用同一個門檻。
 - 盒子裡只畫已追查 port，殘差不用斜線填滿整台 switch。
 - 追查終止葉節點是灰色虛線小卡（「追查終止」「未再往下追」＋ iface ＋ 帶寬），不是又一台 switch。
-  節點帶 `clients` 時右上角改成 `client`／`N 個 client`，卡上多列 IP／hostname／owner（見「`clients`」）。
+  節點帶 `clients` 時右上角改成 `client`／`N 個 client`，卡面改成 `hostname` / `ip` / `owner`
+  三欄表格、每台一列全部列出，並省掉合成 id 標題與重複的 iface（見「`clients`」）。
 - k8s 接在同一條 Sankey 上：switch → node（天藍虛線盒）→ pod（天藍虛線中繼卡，標 name 與
   `ns/<namespace>`）→ namespace（ns 色終點卡）。不是每個 switch iface 都接 node；node 可以
   當葉（沒有往下的邊就整台由平衡式補成其他輸出）；pod 沒有 namespace 也合法（不接 ns、沒有色條）。

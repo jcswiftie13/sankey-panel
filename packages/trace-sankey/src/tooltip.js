@@ -18,6 +18,9 @@ function bandHtml(d) {
     row(isBytes ? '速率' + (d.channel ? '（' + d.channel + '）' : '') : '速率增量 Δ', fmtRate(d.bps, d.unit)) +
     (d.channel ? row('channel', d.channel) : '') +
     (d.ns ? row('namespace', 'ns/' + d.ns) : '') +
+    /* 無鄰居 port 上查到的 client：一筆直接印，多筆印數量與清單（完整欄位在卡片的 tooltip） */
+    (d.clients ? row('client', d.clients.length === 1 ? d.clients[0]
+      : d.clients.length + ' 個：' + d.clients.join(' · ')) : '') +
     (d.tier ? row('tier', d.tier) : '') +
     (d.attr ? row('attribution', d.attr === 'split' ? 'split（平均攤分的估計值）' : d.attr) : '') +
     (d.anchor ? row('這條是追查起點', '') : '') +
