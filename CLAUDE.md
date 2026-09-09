@@ -163,8 +163,22 @@ app 端約束（`App.jsx`）：門檻重畫 debounce 200ms、提示文字不 deb
 **拖放 effect 要留著**：開檔與拖放功能已移除，但它無條件 `preventDefault()` 且掛在
 capture 階段，這是 host 沒設 `will-navigate` 白名單時唯一擋得住「整頁導航到
 `file://…json`」的地方——別因為「沒有開檔功能了」就把它一起刪掉。
-舊版 query string／分頁／編輯器／localStorage 續存均為移除狀態；**開檔以 dev 專用的形式回來了**
+舊版分頁／編輯器／localStorage 續存均為移除狀態；**開檔以 dev 專用的形式回來了**
 （見下），拖放沒有回來。
+**query string 回來了，但目的不同**：不是續存 UI 狀態，是「把查詢條件同步進網址列讓人分享」。
+互轉關在 `api.js`（`toQuery` 組 query、`searchFromParams` 產生分享網址、`fieldsFromSearch`
+把網址讀回**表單欄位字串**）。四個約束：
+- 網址**只在開場讀一次**（App 的 `initial`），之後網址是被查詢結果改寫的那一端；再讀回來
+  會把使用者正在編輯的欄位蓋掉。`TraceQueryBar` 的 `initial` prop 同理**只當初值、不受控同步**。
+- 寫回掛在 `lastQuery`（只有查成功才設）＋ `min`，用 `history.replaceState`：**查失敗不動 doc，
+  網址也就不該動**；不接 `popstate`，不做「上一頁回到前一次查詢」的語意。
+- 網址裡的時間是 **epoch 毫秒**（與 API 參數同名同型）。`msField()` 對「缺」與「壞」**回傳不同東西**：
+  缺 → 空字串，App 補 `defaultTimes()` 的最近 1 小時；壞 → 原樣回傳，讓 `buildParams()` 算出 NaN 報錯。
+  壞值若也回空字串，分享連結會安靜地看到錯的時間區間。
+- 「最近 1 小時」的預設**只有 `api.js` 的 `defaultTimes()` 一份**：表單初值與「進場自動查一次」
+  的參數必須同一組，抄兩份會變成欄位顯示一個時間、實際查另一個。
+進場時網址有 `hostname` 才自動查一次，且走 `buildParams()` → `run()`／`setFormError` 這條
+與表單送出**完全相同**的路，壞網址落進同一個橫幅。
 **dev 專用的本機資料來源**（`DevSampleBar.jsx`：內建範例下拉＋選檔）整支關在 App 的
 `if (import.meta.env.DEV) { import('./DevSampleBar.jsx') }` 後面——`vite build` 把條件換成
 `false`、整段連同 `import()` 一起消掉，Rollup 因此**不產生那個 chunk**，正式 bundle 零範例位元組

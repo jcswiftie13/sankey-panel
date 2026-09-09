@@ -6,16 +6,7 @@
    - 壞值要有明確去處：留空＝用預設值（不算錯），填了但不合法＝不送出並報錯，
      絕不默默改成別的數字。 */
 import { useState } from 'react';
-import { DEFAULTS, msToLocalInput, localInputToMs } from './api.js';
-
-const HOUR = 3600 * 1000;
-
-/* 開場時間＝最近 1 小時。放進 useState 的初始化函式只算一次，
-   不然每次 render 都會把使用者選好的時間往前推。 */
-function initTimes() {
-  const now = Date.now();
-  return { from: msToLocalInput(now - HOUR), to: msToLocalInput(now) };
-}
+import { DEFAULTS, defaultTimes, localInputToMs } from './api.js';
 
 /* 空字串 → 預設值；填了就一定要是有限數字，否則回 NaN 讓呼叫端報錯 */
 function num(raw, def) {
@@ -56,15 +47,21 @@ export function buildParams(f) {
   return { params: { hostname, from_ts, to_ts, max_hops, top_n, threshold, track_dir: f.trackDir } };
 }
 
-export function TraceQueryBar({ onSubmit, onInvalid, loading }) {
-  const t0 = useState(initTimes)[0];
-  const [hostname, setHostname] = useState('');
-  const [from, setFrom] = useState(t0.from);
-  const [to, setTo] = useState(t0.to);
-  const [maxHops, setMaxHops] = useState('');
-  const [topN, setTopN] = useState('');
-  const [threshold, setThreshold] = useState('');
-  const [trackDir, setTrackDir] = useState(DEFAULTS.track_dir);
+/* initial（選填）是網址帶進來的欄位字串，形狀與 buildParams 吃的一樣（見 api.js
+   的 fieldsFromSearch）。它**只當初值、不做受控同步**：網址稍後被查詢結果改寫時，
+   不可以把使用者正在編輯的欄位蓋掉（跟 initTimes 只算一次是同一個理由）。 */
+export function TraceQueryBar({ initial, onSubmit, onInvalid, loading }) {
+  /* 開場時間＝最近 1 小時（api.js 的 defaultTimes）。放進 useState 的初始化函式只算一次，
+     不然每次 render 都會把使用者選好的時間往前推。 */
+  const t0 = useState(defaultTimes)[0];
+  const ini = initial || {};
+  const [hostname, setHostname] = useState(ini.hostname || '');
+  const [from, setFrom] = useState(ini.from || t0.from);
+  const [to, setTo] = useState(ini.to || t0.to);
+  const [maxHops, setMaxHops] = useState(ini.maxHops || '');
+  const [topN, setTopN] = useState(ini.topN || '');
+  const [threshold, setThreshold] = useState(ini.threshold || '');
+  const [trackDir, setTrackDir] = useState(ini.trackDir || DEFAULTS.track_dir);
 
   /* 送出走 <form onSubmit>，這樣在任何欄位裡按 Enter 都能查詢 */
   function submit(ev) {

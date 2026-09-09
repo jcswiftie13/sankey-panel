@@ -7,7 +7,8 @@ import { TraceSankey } from 'trace-sankey/react';
 import 'trace-sankey/style.css';
 import './app.css';
 import { useTraceDoc } from './useTraceDoc.js';
-import { TraceQueryBar } from './TraceQueryBar.jsx';
+import { TraceQueryBar, buildParams } from './TraceQueryBar.jsx';
+import { fieldsFromSearch, searchFromParams, defaultTimes } from './api.js';
 
 /* 負數、小數、亂打的字一律當 0（不過濾），不要讓門檻自己變成一個錯誤來源 */
 function cleanMin(v) {
@@ -17,10 +18,25 @@ function cleanMin(v) {
 
 export default function App() {
   /* 資料來源全部關在 useTraceDoc 裡（查 API；三種失敗都不動現有的 doc） */
-  const { doc, error: loadError, loading, source, run, showDoc } = useTraceDoc();
+  const { doc, error: loadError, loading, lastQuery, source, run, showDoc } = useTraceDoc();
+  /* 網址帶進來的查詢條件。只在開場讀一次：之後網址是被查詢結果改寫的那一端，
+     再讀回來會把使用者正在編輯的欄位蓋掉。 */
+  const [initial] = useState(() => {
+    const f = fieldsFromSearch(window.location.search);
+    /* 網址沒帶時間就補上預設的最近 1 小時：表單初值與下面「自動查一次」用的參數
+       必須是同一組，不然欄位顯示最近 1 小時、查詢卻報「請選擇起始時間」。 */
+    const t = defaultTimes();
+    if (!f.from) f.from = t.from;
+    if (!f.to) f.to = t.to;
+    return f;
+  });
   const [formError, setFormError] = useState(null);  /* 表單自己的驗證錯誤，不送 API */
-  const [minText, setMinText] = useState('');   /* 輸入框的原始字串 */
-  const [min, setMin] = useState(0);            /* 真正生效的門檻（debounce 後） */
+  /* 門檻的初值也吃網址（min_bps），走的是同一個 cleanMin */
+  const [minText, setMinText] = useState(() => {
+    const v = cleanMin(initial.minBps);
+    return v > 0 ? String(v) : '';
+  });
+  const [min, setMin] = useState(() => cleanMin(initial.minBps));   /* 真正生效的門檻（debounce 後） */
   const [model, setModel] = useState(null);
   const [errors, setErrors] = useState(null);
   const [zoomPct, setZoomPct] = useState('—');
@@ -37,6 +53,27 @@ export default function App() {
       import('./DevSampleBar.jsx').then(m => setDevBar(() => m.DevSampleBar));
     }
   }, []);
+
+  /* 進場時網址有 hostname 就自動查一次——「複製網址給同事」要能直接看到圖。
+     驗證走的是表單送出的同一條路（buildParams → run／setFormError），
+     所以壞掉的網址會出現在同一個橫幅裡，不是白畫面。 */
+  useEffect(() => {
+    if (!initial.hostname) return;
+    const r = buildParams(initial);
+    if (r.messages) { setFormError({ title: '網址裡的查詢條件有誤', messages: r.messages }); return; }
+    run(r.params);
+  }, [initial, run]);
+
+  /* 查詢條件同步回網址列，這樣整條網址可以直接分享。
+     掛在 lastQuery（只有查成功才會設）而不是送出處：查失敗不動 doc，網址也就不該動。
+     min 進 deps，所以改顯示門檻網址跟著更新（它本來就已經 debounce 過）。
+     dev 專用的本機範例走 showDoc()、不設 lastQuery，網址自然不會動。
+     用 replaceState 不用 pushState：不做「上一頁回到前一次查詢」的語意，
+     否則還要接 popstate 重查，圖與網址很容易不同步。 */
+  useEffect(() => {
+    if (!lastQuery) return;
+    window.history.replaceState(null, '', searchFromParams(lastQuery, min));
+  }, [lastQuery, min]);
 
   /* 重畫 debounce 200ms；提示文字直接從 minText 算，不 debounce（打字就要跟著跳）。
      舊版「打了一個字又刪掉會套上舊值」的坑在這個寫法下不存在：
@@ -115,6 +152,7 @@ export default function App() {
           <h1>追查 Sankey</h1>
         </div>
         <TraceQueryBar
+          initial={initial}
           loading={loading}
           onInvalid={setFormError}
           onSubmit={params => { setFormError(null); run(params); }}
