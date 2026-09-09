@@ -26,8 +26,8 @@ repo 名 `sankey-panel` 只是倉庫名）。使用情境：你在某台 switch 
 
 **明確不做**（README）：不自動偵測 switch/counter、不掃網、無帳號無資料庫、追來源不做
 左右鏡射、殘差不畫成穿越全圖的 sink 河、未追對端不畫成完整 switch 盒。`pruning` 欄位只是
-註記，工具**不會**幫使用者截斷資料。（規劃中：前後端分離後追查 JSON 改由 API 提供；
-目前 app 還是吃內建範例，接點標在 `app/src/App.jsx` 的 TODO。）
+註記，工具**不會**幫使用者截斷資料。**沒有帳號、token 或 session**：連得到 `/api/` 的人
+就查得到全部資料（CORS 只約束網頁裡的 JS，擋不住 curl），存取控制留給部署層做。
 
 ## 2. 架構與技術棧
 
@@ -39,25 +39,30 @@ npm workspaces monorepo-lite，三個部分（外加一個**刻意不在 workspa
   需要瀏覽器。**沒有 d3、沒有任何第三方**；SVG 是字串陣列 `out.push('<path .../>')` 拼起來。
   程式風格沿用手寫 ES5（`var`、`function`，唯 import/export 是 ESM），改碼請維持。
   react 是 optional peerDependency，只有 `trace-sankey/react` 子路徑會載到。
-- **`app/`——Vite + React 使用端**。只有「圖 + 顯示門檻」加圖例與縮放工具列；全部接線都在
-  `App.jsx` 一支。`npm install`（repo 根目錄）後 `make dev` 或 `npm run dev --workspace app`。
+- **`app/`——Vite + React 使用端**。查詢表單 + 圖 + 顯示門檻，加圖例與縮放工具列。
+  **圖的接線**在 `App.jsx`；資料來源在 `useTraceDoc.js`、API 呼叫在 `api.js`、
+  表單在 `TraceQueryBar.jsx`。`npm install`（repo 根目錄）後 `make dev`
+  或 `npm run dev --workspace app`；dev server 把 `/api` 代理到 `http://localhost:8000`
+  （`VITE_DEV_API` 可覆蓋），與正式環境的 nginx 行為一致。
   開發時 Vite 直接吃套件 src/（workspace symlink），改套件存檔即熱更新，**沒有 ?v= 快取紀律了**。
 - **部署——nginx 靜態託管，網頁與 nginx 分成兩層**（細節與陷阱見 §12）。`Dockerfile` 三個
   stage（build → content → standalone）＋ `docker-compose.yml`（content 映像倒進 volume +
   官方 nginx）＋ `docker-compose.dev.yml`（bind mount app/dist）＋ `deploy/conf.d/default.conf`
   ＋ `deploy/kustomization.yaml`（k8s）。`make up` / `make up-dev` / `make down` /
   `make content-build` / `make docker-build` / `make build`；對外 port 用 `PORT=`。
-  **純靜態、沒有後端、沒有 proxy_pass**：
-  拖放與開檔都是 `file.text()` 本機讀，檔案不經過 nginx。`deploy/conf.d/default.conf` 蓋掉映像的
+  **靜態檔 + 一段 `/api/` 反向代理**：前端只打同源相對路徑（免 CORS、不把後端網址烤進
+  bundle），後端位置寫在 `set $trace_api …` 那一行；`proxy_pass` 是**變數 + `resolver`**，
+  不是固定 hostname——固定 hostname 會讓 nginx 在 API 沒起來時直接啟動失敗（見 §12）。
+  `deploy/conf.d/default.conf` 蓋掉映像的
   `conf.d/default.conf`，被 include 在 `http {}` 內所以只能有一個 `server {}`；**nginx 的
-  `add_header` 不繼承**，`= /index.html` 與 `/assets/` 兩個 location 各自重寫一份安全標頭，
-  改標頭要三處一起改。消費端是 **Electron BrowserView**（`http://localhost:8080`，不是 iframe——
-  `useTraceDoc.js:15-17` 那則 iframe 註解已非現況）：host 端必須用 `will-navigate` 白名單擋掉
-  預設的拖放導航，否則整頁跳去 `file://…json`。**但 host 端不是我們能控制的**，所以
-  App.jsx 自己也無條件 `preventDefault()`（見 §4）。README 的「被 Electron 鑲嵌時」整章
-  列了 host 的哪些設定會影響我們、以及 nginx／網頁該怎麼因應（CSP 的 `style-src` 必須有
-  `'unsafe-inline'`、Trusted Types 會打死 `mount.js` 的 `innerHTML`、iframe 才會被
-  `X-Frame-Options` 擋、API 化之後一律走同源 `proxy_pass`……）。
+  `add_header` 不繼承**，`= /index.html`、`/assets/` 與 `/api/` 三個 location 各自重寫一份
+  安全標頭，連 server 層共**四處**，改標頭要四處一起改。消費端是 **Electron BrowserView**
+  （`http://localhost:8080`，不是 iframe）：host 端必須用 `will-navigate` 白名單擋掉預設的
+  拖放導航，否則整頁跳去 `file://…json`。**但 host 端不是我們能控制的**，所以 App.jsx
+  自己也無條件 `preventDefault()`（開檔／拖放功能已移除，那個 effect 只剩這道防線，見 §4）。
+  README 的「被 Electron 鑲嵌時」整章列了 host 的哪些設定會影響我們、以及 nginx／網頁
+  該怎麼因應（CSP 的 `style-src` 必須有 `'unsafe-inline'`、Trusted Types 會打死 `mount.js`
+  的 `innerHTML`、iframe 才會被 `X-Frame-Options` 擋、API 化之後一律走同源 `proxy_pass`……）。
 - **`electron/`——Electron 測試殼**，同時是 host 端的參考實作。`main.js` 一支（CJS，
   刻意不跟 repo 的 ESM），環境變數 `VIEW_API`／`GUARD`／`SESSION`／`CSP`／`EMBED` 可以
   重現各種 host 設錯的情況，對應 README 那章的每一節。`make electron` 啟動。
@@ -72,7 +77,7 @@ npm workspaces monorepo-lite，三個部分（外加一個**刻意不在 workspa
 
 全專案文件、UI、JS 註解為**繁體中文**；Python CLI 訊息為英文。深色主題。
 Makefile：`make dev`（=`serve`）/ `build`（vite build）/ `up`／`up-dev`／`down`／
-`content-build`／`docker-build`（部署，見 §12）/ `draw FILE=x.json` / `mermaid KIND=sankey|flow` /
+`content-build`／`docker-build`（部署，見 §12）/ `electron`（Electron 測試殼）/ `draw FILE=x.json` / `mermaid KIND=sankey|flow` /
 `html`（plotly）/ `check`（跑遍 samples/*.json）/ `golden DIR=…`（對拍 dump）/ `clean`。
 
 ## 3. 目錄結構
@@ -90,7 +95,12 @@ packages/trace-sankey/
   src/index.js            主入口 re-export
   styles/trace-sankey.css 圖表與 tooltip 樣式；CSS 變數 scope 在 .trace-sankey，不進 :root
   types/index.d.ts        手寫型別（JS 原始碼不轉 TS）
-app/                      Vite + React 使用端：App.jsx（全部 UI 接線）、app.css（頁面版面）
+app/                      Vite + React 使用端
+  src/App.jsx             圖、顯示門檻、圖例、縮放、快捷鍵的接線
+  src/api.js              追查 API 的唯一出入口：組 query、fetch、翻譯錯誤、時間轉換
+  src/useTraceDoc.js      資料來源 hook：run() → fetch → validate；abort 舊查詢
+  src/TraceQueryBar.jsx   查詢表單；buildParams() 是可測的純函式
+  src/app.css             頁面版面
 electron/                 Electron 測試殼：main.js（CJS）＋ fallback.html ＋ embed.html。
                           不在 workspaces、不進 docker build context；自己 npm install
 samples/*.json            同一批範例的檔案版（CLI 與 make check 用；與 src/samples.js 重複維護，見 §11）
@@ -113,7 +123,7 @@ README.md                 使用說明 + 輸入 JSON 契約 + 驗證錯誤對照
 ## 4. 資料流管線
 
 ```
-doc（app：內建範例，未來從 API fetch）
+doc（app：useTraceDoc 打 GET /api/trace 取回，validate 過才進來）
   → <TraceSankey doc minBps>（react.js）
     → mount(el, doc, {minBps, onModel, onError, onZoom})（mount.js）
       → build(doc, {minBps})     失敗 → onError(errors)，app 畫錯誤 UI；成功 ↓
@@ -135,14 +145,19 @@ mount `update()` 的重要順序約束（都是 app.js 時代踩過的坑，搬�
 - `destroy()` 必須冪等：React StrictMode 開發模式會故意 mount→unmount→mount 一輪。
 
 app 端約束（`App.jsx`）：門檻重畫 debounce 200ms、提示文字不 debounce；`cleanMin()` 把負數／
-小數／亂打的字一律當 0。**資料來源整個關在 `useTraceDoc.js`**（POC：開檔＋拖放＋localStorage
-續存，沿用舊鍵 `trace-sankey/custom`；壞檔只設 error 不動現有 doc）——未來 iframe 鑲嵌＋
-API 取數時只改這個檔（替換法在檔頭註解），App 的圖零改動。開檔 input 的 `value` 每次要清空
-（同檔連選兩次也要觸發）；拖放的 `hasFiles`／depth 計數兩個防呆別拆。
-**拖放的 `preventDefault()` 一律先呼叫、不看 `hasFiles()`，而且掛在 capture 階段**：
-`dragover` 沒被取消的話 Chromium 根本不會把 `drop` 送進頁面，會直接導航到 `file://…json`——
-這是 host 沒設 `will-navigate` 白名單時唯一擋得住的地方，別為了「拖文字進輸入框」改回去。
-舊版 query string／分頁／編輯器仍為移除狀態。
+小數／亂打的字一律當 0。**資料來源整個關在 `useTraceDoc.js`**（`run(params)` →
+`fetchTrace` → `validate`；三種失敗——連不到／HTTP 非 2xx、回應不是 JSON、不合契約——
+都只設 `error` 不動現有 `doc`，查壞了不該清掉你正在看的圖）。兩個 abort 約束：
+**新查詢送出前先 abort 前一個**（否則慢的舊回應會蓋掉新結果），**卸載時也要 abort**
+（StrictMode 會 mount→unmount→mount）；abort 後的分支要**整個 return、連 `loading` 都不碰**，
+那個 state 已經屬於新查詢了。`doc` 開場是 `null`，App 這時**不掛 `<TraceSankey>`**
+（套件對 null 會直接走 error 路徑），改顯示 `.empty` 空狀態。
+表單驗證錯誤（`formError`）與查詢錯誤（`loadError`）共用同一個橫幅、表單的優先。
+快捷鍵的豁免清單要包含 `SELECT`，否則在「追查方向」選單上按 `1`／`0` 會被圖搶走。
+**拖放 effect 要留著**：開檔與拖放功能已移除，但它無條件 `preventDefault()` 且掛在
+capture 階段，這是 host 沒設 `will-navigate` 白名單時唯一擋得住「整頁導航到
+`file://…json`」的地方——別因為「沒有開檔功能了」就把它一起刪掉。
+舊版 query string／分頁／編輯器／開檔／拖放／localStorage 續存均為移除狀態。
 
 ## 5. 輸入 JSON 契約（濃縮版；完整版在 README.md）
 
@@ -324,7 +339,8 @@ model.js 的輸出與沒有門檻時逐欄位相同，殘差算式仍然等價�
 ## 11. 已知怪癖與陷阱（動手前必讀；均為現況陳述，除非被要求不要修）
 
 1. **`samples/*.json` 與 `packages/trace-sankey/src/samples.js` 是重複維護的同一批資料**：
-   網頁只讀 samples.js，CLI/make check 只讀 samples/。改一邊忘了另一邊不會有任何警告。
+   CLI/make check 只讀 samples/，samples.js 則是套件的 `trace-sankey/samples` 匯出（app 改吃
+   API 後已不用它，但 golden 對拍還會跑）。改一邊忘了另一邊不會有任何警告。
 2. 顯式給了 `otherInBps` 和 `otherOutBps` 但湊不出平衡式時，圖照顯式值畫、該台不守恆，只警告不擋。
    顯示門檻濾掉的量會**先加進這兩個顯式值再比對**，所以開門檻不會憑空生出這則警告。
 3. `role` 是**刻意的自由字串**（只驗「給了就非空字串」）：繪製只認 `'node'` 與 `'pod'`，其他值
@@ -382,9 +398,16 @@ rolling restart。
 不用複製）：k8s 的對應功能 Image Volume Source 要 1.33+ 且要 container runtime 配合，
 目標叢集未知不能賭。理由留在 `docker-compose.yml` 檔頭。
 
-顯示門檻／API：`useTraceDoc.js` 之後改吃 API 時，Vite 會在 **build 時**把 URL 烤進 bundle，
-同一個 content 映像要跨環境共用得另外做執行期讀的 `config.json`（尚未做）。
+API 位置：**已用 nginx `proxy_pass` 解決，不需要執行期 `config.json`**。前端只打同源相對
+路徑 `/api/…`，所以沒有任何網址會被 Vite 在 build 時烤進 bundle，同一顆 content 映像跨環境
+共用；後端在哪只是 `set $trace_api …` 那一行的事，改完 `nginx -s reload` 即可，完全不用 build。
+`proxy_pass` 一定要寫成「變數 + `resolver`」：固定 hostname 會在 nginx **啟動時**解析，
+API 還沒起來就「host not found in upstream」啟動失敗、連靜態頁都端不出來；寫成變數會把 DNS
+延到每次請求，API 晚起來最多是 502。k8s 上 `resolver` 要換成 kube-dns 的 ClusterIP。
+另外：**API 不要對外 publish port**，只有 nginx 需要連得到它——這個工具沒有任何存取控制。
 
 驗證：`make up` 後 `curl -sI localhost:8080`；改 conf → `docker compose exec web nginx -s
 reload` 應立刻生效且完全不 build；改 `app/index.html` → `make up` **連做兩次**（第二次
-volume 非空，才是真正的陷阱測試）。這塊完全不碰 `packages/` 與 `app/src/`，不需要跑 golden。
+volume 非空，才是真正的陷阱測試）。**關掉 API 再 `make down && make up`，nginx 必須照常起來、
+靜態頁照常能開**——這條就是在測上面那個 `resolver` 的坑。這塊完全不碰 `packages/` 與
+`app/src/`，不需要跑 golden。

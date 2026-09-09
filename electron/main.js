@@ -84,7 +84,9 @@ function load(view) {
 
 function createWindow() {
   /* 非持久 session：partition 名稱不以 persist: 開頭就是純記憶體的，
-     關掉 app 後 localStorage 全消失——重現「存過的自訂 JSON 不見了」 */
+     關掉 app 後 localStorage 與 cookie 全消失。JSON 改由 API 查之後網頁已經
+     不寫 localStorage，所以這個開關現在**應該看不出差異**（見 README §4）；
+     留著是為了驗證那一點，以及未來加認證 cookie 時重現「每次開 app 都要重登」 */
   const ses = SESSION === 'temp'
     ? session.fromPartition('host-temp-' + Date.now())
     : session.defaultSession;
@@ -115,8 +117,9 @@ function createWindow() {
 
   const c = view.contents;
 
-  /* 導航白名單。GUARD=off 就是「host 忘了設」的樣子：拖一個 .json 進視窗會整頁
-     跳去 file://…json，網頁的 drop handler 根本沒機會跑。
+  /* 導航白名單。GUARD=off 就是「host 忘了設」的樣子——這正是網頁端那道
+     preventDefault 防線的測試條件：GUARD=off 時拖一個 .json 進視窗，**應該什麼都不發生**。
+     真的整頁跳去 file://…json 就代表 App.jsx 的拖放 effect 壞了或被刪了（見根 README §1）。
      will-frame-navigate 是給 EMBED=iframe 模式用的（子 frame 不走 will-navigate）。 */
   if (GUARD === 'on') {
     c.on('will-navigate', (ev, url) => { if (!allowedUrl(url)) ev.preventDefault(); });
