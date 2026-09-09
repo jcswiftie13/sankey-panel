@@ -2,9 +2,42 @@
    少了要還原的顏色狀態，mouseleave 沒觸發（觸控、游標衝出視窗、拖曳吃事件）
    也不會有帶子卡在高亮色。
    tooltip 元素掛在 document.body 上（position:fixed）：掛進圖的容器會被
-   overflow:hidden 裁掉。內容來源是 render 寫在每條 .band 上的 data-tip JSON。 */
-import { fmtDelta } from './model.js';
+   overflow:hidden 裁掉。內容來源是 render 寫在每條 .band 與每張卡的 <g> 上的 data-tip JSON：
+   帶子是 {from,to,fi,ti,bps,...}、節點是 {node:1,title,rows:[[k,v],...]}（render 已格式化好）。 */
+import { fmtRate, fmtBytes } from './model.js';
 import { esc } from './render.js';
+
+function row(k, v) { return '<div class="t-row"><span>' + esc(k) + '</span><span>' + esc(v) + '</span></div>'; }
+
+function bandHtml(d) {
+  var isBytes = d.unit === 'bytesPerSec';
+  var h = '<b>' + esc(d.from) + ' → ' + esc(d.to) + '</b>' +
+    row('出口 iface', d.fi || '—') +
+    row('入口 iface', d.ti || '—') +
+    /* delta_bps 是「速率的差」；bytes/s 是絕對速率，標籤跟著換 */
+    row(isBytes ? '速率' + (d.channel ? '（' + d.channel + '）' : '') : '速率增量 Δ', fmtRate(d.bps, d.unit)) +
+    (d.channel ? row('channel', d.channel) : '') +
+    (d.ns ? row('namespace', 'ns/' + d.ns) : '') +
+    (d.tier ? row('tier', d.tier) : '') +
+    (d.attr ? row('attribution', d.attr === 'split' ? 'split（平均攤分的估計值）' : d.attr) : '') +
+    (d.anchor ? row('這條是追查起點', '') : '') +
+    (d.backward ? row('回流（逆著多數流量方向）', '') : '');
+  var x = d.extra || {};
+  if (x.read_ops != null || x.write_ops != null) {
+    h += row('IOPS（read / write）', (x.read_ops != null ? x.read_ops : '—') + ' / ' + (x.write_ops != null ? x.write_ops : '—'));
+  }
+  if (x.read_latency_us != null) h += row('read 延遲', x.read_latency_us + ' µs');
+  if (x.write_latency_us != null) h += row('write 延遲', x.write_latency_us + ' µs');
+  if (x.max_iops != null) h += row('QoS 上限', x.max_iops + ' IOPS');
+  if (x.max_bytes_per_sec != null) h += row('QoS 上限', fmtBytes(x.max_bytes_per_sec) + '/s');
+  return h;
+}
+
+function nodeHtml(d) {
+  var h = '<b>' + esc(d.title) + '</b>';
+  (d.rows || []).forEach(function (r) { h += row(r[0], r[1]); });
+  return h;
+}
 
 export function createTooltip() {
   var tip = document.createElement('div');
@@ -14,26 +47,21 @@ export function createTooltip() {
 
   function hide() { tip.hidden = true; }
 
-  /* 每次重畫 SVG 後對新的 .band 重綁；isPanning 讓拖曳中不彈 tooltip */
+  /* 每次重畫 SVG 後對新的 .band 與帶 data-tip 的卡片 <g> 重綁；isPanning 讓拖曳中不彈 tooltip */
   function bind(container, isPanning) {
-    Array.prototype.forEach.call(container.querySelectorAll('.band'), function (el) {
+    Array.prototype.forEach.call(container.querySelectorAll('.band, g[data-tip]'), function (el) {
       /* render 在每條帶裡輸出原生 <title> 當備援（headless 產 .svg、或不接 tooltip
          時是唯一的 hover 資訊）。這裡 JS tooltip 接手了，備援留著會變成第二個
          無樣式的瀏覽器提示框——移除它，而不是叫 render 不輸出（render 輸出要
-         維持 byte-identical，且殘差色塊的 <title> 沒有替代品、必須保留）。 */
-      var nativeTitle = el.querySelector('title');
+         維持 byte-identical，且殘差色塊的 <title> 沒有替代品、必須保留）。
+         卡片的 <g> 沒有 <title>，這段對它是 no-op。 */
+      var nativeTitle = el.querySelector(':scope > title');
       if (nativeTitle) nativeTitle.parentNode.removeChild(nativeTitle);
       el.addEventListener('mouseenter', function () {
         if (isPanning && isPanning()) return;
         var d;
         try { d = JSON.parse(el.getAttribute('data-tip')); } catch (e) { return; }
-        tip.innerHTML = '<b>' + esc(d.from) + ' → ' + esc(d.to) + '</b>' +
-          '<div class="t-row"><span>出口 iface</span><span>' + esc(d.fi || '—') + '</span></div>' +
-          '<div class="t-row"><span>入口 iface</span><span>' + esc(d.ti || '—') + '</span></div>' +
-          '<div class="t-row"><span>速率增量 Δ</span><span>' + fmtDelta(d.bps) + '</span></div>' +
-          (d.ns ? '<div class="t-row"><span>namespace</span><span>ns/' + esc(d.ns) + '</span></div>' : '') +
-          (d.anchor ? '<div class="t-row"><span>這條是追查起點</span><span></span></div>' : '') +
-          (d.backward ? '<div class="t-row"><span>回流（逆著多數流量方向）</span><span></span></div>' : '');
+        tip.innerHTML = d.node ? nodeHtml(d) : bandHtml(d);
         tip.hidden = false;
       });
       el.addEventListener('mousemove', function (ev) {

@@ -89,6 +89,9 @@ export default function App() {
   const cleaned = cleanMin(minText);
   const hasBack = !!model && model.edges.some(e => e.backward);
   const hasLat = !!model && model.edges.some(e => e.lateral);
+  /* storage 資料才有 read／write 通道與 status 外框；switch 追查資料的圖例維持原樣 */
+  const hasChannel = !!model && model.edges.some(e => e.channel);
+  const hasStatus = !!model && model.nodes.some(n => n.status);
   const z = () => chartRef.current && chartRef.current.zoom;
   /* 表單驗證錯誤與查詢錯誤共用同一個橫幅：擇一顯示，表單的優先（那是你剛按下去的動作） */
   const banner = formError || loadError;
@@ -141,12 +144,22 @@ export default function App() {
 
       {model && (
         <div className="legend">
-          <span><i className="lg-cyan" />已追查（帶寬＝速率增量 Δ，bps）</span>
+          {hasChannel ? (
+            <>
+              <span><i className="lg-cyan" />read（帶寬＝bytes/s）</span>
+              <span><i className="lg-write" />write（帶寬＝bytes/s）</span>
+            </>
+          ) : (
+            <span><i className="lg-cyan" />已追查（帶寬＝速率增量 Δ，bps）</span>
+          )}
           {hasLat && <span className="lg-sub"><i className="lg-lat" />└ 同欄互連畫成右側弧帶，箭頭指流向</span>}
           {hasBack && <span><i className="lg-back" />回流（逆著多數流量方向，繞回上游）</span>}
           <span><i className="lg-amber" />其他輸入（貼左側，高度與帶寬等比）</span>
           <span><i className="lg-rose" />其他輸出（截斷／太小，貼右側，高度等比）</span>
           <span><i className="lg-gray" />追查終止葉節點（不是又一台 switch）</span>
+          {hasStatus && (
+            <span><i className="lg-status" />外框色＝status（<b className="c-warn">warning</b>／<b className="c-crit">critical</b>）</span>
+          )}
         </div>
       )}
 
@@ -166,7 +179,7 @@ export default function App() {
             />
             {errors ? (
               <div className="empty">
-                <b>追查 JSON 不合契約</b>
+                <b>畫不出圖</b>
                 {errors.map((e, i) => <div key={i}>{e}</div>)}
               </div>
             ) : (

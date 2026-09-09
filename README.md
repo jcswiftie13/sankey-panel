@@ -1,7 +1,9 @@
 # Interface Increment 追查 Sankey
 
-向後端 API 查一次追查，把回傳的規範格式追查 JSON 畫成守恆的 Sankey。
-（CLI 則是直接讀檔案，見「CLI」一節。）
+向後端 API 查一次追查，把回傳的 cytoscape-style wire JSON（`elements.nodes` / `elements.edges`）畫成守恆的 Sankey。
+同一份契約同時吃 switch 追查資料（`delta_bps`）與參考面板（kube-state-graph）的 storage-flow 資料
+（`read_bytes_per_sec` / `write_bytes_per_sec`）。舊的 `investigation + hops[]` 格式已不再接受，
+轉換方式見 [docs/migration-wire-format.md](docs/migration-wire-format.md)。
 
 追一台 switch 的 interface increment 時，一跳可能有多條 uplink，所以下游看到的 out 增加
 可以大於你剛追進來的那一條 in（A→B 10G，B→C 20G）。這個工具把那個現象畫出來，
@@ -18,14 +20,14 @@
 ## 快速開始
 
 兩個部分：`packages/trace-sankey`（畫圖的 npm 套件，零依賴純 ESM）與 `app/`
-（Vite + React 使用端：查詢表單 + 圖 + 顯示門檻）。CLI 另外只需要 `python3`。
+（Vite + React 使用端：查詢表單 + 圖 + 顯示門檻）。
 
 ```bash
 git clone <repo> && cd sankey-panel
 
 npm install                   # 第一次；裝 app 的 react/vite（套件本身零依賴）
 make dev                      # 起 dev server（= npm run dev --workspace app）
-make draw FILE=my-trace.json  # 不開瀏覽器，CLI 文字報告
+make check                    # 所有範例（內建 + samples/ + stress/）build 一遍
 make up                       # 產品用：起 nginx + 內容 volume（見「用 nginx 部署」）
 make help                     # 所有 target
 ```
@@ -138,41 +140,49 @@ contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 // React：
 import { TraceSankey } from 'trace-sankey/react';
 import 'trace-sankey/style.css';
-<TraceSankey doc={traceJson} minBps={0} className="my-chart" />
+<TraceSankey doc={wireJson} minBps={0} channels="both" className="my-chart" />
 // 容器高度由你的 CSS 決定（元件不設高度）
 
 // 不用 React（vanilla）：
 import { mount } from 'trace-sankey';
-const inst = mount(document.getElementById('chart'), traceJson, { minBps: 0 });
-inst.setMinBps(5e8); inst.zoom.fit(); inst.destroy();
+const inst = mount(document.getElementById('chart'), wireJson, { minBps: 0, channels: 'both' });
+inst.setMinBps(5e8); inst.setChannels('read'); inst.zoom.fit(); inst.destroy();
 
 // 只要 SVG 字串（Node 也能跑，沒有 DOM 依賴）：
 import { build, render } from 'trace-sankey';
-const model = build(traceJson, { minBps: 0 });
+const model = build(wireJson, { minBps: 0, channels: 'both' });
 if (model.ok) fs.writeFileSync('out.svg', render(model));
 ```
 
-對外契約（自己接互動時可依賴）：render 產出的 `<g class="zoom-layer">` 是縮放的掛點；
-每條 `.band` 上的 `data-tip` 屬性是一份 JSON（from/to/iface/bps/…），tooltip 的資料
-都從這來。SVG 的文字顏色與字級在 `trace-sankey/style.css`，不載入會沒有正確外觀。
+對外契約（自己接互動時可依賴）：
+
+- render 產出的 `<g class="zoom-layer">` 是縮放的掛點。
+- 每條 `.band` 上的 `data-tip` 屬性是一份 JSON（`from/to/fi/ti/bps` ＋ storage 資料才有的
+  `unit/channel/tier/attr/extra`），每張卡片的 `<g>` 也有一份（`{node:1, title, rows:[[k,v],…]}`，
+  render 已經把數字格式化好）；tooltip 的資料都從這來，不掛套件 tooltip 的人可以自己讀。
+- `channels` 選項（`'both'`（預設）／`'read'`／`'write'`）：storage 資料每條邊有 read／write 兩條帶，
+  只看其中一種時另一種的量**併進其他輸入／其他輸出**（與顯示門檻同一套機制，每台仍守恆）。
+  `delta_bps` 的邊沒有通道、不受影響。app 沒有這個開關，是給使用套件的人接的。
+
+SVG 的文字顏色與字級在 `trace-sankey/style.css`，不載入會沒有正確外觀。
 
 ### 顯示門檻
 
 控制列的「顯示門檻」填一個整數（單位 bps，旁邊即時翻成 Gbps／Mbps／kbps），
-圖上就只留速率增量**大於**這個值的帶子。追一條 10G 的主幹時，這是把幾 Mbps
-的雜訊帶清掉的開關。
+圖上就只留值**大於**這個值的帶子。追一條 10G 的主幹時，這是把幾 Mbps
+的雜訊帶清掉的開關。storage 資料的帶是 bytes/s，門檻直接比數值（不換算單位）。
 
 - 濾掉的量**不會消失**，會併進該台的其他輸入／其他輸出，所以
   「已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出」照樣成立。
 - 一台 switch 濾完身上一條帶都不剩，就**整台不顯示**。
-- 追查起點那條**永遠保留**——濾掉它整張圖就沒有錨了。
+- 追查起點那條**永遠保留**——濾掉它整張圖就沒有錨了。沒有 `investigation` 的圖有可能被濾到
+  一台不剩：那不是錯誤，畫布會空著並標一句說明，門檻旁的統計照樣顯示隱藏了多少。
 - 殘差色塊本身不受門檻管，照舊只看該台的讀數誤差門檻。
 - 門檻輸入旁會顯示隱藏了幾條帶、幾台、總共多少量（model 的 `filtered`／
   `filteredNodes`，warnings 裡也有同一句）。
-- 這是**顯示**用的門檻，跟 JSON 裡的 `pruning.topN` / `pruning.minShare`
-  是兩件事：那兩個是宣告「上游已經截斷過」的 metadata，程式不拿它們過濾。
-- CLI（`tools/trace_sankey.py`）沒有對應的旗標，只有網頁版有
-  （`build(doc, { minBps })` 的第二個參數）。
+- 這是**顯示**用的門檻，不進 JSON 契約、不影響 `validate()`（`build(doc, { minBps })` 的第二個參數）。
+- 門檻過濾的每一條「帶」是**加總後**的邊：同 `(source, target, source_iface, target_iface, channel)`
+  的多條邊先相加再比門檻。錨邊與推導的 pod → application／namespace 邊豁免。
 
 ## 被 Electron 鑲嵌時（host 端不受你控制）
 
@@ -401,212 +411,375 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
 
 ## 輸入 JSON 規格
 
-單位一律是 **bps**（10 Gbps 寫成 `10000000000`）。網頁與 CLI 吃同一份契約。
+格式是 cytoscape-style 的 wire JSON：`{ elements: { nodes: [{ data }], edges: [{ data }] } }`，
+與參考面板（kube-state-graph-frontend 的 Storage Flow Sankey）吃同一份契約，再加上我們的擴充
+（`investigation`、`labels.tier`、`other_*_bps`、`metrics.delta_bps`）。
+**參考面板會用到的合法資料，丟進來也合法且畫得出來。** 舊格式怎麼轉：[docs/migration-wire-format.md](docs/migration-wire-format.md)。
+
+整體長相（`// 註解` 是說明，JSON 本身不能有註解）：
+
+```jsonc
+{
+  "apiVersion": "v1",                 // 選填，忽略
+  "clusters": ["prod"],               // 選填，忽略
+  "kind": "destination" | "source",   // 選填；否則看 investigation.direction（out→source）；預設 destination
+  "investigation": {                  // 選填（我們的擴充）。沒給＝無錨卡、不查 root
+    "node_id": "sw-edge-a",           // 必須是 hop 型節點
+    "iface": "xe-0/0/1", "delta_bps": 10000000000,   // delta_bps > 0（bps）
+    "direction": "in" | "out", "note": ""
+  },
+  "elements": {
+    "nodes": [{ "data": {
+      "id": "…", "type": "…",         // 必填；id 不可重複
+      "name": "…",                    // 選填，卡片標題，缺就用 id
+      "parent": "…",                  // 選填，群組鏈（namespace / application）
+      "labels": { "namespace": "…", "tier": "…", "ontap_cluster": "…" },   // 選填，純字串對應表
+      "status": "normal|warning|critical",           // 選填；其他值視同沒有
+      "usage": { "used_bytes": 0, "capacity_bytes": 0 },   // 兩欄各自獨立
+      "health": "…", "hardware": { "model": "…" }, "perf": { … }, "alerts": [ { "name": "…", "severity": "…" } ],
+      "other_in_bps": 0, "other_out_bps": 0          // 我們的擴充，≥ 0，顯式殘差
+    }}],
+    "edges": [{ "data": {
+      "id": "e1", "type": "network-flow" | "storage-flow",   // 其他 type 整條忽略
+      "source": "…", "target": "…",                          // 一律封包方向
+      "labels": { "tier": "…", "source_iface": "…", "target_iface": "…", "attribution": "split" },
+      "metrics": { "delta_bps": 0, "read_bytes_per_sec": 0, "write_bytes_per_sec": 0,
+                   "read_ops": 0, "write_ops": 0, "read_latency_us": 0, "write_latency_us": 0,
+                   "max_iops": 0, "max_bytes_per_sec": 0 }
+    }}]
+  }
+}
+```
+
+單位：`delta_bps`／`other_*_bps`／`investigation.delta_bps` 是 **bps**（10 Gbps 寫 `10000000000`）；
+`read/write_bytes_per_sec`／`max_bytes_per_sec`／`total_bytes_per_sec` 是 **bytes/s**；`used_bytes`／`capacity_bytes` 是 **bytes**；
+`*_latency_us` 是 **µs**。程式**不換算**單位，只依欄位選顯示尺。
 
 ### 頂層
 
 | 欄位 | 型別 | 必填 | 說明 |
 | --- | --- | --- | --- |
-| `investigation` | object | ✔ | 你看到增加的那個 counter |
-| `hops` | array | ✔ | 非空。每一跳一筆；同一台 switch 可以出現多次 |
-| `kind` | `"destination"` \| `"source"` | | 追查方向。沒給就看 `investigation.direction`，再沒給就當 `destination` |
-| `pruning` | object | | 只是註記你當初怎麼截斷的，會顯示在圖上方；工具本身不會幫你截斷 |
+| `elements` | object | ✔ | 必須含 `nodes` 與 `edges` 兩個陣列（可以是空陣列，但 `nodes` 裡至少要有一個 hop 型節點才畫得出圖） |
+| `kind` | `"destination"` \| `"source"` | | 追查方向。沒給就看 `investigation.direction`，再沒給就當 `destination`。見「追查方向」 |
+| `investigation` | object | | 追查起點。**選填**：給了就畫錨卡與錨邊；沒給就沒有起點、沒有 root，第一欄從「第 0 跳」起算 |
+| `apiVersion`、`clusters` | | | 參考 wire 會帶，忽略 |
+
+不認得的頂層鍵一律忽略（`pruning` 也是——舊格式的截斷註記已從契約移除）。
 
 ### `investigation`
 
 | 欄位 | 型別 | 必填 | 說明 |
 | --- | --- | --- | --- |
-| `switchId` | string | ✔ | 必須在 `hops` 裡找得到同一個 `switchId` |
-| `iface` | string | ✔ | 你看到增加的那條 interface |
-| `deltaBps` | number > 0 | ✔ | 速率增量 Δ，bps |
+| `node_id` | string | ✔ | 起點那台的 `id`。必須存在於 `nodes`，且 `type` 是 hop 型（見下）；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不能當起點 |
+| `iface` | string | ✔ | 你看到增加的那條 interface。顯示在錨卡與錨邊兩端 |
+| `delta_bps` | number > 0 | ✔ | 速率增量 Δ，bps。錨邊的帶寬。**永遠不受顯示門檻／通道過濾** |
 | `direction` | `"in"` \| `"out"` | | `in` = 追終點，`out` = 追來源。`kind` 優先 |
-| `note` | string | | 一句話備註，顯示在 CLI 報告 |
+| `note` | string | | 一句話備註，顯示在錨卡的 tooltip |
 
-### `pruning`
+### `nodes[].data`
 
-| 欄位 | 型別 | 說明 |
+| 欄位 | 型別 | 必填 | 效果 |
+| --- | --- | --- | --- |
+| `id` | string（非空） | ✔ | 唯一鍵，**不可重複**。邊的 `source`／`target`、`investigation.node_id`、別的節點的 `parent` 都指它 |
+| `type` | string（非空） | ✔ | 決定畫成什麼（見「節點 `type` 分三類」）。自由字串，不認得的值畫成葉卡 |
+| `name` | string | | 卡片標題；缺或空字串就用 `id`。群組節點的 `name` 是 application／namespace 終點卡的標題 |
+| `parent` | string（非空） | | 上一層群組節點的 `id`，可以一層層接（pod → controller → application → namespace）。指到不存在的 id 視同沒有 parent；鏈成環不會卡死（走到重複就停）。只有 pod 會沿 parent 鏈找 application／namespace，其他型別的 parent 不影響畫面 |
+| `labels` | object，值全是 string | | 純字串對應表；出現非字串的值是驗證錯誤。認得的鍵見下表，其他鍵忽略 |
+| `status` | `"normal"` \| `"warning"` \| `"critical"` | | 卡片外框色：critical 玫瑰、warning 琥珀（優先於 root 的青框）、normal 中性框。其他任何值**視同沒有**（中性框，不報錯、不退成 normal）。也進 tooltip |
+| `usage` | object | | `{ used_bytes, capacity_bytes }`，見「`usage`」。不是物件是驗證錯誤 |
+| `health` | string | | 只進 tooltip（`health` 列），原字串照印。不影響外框色——status 才管顏色 |
+| `hardware` | object | | 只讀 `hardware.model`，進 tooltip（`model` 列）；其他鍵忽略 |
+| `perf` | object | | 只讀 `cpu_busy_pct`／`total_ops`／`total_latency_us`／`total_bytes_per_sec` 四個有限數字，進 tooltip 並標「（raw）」——原始讀數，不判定好壞、不上色 |
+| `alerts` | array of `{ name, severity? }` | | 每則一列進 tooltip：有 `severity` 印 `<severity> <name>`，沒有就只印 `name`；沒有 `name` 的項目跳過。不畫成 badge |
+| `other_in_bps` | number ≥ 0 | | 我們的擴充：顯式的「其他輸入」殘差。不給就由平衡式補（見「守恆與殘差」）。負數或非數字是驗證錯誤。只對 hop 型節點有意義；no-flow 卡給了會警告並歸零 |
+| `other_out_bps` | number ≥ 0 | | 同上，「其他輸出」 |
+
+參考 wire 上還會出現但我們**不讀也不報錯**的鍵：`ipaddress`／`owner`／`application`／`containers`／`storageclass`／`ready_status`。
+
+#### `labels` 認得的鍵（節點）
+
+| 鍵 | 效果 |
+| --- | --- |
+| `namespace` | pod：ns 的**最後備援**（`parent` 鏈找不到 application／namespace 祖先時才用）。pvc 等其他 hop：副標印 `ns/<namespace>`（ns 色），tooltip 也有。非 pod 的葉卡：左緣掛 ns 色條 |
+| `tier` | 同 `tier` 的節點**鎖在同一欄**，彼此之間的邊畫成右側弧帶。字串內容自訂，只比對相同與否。見「同層互連（tier）」。`netapp-node`／`netapp-aggr`／`netapp-svm`／`pvc` 沒給時自動以 `type` 當 tier |
+| `ontap_cluster` | 副標多印一段 ` · <ontap_cluster>`，tooltip 多一列。給哪種 type 都會印，慣例是 netapp 三型別 |
+
+### 節點 `type` 分三類
+
+| 類別 | `type` 值 | 畫法 |
 | --- | --- | --- |
-| `topN` | number | 你每層只跟了前幾名 |
-| `minShare` | number 0–1 | 你每層的佔比門檻，`0.1` = 10% |
+| **hop** | `switch`、`node`、`pod`、`netapp-node`、`netapp-aggr`、`netapp-svm`、`pvc` | 有槽位、算殘差的盒子。`switch`／`pvc` 實線框；`node`／`pod`／`netapp-*` 是「設備」，虛線框（root 的青框與 status 色優先）。副標：`id`，非 switch 加 ` · <type>` |
+| **群組** | `namespace`、`application`、`cluster`、`storage-cluster`、`controller` | **不直接畫**，只能出現在別的節點的 `parent` 鏈上；pod 的 application／namespace 終點卡由此推導。flow 邊接到群組是驗證錯誤 |
+| **葉** | 其他任何值（`host`、`router`…） | 灰色「追查終止」小卡（`追查終止`／`未再往下追`＋iface＋數量）。**不能再有往下走的 flow 邊**（追終點：不能當 `source`；追來源：不能當 `target`）→ 驗證錯誤；要接下去請改用 hop 型 type |
 
-### `hops[]`
+再細分幾條規則：
 
-| 欄位 | 型別 | 必填 | 說明 |
+- **葉 pod** ＝ `type:"pod"` 且沒有往下走的 flow 邊（追終點：沒有 out 邊；追來源：沒有 in 邊；不看 metrics，只看邊存不存在）
+  → 天藍虛線 pod 卡，並**自動接一條推導邊**到 application／namespace 終點卡；**proxy pod** ＝ 有往下走的邊 → 一般 hop 盒，
+  不接 ns（流量已流向下游，再接會重複計量），它的 ns 只是盒副標。
+- **pod 的 namespace 解析順序**：`parent` 鏈上有 `application` 祖先 → 先接 application 卡（標題＝該群組的 `name`），
+  再取那個 application 的 `namespace` 祖先；否則 pod 自己的 `namespace` 祖先；否則 `labels.namespace`；
+  都沒有 → pod 卡不接 ns（合法：沒有色條、卡矮一階、不報錯不警告）。同名 application 出現在兩個 ns 是兩張卡。
+- **推導邊的值**：pod → application 與 application → namespace 都是 pod 自己那條（或那幾條）入邊的加總——
+  同一筆數字的重新分組，不是推估。全圖同 ns／同 app 合一個終點卡，終點卡上印合計與 pod 數。
+- **群組卡的 `status`** ＝ 成員 pod 的最差值（`normal < warning < critical`）；沒有任何成員有 status 就維持中性框。
+- **自動 tier**：`netapp-node`／`netapp-aggr`／`netapp-svm`／`pvc` 沒給 `labels.tier` 時以 `type` 當 tier，
+  同型別鎖同欄（參考面板的欄就是型別；FlexGroup 這種從 SVM 起頭、沒有上游 aggr 的路徑才不會被最長路徑推到第 0 欄）。
+  `switch`／`node`／`pod` 不自動，要鎖請明給 `labels.tier`。
+- **只被 `tier:"pod-node"` 邊碰到的 `type:"node"` 節點靜默丟掉**（那是參考面板 Node layout 的外框，我們不畫）。
+  同一個 node 若還有任何 flow 邊接到它，就照常畫成 hop。
+- **no-flow 卡**：列在 `nodes`、也是 hop 型，但一條可畫的 flow 邊都沒接到（沒有邊，或邊都沒有量測值）
+  → 只畫盒子，沒有槽位、沒有殘差；不會被顯示門檻算成「隱藏 N 台」。給了 `other_*_bps` 會警告並歸零。
+- `nodes` 裡**沒有任何 hop 型節點**（只有群組和葉）→ 驗證錯誤「圖上沒有任何可畫的節點」。
+
+### `edges[].data`
+
+| 欄位 | 型別 | 必填 | 效果 |
 | --- | --- | --- | --- |
-| `switchId` | string | ✔ | 合併鍵。同一個 id 出現多次會**合併成一個盒子**，不畫成兩台 |
-| `label` | string | | 顯示名稱，沒給就用 `switchId` |
-| `role` | string（非空） | | 自由字串。繪製只認 `node`（天藍虛線盒，k8s node）與 `pod`（pod 當中繼 hop 時用），**其他值一律畫成一般 switch 盒**（範例拿 `core`／`border` 等當註記）。預設 `switch` |
-| `namespace` | string（非空） | `role:"pod"` ✔ | `role: "pod"` 的中繼 hop **必填**（pod 一定屬於某個 ns），顯示在盒副標與匯出 |
-| `tier` | string（非空） | | 同層標籤。同 `tier` 的 hop **鎖在同一欄**，彼此之間的邊畫成右側弧帶；字串內容自訂，程式只比對相同與否。見下方「同層互連（tier）」 |
-| `outputs` | array of port | 追終點 | 跟下去的出口 |
-| `inputs` | array of port | 追來源 | 往回追的入口 |
-| `otherInBps` | number ≥ 0 | | 顯式的其他輸入。不給就由平衡式補 |
-| `otherOutBps` | number ≥ 0 | | 顯式的其他輸出。不給就由平衡式補 |
+| `id` | string（非空） | ✔ | 唯一，不可重複。只用來認邊與寫警告 |
+| `type` | string（非空） | ✔ | **只有 `network-flow` 與 `storage-flow` 會畫**，其他值整條忽略（但 `source`／`target` 仍須存在）。兩者畫法沒有差別，差別在 `metrics` 帶什麼 |
+| `source` | string | ✔ | 上游節點 `id`，**一律封包方向**（追來源模式也一樣，起點會自己跑到最右）。必須存在於 `nodes` |
+| `target` | string | ✔ | 下游節點 `id`。同上 |
+| `labels` | object，值全是 string | | 認得的鍵見下表，其他鍵忽略 |
+| `metrics` | object | | 帶寬與 tooltip 資料，見「邊：權重與通道」。缺、不是物件、或算不出任何一條帶 → 這條邊不畫（但仍算「有邊」：影響葉 pod／proxy pod 判定與 no-flow 判定） |
 
-### port（`outputs[]` / `inputs[]` 的元素）
+#### `labels` 認得的鍵（邊）
 
-| 欄位 | 型別 | 必填 | 說明 |
-| --- | --- | --- | --- |
-| `iface` | string | switch hop ✔ | 本機這一側的 interface。`role: "node"` / `"pod"` 的 hop **可省略**（k8s 內部沒有 switch interface；有 veth／bond 名想記的照填），**省略時必須給 `peerSwitchId` 或 `peerId`**。沒填的 port 槽位不印 iface 字樣 |
-| `deltaBps` | number ≥ 0 | ✔ | 這條的速率增量 Δ，bps |
-| `peerSwitchId` | string | | 對端 switch／node 的 id |
-| `peerId` | string | | 對端不是 switch 時用（host / router / pod） |
-| `peerIface` | string | | 對端那一側的 interface。對端 iface 只由這裡決定，沒填就留空、不猜 |
-| `peerKind` | string（非空） | | 自由字串註記；**唯一有語意的值是 `pod`**（畫成 pod 中繼卡、流量匯進 ns 終點），其他值畫一般灰葉 |
-| `namespace` | string（非空） | `peerKind:"pod"` ✔ | `peerKind: "pod"` 且對端不在 `hops`（即將畫成 pod 卡）時**必填**——pod 流量自動匯進這個 ns 的終點節點。其他葉有給就顯示 `ns/<namespace>`。同 ns 的 pod **在同一欄相鄰排列、左緣掛同色 ns 色條**（色盤依首次出現順序取色、超過 5 個循環）。標在「對端已接進 hops」的 port 上不會標在盒上（會警告），請改標在該 hop |
+| 鍵 | 效果 |
+| --- | --- |
+| `source_iface` | 上游那一側的 interface 名。印在 `source` 盒子右緣的槽位旁、tooltip 的「出口 iface」；葉卡上印在數量前面 |
+| `target_iface` | 下游那一側的 interface 名。印在 `target` 盒子左緣的槽位旁、tooltip 的「入口 iface」。**沒填就留空，不猜** |
+| `tier` | `"pod-node"` → 整條邊忽略（只是「pod 排在哪台 node」的擺放資訊，永遠不畫）。其他值一律畫，並顯示在帶的 tooltip（`svm-pvc`、`pvc-pod`…）。跟節點的 `labels.tier` 是兩件事 |
+| `attribution` | `"split"` → tooltip 標「平均攤分的估計值」（參考面板對 RWX 多 pod 共用 PVC 的攤分標記）。其他值原字串進 tooltip |
 
-對端接不接下去，看的是 `peerSwitchId`（沒有就看 `peerId`）**在 `hops` 裡有沒有同 id 的那一跳**：
-有就接成下一台，沒有就畫成灰色「追查終止」小卡。
+同 `(source, target, source_iface, target_iface, channel)` 的多條邊會**相加成一條帶**；`tier`／`attribution`／`metrics` 的附加欄位採先出現的那條。
 
-### 追終點（destination）
+### 邊：權重與通道（`metrics`）
+
+一條邊的 `metrics` 會變成**零到兩條帶**：
+
+| `metrics` 內容 | 結果 |
+| --- | --- |
+| 有 `rate` 鍵（不管值是什麼） | RED 家族（trace 呼叫邊的 rate／error_rate／p90），整個 `metrics` 忽略，**不畫** |
+| 有 `delta_bps`（≥ 0 的有限數） | **一條**無通道的青帶，單位 bps，顯示帶 `+` 號（`+20 Gbps`，速率的**差**） |
+| 沒有 `delta_bps`，有 `read_bytes_per_sec`／`write_bytes_per_sec` | **各自存在就各一條帶**：read 青、write 燃橘，單位 bytes/s，顯示不帶號（`5.24 MB/s`，絕對速率）、**不乘 8、不相加**。只有 read 就只有一條 |
+| 三個權重欄位都沒有 | 不畫 |
+
+| 欄位 | 型別 | 效果 |
+| --- | --- | --- |
+| `delta_bps` | number ≥ 0 | 帶寬（bps）。有它就不看 read／write |
+| `read_bytes_per_sec` | number ≥ 0 | read 帶的帶寬（bytes/s） |
+| `write_bytes_per_sec` | number ≥ 0 | write 帶的帶寬（bytes/s） |
+| `read_ops`、`write_ops` | number | 只進 tooltip（「IOPS（read / write）」列） |
+| `read_latency_us`、`write_latency_us` | number | 只進 tooltip（「read 延遲」「write 延遲」，µs） |
+| `max_iops` | number | 只進 tooltip（「QoS 上限 N IOPS」） |
+| `max_bytes_per_sec` | number | 只進 tooltip（「QoS 上限 X/s」） |
+
+規則：
+
+- **absent ≠ 0**：值為 `0` 是真讀數，照畫（最細 3px 的帶）；只有「`metrics` 缺／該欄位缺／非有限數」才是不畫。
+  絕不把缺值補成 0。
+- 權重欄位**負數 → 丟該欄並警告**（視同缺值；不是驗證錯誤，因為參考面板不擋負值）。
+  `other_*_bps` 負數仍是驗證錯誤——那才會算出負的色塊高度。
+- 沒有任何一條帶的邊會累計進一則警告「N 條 flow 邊沒有可用的量測值」。
+- 同一張圖混用 `delta_bps`（bps）與 `read/write_bytes_per_sec`（bytes/s）會警告：帶寬比例尺跨單位沒有意義。
+- **殘差不拆讀寫**：一台 hop 左右兩疊把 read 帶與 write 帶一起加總，「其他輸入／其他輸出」仍是單一色塊。
+- 套件的 `channels` 選項（`'both'`／`'read'`／`'write'`）可以只看一種通道；被藏起來的通道併進其他輸入／其他輸出。見「當套件用」。
+
+### `usage`
+
+| 欄位 | 型別 | 效果 |
+| --- | --- | --- |
+| `used_bytes` | number ≥ 0 | 已用容量（bytes） |
+| `capacity_bytes` | number ≥ 0 | 總容量（bytes） |
+
+兩欄各自獨立：非有限數或負數就丟該欄、不報錯。兩欄都在 → 盒子副標下多一行「使用 700 GB / 1 TB（70%）」
+（盒子標題區高一行）；只剩一邊 → 副標不畫（**絕不填 0**），tooltip 顯示「已用 X」或「容量 Y」。
+`usage` 不是物件才是驗證錯誤。哪種 type 都可以帶，參考資料用在 `pvc` 與 `netapp-aggr`。
+
+### 畫面對照：每個欄位出現在哪
+
+| 畫面元素 | 來源 |
+| --- | --- |
+| 盒子標題 | `name`，缺就 `id` |
+| 盒子副標 | `id` · `ns/<namespace>`（pod：推導的 ns；其他：`labels.namespace`）· `<type>`（switch 不印）· `labels.ontap_cluster` |
+| 盒子第三行 | `usage`（兩欄齊全才有） |
+| 盒子外框 | `status` 色 > 追查起點青框 > 設備天藍虛線 > 預設灰 |
+| 槽位旁的小字 | 邊的 `labels.source_iface`（右緣）／`target_iface`（左緣） |
+| 帶寬與帶上數字 | `metrics.delta_bps` 或 `read/write_bytes_per_sec`（加總後） |
+| 帶的顏色 | 無通道／read 青、write 燃橘、回流玫瑰（不分通道） |
+| 殘差色塊 | `other_in_bps`／`other_out_bps`，或平衡式自動補 |
+| 葉卡 | `type` 不是 hop／群組的節點：標題 `name`／`id`、`labels.namespace` 色條、iface、數量合計 |
+| pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條（推導的 ns）、iface、數量 |
+| application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：標題＝群組的 `name`、合計、pod 數、成員最差 `status` 框 |
+| 錨卡 | `investigation`：`iface`、方向、`delta_bps`、`note`（tooltip） |
+| 帶的 tooltip | from／to、出口／入口 iface、速率（含 channel）、ns、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
+| 卡片的 tooltip | 型別／名稱、id、ns、ontap_cluster、已追查 in／out 與殘差（或合計＋pod 數）、usage、status、health、model、perf(raw)、alerts、no-flow |
+| 欄標題 | 整欄同一非 switch 型別 → `第 N 跳 · <型別名>`；整欄 pod／application／namespace 各有文案 |
+
+### 範例
+
+追終點（`samples/classic.json`；Edge A 只追進來 10G 卻出去 20G，缺的 10G 自動變成 Edge A 的其他輸入）：
 
 ```json
 {
   "kind": "destination",
-  "investigation": {
-    "switchId": "sw-edge-a", "iface": "xe-0/0/1",
-    "direction": "in", "deltaBps": 10000000000
-  },
-  "pruning": { "topN": 3, "minShare": 0.1 },
-  "hops": [
-    {
-      "switchId": "sw-edge-a", "label": "Edge A", "role": "switch",
-      "outputs": [
-        { "iface": "et-0/0/48", "deltaBps": 20000000000,
-          "peerKind": "switch", "peerSwitchId": "sw-core-1", "peerIface": "et-1/0/1" }
-      ]
-    },
-    {
-      "switchId": "sw-core-1", "label": "Core 1", "role": "switch",
-      "outputs": [
-        { "iface": "et-1/0/9", "deltaBps": 20000000000,
-          "peerKind": "host", "peerId": "srv-db-07", "peerIface": "eno1" }
-      ]
-    }
-  ]
+  "investigation": { "node_id": "sw-edge-a", "iface": "xe-0/0/1", "direction": "in", "delta_bps": 10000000000 },
+  "elements": {
+    "nodes": [
+      { "data": { "id": "sw-edge-a", "type": "switch", "name": "Edge A" } },
+      { "data": { "id": "sw-core-1", "type": "switch", "name": "Core 1" } },
+      { "data": { "id": "srv-db-07", "type": "host" } }
+    ],
+    "edges": [
+      { "data": { "id": "e0", "type": "network-flow", "source": "sw-edge-a", "target": "sw-core-1",
+                  "labels": { "source_iface": "et-0/0/48", "target_iface": "et-1/0/1" }, "metrics": { "delta_bps": 20000000000 } } },
+      { "data": { "id": "e1", "type": "network-flow", "source": "sw-core-1", "target": "srv-db-07",
+                  "labels": { "source_iface": "et-1/0/9", "target_iface": "eno1" }, "metrics": { "delta_bps": 20000000000 } } }
+    ]
+  }
 }
 ```
 
-Edge A 只追進來 10G 卻出去 20G，缺的 10G 會自動變成 Edge A 的「其他輸入」。
-
-### 追來源（source）
+追來源（`samples/source.json`）：`kind:"source"`，起點釘在最右；**邊仍一律照封包方向寫**（上游 → 下游），
+只是追查是往 `target` 的反方向走：
 
 ```json
 {
   "kind": "source",
-  "investigation": {
-    "switchId": "sw-core-1", "iface": "et-1/0/9",
-    "direction": "out", "deltaBps": 20000000000
-  },
-  "hops": [
-    {
-      "switchId": "sw-core-1", "label": "Core 1",
-      "inputs": [
-        { "iface": "et-1/0/1", "deltaBps": 12000000000,
-          "peerKind": "switch", "peerSwitchId": "sw-edge-a", "peerIface": "et-0/0/48" }
-      ]
-    },
-    {
-      "switchId": "sw-edge-a", "label": "Edge A",
-      "otherInBps": 2000000000,
-      "inputs": [
-        { "iface": "xe-0/0/1", "deltaBps": 7000000000,
-          "peerKind": "host", "peerId": "lab-gpu-01", "peerIface": "eno1" }
-      ]
-    }
-  ]
+  "investigation": { "node_id": "sw-core-1", "iface": "et-1/0/9", "direction": "out", "delta_bps": 20000000000 },
+  "elements": {
+    "nodes": [
+      { "data": { "id": "sw-core-1", "type": "switch", "name": "Core 1" } },
+      { "data": { "id": "sw-edge-a", "type": "switch", "name": "Edge A" } },
+      { "data": { "id": "lab-gpu-01", "type": "host" } }
+    ],
+    "edges": [
+      { "data": { "id": "e0", "type": "network-flow", "source": "sw-edge-a", "target": "sw-core-1",
+                  "labels": { "source_iface": "et-0/0/48", "target_iface": "et-1/0/1" }, "metrics": { "delta_bps": 12000000000 } } },
+      { "data": { "id": "e1", "type": "network-flow", "source": "lab-gpu-01", "target": "sw-edge-a",
+                  "labels": { "source_iface": "eno1", "target_iface": "xe-0/0/1" }, "metrics": { "delta_bps": 7000000000 } } }
+    ]
+  }
 }
 ```
 
-### k8s（node / pod / namespace）
+k8s（`samples/k8s.json` 的節錄）：`node` 是虛線盒、`pod` 是中繼卡、namespace 終點自動推導；k8s 內部的邊可以不寫 iface；
+沒有往下走的邊的 node 就整台由平衡式補成其他輸出：
 
-edge switch 接的是 k8s node 時，同一條 Sankey 直接接下去（完整版在 `samples/k8s.json`）：
-
-```jsonc
+```json
 {
   "kind": "destination",
-  "investigation": { "switchId": "sw-tor-k8s", "iface": "et-0/0/48", "direction": "in", "deltaBps": 30000000000 },
-  "hops": [
-    { "switchId": "sw-tor-k8s", "label": "ToR k8s", "role": "switch",
-      "outputs": [
-        { "iface": "xe-0/0/11", "deltaBps": 14000000000, "peerKind": "node", "peerSwitchId": "node-w-11", "peerIface": "bond0" },
-        { "iface": "xe-0/0/12", "deltaBps": 8000000000,  "peerKind": "node", "peerSwitchId": "node-w-12", "peerIface": "bond0" },
-        { "iface": "xe-0/0/13", "deltaBps": 5000000000,  "peerKind": "node", "peerSwitchId": "node-w-13", "peerIface": "bond0" },
-        { "iface": "xe-0/0/20", "deltaBps": 3000000000,  "peerKind": "host", "peerId": "srv-log-01", "peerIface": "eno1" }
-      ] },
-    { "switchId": "node-w-11", "role": "node", "otherOutBps": 2500000000,
-      "outputs": [
-        { "iface": "veth3a1f", "deltaBps": 8000000000, "peerKind": "pod", "peerId": "ingest-7d9c", "namespace": "telemetry" },
-        { "iface": "veth9b02", "deltaBps": 3500000000, "peerKind": "pod", "peerId": "kafka-2", "namespace": "stream" }
-      ] },
-    { "switchId": "node-w-12", "role": "node",
-      "outputs": [
-        { "deltaBps": 5500000000, "peerKind": "pod", "peerId": "ingest-4f11", "namespace": "telemetry" },
-        { "deltaBps": 2500000000, "peerKind": "pod", "peerId": "debug-shell", "namespace": "debug" }
-      ] },
-    { "switchId": "node-w-13", "role": "node" }
-  ]
+  "investigation": { "node_id": "sw-tor-k8s", "iface": "et-0/0/48", "direction": "in", "delta_bps": 30000000000 },
+  "elements": {
+    "nodes": [
+      { "data": { "id": "sw-tor-k8s", "type": "switch", "name": "ToR k8s" } },
+      { "data": { "id": "node-w-11", "type": "node", "other_out_bps": 2500000000 } },
+      { "data": { "id": "node-w-13", "type": "node" } },
+      { "data": { "id": "ingest-7d9c", "type": "pod", "labels": { "namespace": "telemetry" } } },
+      { "data": { "id": "kafka-2", "type": "pod", "labels": { "namespace": "stream" } } }
+    ],
+    "edges": [
+      { "data": { "id": "e0", "type": "network-flow", "source": "sw-tor-k8s", "target": "node-w-11",
+                  "labels": { "source_iface": "xe-0/0/11", "target_iface": "bond0" }, "metrics": { "delta_bps": 14000000000 } } },
+      { "data": { "id": "e2", "type": "network-flow", "source": "sw-tor-k8s", "target": "node-w-13",
+                  "labels": { "source_iface": "xe-0/0/13", "target_iface": "bond0" }, "metrics": { "delta_bps": 5000000000 } } },
+      { "data": { "id": "e4", "type": "network-flow", "source": "node-w-11", "target": "ingest-7d9c",
+                  "labels": { "source_iface": "veth3a1f" }, "metrics": { "delta_bps": 8000000000 } } },
+      { "data": { "id": "e5", "type": "network-flow", "source": "node-w-11", "target": "kafka-2",
+                  "metrics": { "delta_bps": 3500000000 } } }
+    ]
+  }
 }
 ```
 
-五個情境一次示範：`node-w-11` 是標準 switch → node → pod → ns（veth 名照填）；`node-w-12`
-的 port **省略 iface**（k8s 內部沒有 switch interface，靠 `peerId` 認 port）；`node-w-13`
-是 **node 當葉**（沒列 pod，進來的 5G 由平衡式補成其他輸出）；`srv-log-01` 是混在其中的
-非 k8s host 葉；`telemetry` 的兩個 pod 掛在不同 node 上，圖上**相鄰排列、共用同色 ns 色條**，
-而且**自動匯進同一個 telemetry 終點節點**（13.5G 直接在圖上讀）。追來源方向見
-`samples/k8s-source.json`（ns 終點在最左欄，`batch` 兩個 pod 跨 node 匯流）。
+storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；完整版是 `samples/storage.json`——參考面板的 demo fixture 原封不動，
+含 FlexGroup（從 SVM 起頭）、split 歸因、未排程 pod、沒有 application 的 pod、三種 alert 形狀、未判定 status 的 SVM：
 
-`samples/` 底下是網頁上那些範例的 JSON，可以直接拿來改。
+```json
+{
+  "elements": {
+    "nodes": [
+      { "data": { "id": "ns/prod", "type": "namespace", "name": "prod" } },
+      { "data": { "id": "app/mongodb", "type": "application", "name": "mongodb", "parent": "ns/prod" } },
+      { "data": { "id": "netapp/aggr1", "type": "netapp-aggr", "name": "aggr1", "status": "warning",
+                  "usage": { "used_bytes": 700000000000, "capacity_bytes": 1000000000000 },
+                  "labels": { "ontap_cluster": "ontap-prod" } } },
+      { "data": { "id": "netapp/svm_shop", "type": "netapp-svm", "name": "svm_shop", "labels": { "ontap_cluster": "ontap-prod" } } },
+      { "data": { "id": "pvc/data-mongo-0", "type": "pvc", "name": "data-mongo-0", "status": "normal", "labels": { "namespace": "prod" } } },
+      { "data": { "id": "pod/mongo-0", "type": "pod", "name": "mongo-0", "status": "normal", "parent": "app/mongodb" } }
+    ],
+    "edges": [
+      { "data": { "id": "sf-1", "type": "storage-flow", "source": "netapp/aggr1", "target": "netapp/svm_shop",
+                  "labels": { "tier": "aggr-svm" }, "metrics": { "read_bytes_per_sec": 5505024, "write_bytes_per_sec": 1048576 } } },
+      { "data": { "id": "sf-2", "type": "storage-flow", "source": "netapp/svm_shop", "target": "pvc/data-mongo-0",
+                  "labels": { "tier": "svm-pvc" },
+                  "metrics": { "read_bytes_per_sec": 5505024, "write_bytes_per_sec": 1048576,
+                               "read_latency_us": 830, "write_latency_us": 1200, "max_iops": 5000, "max_bytes_per_sec": 104857600 } } },
+      { "data": { "id": "sf-3", "type": "storage-flow", "source": "pvc/data-mongo-0", "target": "pod/mongo-0",
+                  "labels": { "tier": "pvc-pod" }, "metrics": { "read_bytes_per_sec": 5505024, "write_bytes_per_sec": 1048576 } } }
+    ]
+  }
+}
+```
+
+畫出來：`aggr1`（warning 框、usage 副標）→ `svm_shop` → `data-mongo-0` → `mongo-0`（pod 卡）→ `mongodb`（application 卡）→ `prod`（namespace 卡），
+每段兩條帶（read `5.51 MB/s` 青、write `1.05 MB/s` 燃橘）；沒有 `investigation` 所以沒有錨卡，`aggr1` 是源頭、左側不畫其他輸入。
 
 ### 驗證錯誤對照
 
-載入失敗時會直接印出這些訊息，照著改欄位就好：
+載入失敗時會直接印出這些訊息，照著改欄位就好（`nodes[i]`／`edges[i]` 的 i 是陣列索引）：
 
 | 訊息 | 意思 |
 | --- | --- |
 | 最外層必須是 JSON 物件。 | 檔案最外面是陣列或字串 |
-| 缺少 investigation。 | 沒有 `investigation` 這個 key |
-| investigation.switchId 必填。 | 沒給、或給了空字串 |
-| investigation.iface 必填。 | 同上 |
-| investigation.deltaBps 必須是正數（bps）。 | 不是數字、是 0、或是負數；別寫成 `"10G"` |
-| investigation.direction 只能是 "in" 或 "out"。 | 拼錯，例如寫成 `"input"` |
 | kind 只能是 "destination" 或 "source"。 | 拼錯 |
-| hops 必須是非空陣列。 | `hops` 不是陣列，或是空的 `[]` |
-| hops[i] 不是物件。 | 陣列裡混了字串或數字 |
-| hops[i].switchId 必填。 | 那一跳沒給 id，就沒得合併 |
-| hops[i].tier 必須是非空字串。 | `tier` 給了數字、空字串或其他型別 |
-| hops[i].role 必須是非空字串。 | `role` 給了數字、空字串或其他型別（`namespace` 同款訊息） |
-| hops[i].outputs 必須是陣列。 | 給了單一物件，忘了包 `[]` |
-| hops[i].outputs[j] 不是物件。 | port 陣列裡混了別的東西 |
-| hops[i].outputs[j].iface 必填。 | 一般 switch hop 的 port 沒給 interface 名 |
-| hops[i].outputs[j] 省略 iface 時必須給 peerSwitchId 或 peerId。 | `role: "node"/"pod"` 的 port 才能省 iface，但沒 iface 又沒對端 id 就沒得認 port |
-| hops[i].outputs[j].deltaBps 必須是非負數。 | port 的量不是數字或是負數 |
-| hops[i].outputs[j].peerKind 必須是非空字串。 | `peerKind` 給了數字或空字串（`namespace` 同款訊息） |
-| hops[i].outputs[j] 的 peerKind 為 "pod" 時 namespace 必填（pod 一定屬於某個 namespace）。 | 即將畫成 pod 卡的 port 沒給 `namespace`；pod 流量要匯進 ns 終點節點。對端接進 `hops` 的 proxy pod 不受此限 |
-| hops[i] 的 role 為 "pod" 時 namespace 必填。 | `role: "pod"` 的中繼 hop 沒給 `namespace` |
-| hops[i].otherInBps 必須是非負數（bps）。 | 給了負數或非數字；負殘差會讓色塊算出負高度、SVG 破圖 |
-| hops[i].otherOutBps 必須是非負數（bps）。 | 同上 |
-| investigation.switchId「X」在 hops 裡找不到。 | 起點那台沒有出現在 `hops`，通常是 id 打錯或大小寫不一致 |
-
-（`inputs` 的訊息一樣，只是把 `outputs` 換成 `inputs`。）
+| investigation 必須是物件。 | 給了字串或陣列 |
+| investigation.node_id 必填。 | 沒給、或給了空字串（舊格式的 `switchId` 要改名） |
+| investigation.iface 必填。 | 同上 |
+| investigation.delta_bps 必須是正數（bps）。 | 不是數字、是 0、或是負數；別寫成 `"10G"`（舊格式的 `deltaBps` 要改名） |
+| investigation.direction 只能是 "in" 或 "out"。 | 拼錯 |
+| investigation.node_id「X」在 nodes 裡找不到。 | 起點那台沒有出現在 `nodes`，通常是 id 打錯 |
+| investigation.node_id「X」的 type 是 Y，追查起點必須是 hop 型… | 起點指到葉或群組節點 |
+| 缺少 elements（必須是物件，含 nodes 與 edges 陣列）。 | 沒有 `elements`——**舊格式（`hops`）會落在這裡** |
+| elements.nodes 必須是陣列。／elements.edges 必須是陣列。 | 型別錯 |
+| nodes[i] 必須是 { data: {...} } 物件。 | 忘了包一層 `data` |
+| nodes[i].data.id 必填（非空字串）。／.type 必填 | 缺 id 或 type |
+| nodes[i].data.id「X」重複。 | 同 id 出現兩次——舊格式同一台多次出現要自己合併 |
+| nodes[i].data.name 必須是字串。 | 給了數字 |
+| nodes[i].data.parent 必須是非空字串。 | 給了空字串或非字串 |
+| nodes[i].data.labels 必須是字串對字串的物件。 | labels 裡有數字／布林／巢狀 |
+| nodes[i].data.usage 必須是物件。 | 給了數字 |
+| nodes[i].data.other_in_bps 必須是非負數（bps）。 | 負數或非數字；負殘差會讓色塊算出負高度（`other_out_bps` 同款） |
+| edges[i] 必須是 { data: {...} } 物件。 | 忘了包一層 `data` |
+| edges[i].data.id／type／source／target 必填（非空字串）。 | 缺欄位 |
+| edges[i].data.id「X」重複。 | 邊 id 撞了 |
+| edges[i].data.labels 必須是字串對字串的物件。 | 同節點 labels |
+| edges[i].data.source「X」在 nodes 裡找不到。 | 對端節點沒列在 `nodes`——舊格式的葉要自己建成節點（`target` 同款） |
+| edges[i].data.source「X」是群組節點（type: namespace）… | flow 邊接到群組；群組只能透過 `parent` 鏈表達 |
+| edges[i]：「X」（type: host）不是 hop 型節點，畫成追查終止葉卡，不能再有往下走的 flow 邊… | 葉型節點當了上游；要接下去請改用 hop 型 type |
+| 圖上沒有任何可畫的節點。 | `nodes` 裡沒有任何 hop 型節點 |
 
 另外有幾種**警告**，不會擋著不畫，會列在圖下方：
 
-- `otherInBps／otherOutBps 兩個都給了但湊不出平衡式` — 圖照你給的顯式值畫，那台的左右兩疊
+- `other_in_bps／other_out_bps 兩個都給了但湊不出平衡式` — 圖照你給的顯式值畫，那台的左右兩疊
   色塊厚度就不會相等。訊息會把兩邊算式攤開、指出哪邊多多少；拿掉其中一個讓平衡式自動補就會守恆
-- `拓樸疑似有環` — hops 兜出了環，欄位順序會不準
-- `同一台在不同 hop 給了不同 tier` — 同 `switchId` 的 hop 標了兩種 tier，採用先出現的
+- `邊「e」的 read_bytes_per_sec 是負數` — 該欄視同沒有量測，不畫
+- `N 條 flow 邊沒有可用的量測值` — metrics 缺、非數字或屬於 RED 家族，不畫
+- `同一張圖混用了 delta_bps（bps）與 read/write_bytes_per_sec（bytes/s）` — 帶寬比例尺跨單位沒有意義
+- `X：沒有任何可畫的 flow 邊（no-flow 卡），給了 other_in_bps／other_out_bps 也不畫` — 已歸零
+- `只顯示 read 通道：N 條 write 帶不畫` — `channels` 選項的效果，量已併進其他輸入／其他輸出
+- `顯示門檻 > …：隱藏 N 條帶` — 見「顯示門檻」
+- `拓樸疑似有環` — 欄位順序會不準
 - `逆著多數流量方向` — 兩群之間雙向都有流量，總量小的方向畫成回流帶、不參與排欄
 - `群組間仍繞成環` — 環繞過三群以上，移除環上流量最小的那個方向破環
-- `在不同 hop 給了不同 peerKind／namespace` — 同一個 port 拆在多個 hop 寫、標註衝突，採先出現的值
-- `標了 namespace，但對端已是 hop` — port 上的 ns 只會出現在帶的 tooltip、不會標在盒上；請改標在該 hop 的 `namespace` 欄位
 
 ### 同層互連（tier）
 
 欄位預設照最長路徑排：每條邊都逼下游至少右一欄。同一層彼此互連時（例如 bdr↔dci 跨 DC），
-互連下游的機器會被推到右邊一欄，同一層被拆成兩欄。把同層的 hop 都標同一個 `tier` 就能鎖回同欄：
+互連下游的機器會被推到右邊一欄，同一層被拆成兩欄。把同層的節點都標同一個 `labels.tier` 就能鎖回同欄：
 
-- 同 `tier` 的機器整群視為一個節點跑最長路徑，欄位順序仍由拓樸自動推，**不用宣告層級編號**；tier 內部的邊不參與排欄。沒標 `tier` 的 hop 行為完全不變。
+- 同 `tier` 的機器整群視為一個節點跑最長路徑，欄位順序仍由拓樸自動推，**不用宣告層級編號**；tier 內部的邊不參與排欄。沒標 `tier` 的節點行為完全不變。
 - tier 內部的邊畫成**欄右側的弧帶**（往右凸再折回），厚度與青帶共用同一把比例尺，守恆照常經過。
   它不是另一種狀態，就是一條已追查的帶，只是兩端排在同一欄才改畫成馬蹄形；馬蹄形讀不出方向，
   所以弧的終點端有個**箭頭指流向**。
@@ -621,8 +794,9 @@ edge switch 接的是 k8s node 時，同一條 Sankey 直接接下去（完整�
 | 追終點 | 某條 in 增加 | 貢獻大的 out | 最左 | `kind:"destination"` 或 `investigation.direction:"in"` |
 | 追來源 | 某條 out 增加 | 貢獻大的 in | 最右 | `kind:"source"` 或 `investigation.direction:"out"` |
 
-追終點 hop 填 `outputs`；追來源 hop 填 `inputs`。
-同一台 switch 在 `hops` 出現多次（雙 uplink 匯入核心）會合併成一個盒子，不會畫成兩台。
+兩種模式的邊都一樣照封包方向寫（`source` 上游、`target` 下游）；差別只在追查是順著還是逆著邊走，
+以及葉在哪一側（追終點：葉是 `target`；追來源：葉是 `source`）。
+同一對節點之間多條邊各自一條帶；同 iface 的多筆量測自動相加。
 
 ## 守恆與殘差
 
@@ -637,12 +811,22 @@ edge switch 接的是 k8s node 時，同一條 Sankey 直接接下去（完整�
 已知 in + 其他輸入 = 已追查 out + 其他輸出
 ```
 
-`otherInBps` / `otherOutBps` **不給就由平衡式自動補缺口**，所以最少只要填實際跟到的 port 就會守恆。
+`other_in_bps` / `other_out_bps` **不給就由平衡式自動補缺口**，所以最少只要填實際跟到的邊就會守恆。
 兩個都給又對不上，圖照顯式值畫並在摘要下方出警告。
+
+兩個例外：
+
+- **源頭不補其他輸入**：一台 hop 一條入邊都沒有（也沒有被門檻／通道藏起來的入邊）、又沒顯式給
+  `other_in_bps`，就視為圖的源頭（netapp-node 的流量來自磁碟），左側不畫殘差。只做入側——
+  「沒有往下的邊就由平衡式補其他輸出」（k8s 範例的 `node-w-13`：node 當葉）照舊。
+- **殘差不拆讀寫**：storage 資料每條邊 read／write 兩條帶，但左右兩疊一起加總，殘差仍是單一色塊。
 
 ## 畫法（目前生效的定案）
 
-- 青色長帶＝有跟下去的 uplink／追查路徑，帶寬用**速率增量 Δ**，數字帶 `+` 號。
+- 青色長帶＝有跟下去的 uplink／追查路徑，帶寬用**速率增量 Δ**（`delta_bps`），數字帶 `+` 號。
+- storage 資料（`read_bytes_per_sec`／`write_bytes_per_sec`）每條邊**兩條帶**：read 沿用青、write 燃橘
+  （`#c2410c`），數字是 bytes/s 的絕對速率、不帶號（`5.24 MB/s`）。同欄弧帶的箭頭跟著通道換色；
+  回流帶維持玫瑰、不分通道。圖例在有通道時自動換成 read／write 兩色。
 - 殘差不進走廊：不畫成穿越別台的長色帶，也不做盒子內底部 chips。
 - 殘差貼在該台外側的虛線色塊：其他輸入在左、其他輸出在右；**高度跟 Gbps 等比，
   跟青帶共用同一把比例尺**（`maxVal` 也把殘差算進去），標籤與數量寫在色塊旁。
@@ -651,55 +835,69 @@ edge switch 接的是 k8s node 時，同一條 Sankey 直接接下去（完整�
   **色塊厚度總和完全相等**（守恆等式保證）；但每一列有 24px 最小高度、列間 9px 間距，
   所以**兩疊的總高度不會剛好一樣**——守恆看色塊厚度，不是看疊起來的總高度。
 - 小於該台自己讀數誤差（`max(已知 in, 已追查 out) × 0.5% + 1 bps`）的殘差不畫，
-  免得浮點雜訊在圖上長出一塊。圖、hop 摘要、Mermaid 用同一個門檻。
+  免得浮點雜訊在圖上長出一塊。圖與 hop 摘要用同一個門檻。
 - 盒子裡只畫已追查 port，殘差不用斜線填滿整台 switch。
 - 追查終止葉節點是灰色虛線小卡（「追查終止」「未再往下追」＋ iface ＋ 帶寬），不是又一台 switch。
 - k8s 接在同一條 Sankey 上：switch → node（天藍虛線盒）→ pod（天藍虛線中繼卡，標 name 與
   `ns/<namespace>`）→ namespace（ns 色終點卡）。不是每個 switch iface 都接 node；node 可以
-  當葉（不列 `outputs` 就整台由平衡式補成其他輸出）；pod 一定屬於某個 namespace（驗證強制）。
+  當葉（沒有往下的邊就整台由平衡式補成其他輸出）；pod 沒有 namespace 也合法（不接 ns、沒有色條）。
   node 用同一套截斷，沒跟的 pod 併成該 node 的其他輸出。
+- storage 鏈接在同一套畫法上：netapp-node／netapp-aggr／netapp-svm 是虛線設備盒、pvc 實線盒；
+  副標多一段 ` · <type>`，有 `labels.ontap_cluster` 再多一段；`usage` 兩欄齊全就在副標下多一行
+  「使用 X / Y（N%）」。**`status` 決定外框色**：critical 玫瑰、warning 琥珀（比 root 的青框優先），
+  沒有 status 就是中性框。
+- **pod 有 `application` 祖先時先接 application 卡**（`parent` 鏈），再由 application 匯進 namespace：
+  pod → application → namespace 兩條推導邊都是 pod 自己的量測值的重新分組，不是推估。沒有 application
+  的 pod 直接跨到 namespace。整欄 application 的欄標題是「第 N 跳 · application」。
+- **no-flow 卡**：列在 `nodes` 但一條可畫的 flow 邊都沒接到的 hop，只畫盒子（沒槽位、沒殘差），
+  不會被門檻算成「隱藏 N 台」。
+- **每張卡片都有 tooltip**（hover 盒子）：型別／名稱、id、ns、ontap_cluster、已追查 in／out 與殘差、usage、
+  status（群組卡標「成員 pod 中最差」）、health、hardware.model、perf 四欄（標 raw，不判定好壞）、alerts
+  （`<severity> <name>`）、no-flow 說明——沒有的鍵不出現。帶子 tooltip 在原有欄位之後加 channel、tier、
+  attribution、IOPS、延遲、QoS 上限。
 - **namespace 是自動推導的終點節點**：每個 pod 卡自動再接一條邊匯進所屬 ns 的終點卡，
   pod → ns 這條邊的值就是 pod 自己的量測 Δ——**同一筆數字的重新分組，不是推估**。
   **全圖同 ns 合一個節點**（跨 node 的 pod 匯流），「這個 ns 總共多少」直接在圖上讀；
-  追來源模式鏡像，ns 終點落在最左欄。列進 `hops` 的中繼 pod（proxy pod）**不接** ns——
+  追來源模式鏡像，ns 終點落在最左欄。有往下走的邊的中繼 pod（proxy pod）**不接** ns——
   它的流量已流向自己的下游，再接會重複計量破壞守恆，它的 ns 只是盒副標。
   同 ns 的 pod 在欄內**相鄰排列**、左緣掛同色 ns 色條（色盤 5 色依首次出現順序取用、
   超過循環）；pod 落在不同深度時各 ns 各自落欄，是預期行為。彙總數字在 `summary()`
-  的「namespace 流量小計」表（CLI 文字報告也有；目前 app 沒有顯示這張表）。
-- 整欄都是 k8s node 時欄標題標「第 N 跳 · k8s node」；整欄都是 pod 卡標「第 N 跳 · pod」；
-  整欄都是 ns 終點標「追查終止 · namespace」。
-- hop 數字摘要是圖外資訊（`summary()` 回傳 HTML 字串），不是盒子內標籤；
-  目前 app 沒有顯示，CLI 文字報告有同樣內容。
+  的「namespace 流量小計」表（目前 app 沒有顯示這張表）。
+- 整欄同一種非 switch 型別時欄標題帶型別名：「第 N 跳 · k8s node」「第 N 跳 · NetApp aggregate」
+  「第 N 跳 · SVM」「第 N 跳 · PVC」；整欄都是 pod 卡標「第 N 跳 · pod」；整欄 application 標
+  「第 N 跳 · application」；整欄都是 ns 終點標「追查終止 · namespace」。沒有 `investigation` 時
+  第一欄就是「第 0 跳」——編號是相對欄號，不是輸入裡的跳數。
+- hop 數字摘要是圖外資訊（`summary()` 回傳 HTML 字串），不是盒子內標籤；目前 app 沒有顯示。
 - 圖區是固定尺寸畫布：SVG 填滿容器，`viewBox` 的 meet-fit 就是「符合視窗」，
   縮放平移只改一層 `<g>` 的 `transform`。字級與線寬跟著等比縮放（真幾何縮放）。
 
-## CLI
+## 與參考面板的行為分歧（刻意）
 
-`tools/trace_sankey.py`：先算 residual 再畫／印。純文字離線可用；本機裝了 plotly 就能出互動 HTML。
+參考面板（kube-state-graph-frontend）的 Storage Flow Sankey 與這裡吃同一份 wire 契約，但畫法上有幾處刻意不同：
 
-```bash
-make draw    FILE=samples/classic.json          # python3 tools/trace_sankey.py samples/classic.json
-make mermaid FILE=samples/k8s.json KIND=sankey  # ... --mermaid sankey
-make mermaid FILE=samples/campus.json KIND=flow # ... --mermaid flow
-make html    FILE=trace.json OUT=out.html       # ... --plotly out.html（需要 plotly）
-make check                                      # 所有 samples 跑一次
-
-python3 tools/trace_sankey.py samples/pruned.json --json   # 印算好的模型
-cat trace.json | python3 tools/trace_sankey.py -           # 吃 stdin
-```
+- **守恆與殘差**：參考明文禁止 client 端聚合／對帳，上下游對不起來也不警告；我們反過來以守恆為核心。
+  參考後端保證每個中間節點逐方向 inflow == outflow，所以 aggr／svm／pvc 的殘差會 ≈ 0；
+  加上「源頭不補其他輸入」，參考資料在這邊只會剩下語意正確的殘差。
+- **同鍵多條邊相加**：參考不合併；我們相加是超集，安全。
+- **`labels.tier` 認不得的邊**：參考整條丟掉；我們照畫（switch 拓樸沒有 tier 詞彙）。
+- **其他 type（`host`／`router`）**：參考靜默丟棄；我們畫成灰色「追查終止」葉卡。
+- **欄內排序**：參考依流量遞減；我們用拓樸／上游重心，帶子才不互穿。
+- **不做的 UI**：app 端的 Read／Write／Both 切換鈕（帶子分兩條，但切換是套件 API `channels`）、
+  Flat／Node layout 切換與 k8s node 外框、hover 全路徑高亮、Flow summary 數字表、Locate 跳轉、
+  淺色主題、az/env/root scope bar 與 URL 參數、四段式空狀態。
 
 ## 檔案
 
 ```
 Makefile                     跑起來與驗證的入口（make help）
 packages/trace-sankey/       npm 套件（零依賴、純 ESM、無 build step）
-  src/model.js               驗證、合併 hop、顯示門檻過濾、算殘差
-  src/render.js              SVG Sankey、等比殘差色塊、終止小卡、hop 摘要（summary）
+  src/model.js               驗證、分類節點、加總同鍵的邊、顯示門檻／通道過濾、算殘差
+  src/render.js              SVG Sankey、等比殘差色塊、各種卡片、欄標題、hop 摘要（summary）
   src/zoom.js                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
-  src/tooltip.js             createTooltip()：帶子 hover 的 tooltip
+  src/tooltip.js             createTooltip()：帶子與卡片 hover 的 tooltip
   src/mount.js               mount(el, doc, opts)：一行接好整條管線
   src/react.js               <TraceSankey> React 元件（trace-sankey/react）
-  src/samples.js             九個內建範例（trace-sankey/samples）
+  src/samples.js             十個內建範例（trace-sankey/samples）；storage 是參考面板的 demo fixture
   styles/trace-sankey.css    圖與 tooltip 的樣式（trace-sankey/style.css）
   types/index.d.ts           TypeScript 型別
 app/                         Vite + React 使用端
@@ -710,11 +908,12 @@ app/                         Vite + React 使用端
 electron/                    Electron 測試殼（make electron）：BrowserView 載 nginx，
                              可用環境變數重現各種「host 設錯」的情況。
                              刻意不在 npm workspaces 裡，見 electron/README.md
-samples/*.json               範例 JSON（CLI 也吃同一份；make check 會全部跑一次）
-stress/                      縮放平移的壓力測試資料與產生器（刻意不放 samples/，
-                             免得 make check 被超大檔拖慢）
-tools/trace_sankey.py        CLI：文字報告 / Mermaid / plotly
-tools/golden.mjs             重構對拍：dump 所有範例輸出，前後 diff -r
+samples/*.json               範例 JSON（與 samples.js 同一批；make check 會全部 build 一次）。
+                             storage.json 原封不動取自 akira-core/kube-state-graph-frontend
+                             public/demo/storage-graph.json @ 9e568c7（Apache-2.0）
+stress/                      縮放平移的壓力測試資料與產生器（make check 也會 build 它們）
+tools/golden.mjs             重構對拍：dump 所有範例輸出，前後 diff -r；check 子命令＝make check
+docs/migration-wire-format.md  舊 investigation+hops 格式 → elements 格式的手動遷移指南
 Dockerfile                   多階段；--target content = 只有 dist 的小映像（主要），
                              不帶 target = nginx 全包的自足映像（次要）
 docker-compose.yml           分離式：content 映像倒進 volume + 官方 nginx（make up）
@@ -724,4 +923,3 @@ deploy/kustomization.yaml    k8s：ConfigMap 直接讀上面那支 conf，不複
 deploy/k8s/                  k8s Deployment（initContainer 倒內容）與 Service
 ```
 
-Mermaid 匯出目前只在 CLI（網頁版的匯出分頁已隨舊靜態頁移除）。

@@ -1,96 +1,196 @@
 {
   "kind": "destination",
   "investigation": {
-    "switchId": "sw-tor-k8s",
+    "node_id": "sw-tor-k8s",
     "iface": "et-0/0/48",
-    "direction": "in",
-    "deltaBps": 30000000000
+    "delta_bps": 30000000000,
+    "direction": "in"
   },
-  "pruning": {
-    "topN": 3,
-    "minShare": 0.1
-  },
-  "hops": [
-    {
-      "switchId": "sw-tor-k8s",
-      "label": "ToR k8s",
-      "role": "switch",
-      "outputs": [
-        {
-          "iface": "xe-0/0/11",
-          "deltaBps": 14000000000,
-          "peerKind": "node",
-          "peerSwitchId": "node-w-11",
-          "peerIface": "bond0"
-        },
-        {
-          "iface": "xe-0/0/12",
-          "deltaBps": 8000000000,
-          "peerKind": "node",
-          "peerSwitchId": "node-w-12",
-          "peerIface": "bond0"
-        },
-        {
-          "iface": "xe-0/0/13",
-          "deltaBps": 5000000000,
-          "peerKind": "node",
-          "peerSwitchId": "node-w-13",
-          "peerIface": "bond0"
-        },
-        {
-          "iface": "xe-0/0/20",
-          "deltaBps": 3000000000,
-          "peerKind": "host",
-          "peerId": "srv-log-01",
-          "peerIface": "eno1"
+  "elements": {
+    "nodes": [
+      {
+        "data": {
+          "id": "sw-tor-k8s",
+          "type": "switch",
+          "name": "ToR k8s"
         }
-      ]
-    },
-    {
-      "switchId": "node-w-11",
-      "label": "node-w-11",
-      "role": "node",
-      "otherOutBps": 2500000000,
-      "outputs": [
-        {
-          "iface": "veth3a1f",
-          "deltaBps": 8000000000,
-          "peerKind": "pod",
-          "peerId": "ingest-7d9c",
-          "namespace": "telemetry"
-        },
-        {
-          "iface": "veth9b02",
-          "deltaBps": 3500000000,
-          "peerKind": "pod",
-          "peerId": "kafka-2",
-          "namespace": "stream"
+      },
+      {
+        "data": {
+          "id": "node-w-11",
+          "type": "node",
+          "name": "node-w-11",
+          "other_out_bps": 2500000000
         }
-      ]
-    },
-    {
-      "switchId": "node-w-12",
-      "label": "node-w-12",
-      "role": "node",
-      "outputs": [
-        {
-          "deltaBps": 5500000000,
-          "peerKind": "pod",
-          "peerId": "ingest-4f11",
-          "namespace": "telemetry"
-        },
-        {
-          "deltaBps": 2500000000,
-          "peerKind": "pod",
-          "peerId": "debug-shell",
-          "namespace": "debug"
+      },
+      {
+        "data": {
+          "id": "node-w-12",
+          "type": "node",
+          "name": "node-w-12"
         }
-      ]
-    },
-    {
-      "switchId": "node-w-13",
-      "label": "node-w-13",
-      "role": "node"
-    }
-  ]
+      },
+      {
+        "data": {
+          "id": "node-w-13",
+          "type": "node",
+          "name": "node-w-13"
+        }
+      },
+      {
+        "data": {
+          "id": "srv-log-01",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "ingest-7d9c",
+          "type": "pod",
+          "labels": {
+            "namespace": "telemetry"
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "kafka-2",
+          "type": "pod",
+          "labels": {
+            "namespace": "stream"
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "ingest-4f11",
+          "type": "pod",
+          "labels": {
+            "namespace": "telemetry"
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "debug-shell",
+          "type": "pod",
+          "labels": {
+            "namespace": "debug"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "data": {
+          "id": "e0",
+          "type": "network-flow",
+          "source": "sw-tor-k8s",
+          "target": "node-w-11",
+          "labels": {
+            "source_iface": "xe-0/0/11",
+            "target_iface": "bond0"
+          },
+          "metrics": {
+            "delta_bps": 14000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e1",
+          "type": "network-flow",
+          "source": "sw-tor-k8s",
+          "target": "node-w-12",
+          "labels": {
+            "source_iface": "xe-0/0/12",
+            "target_iface": "bond0"
+          },
+          "metrics": {
+            "delta_bps": 8000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e2",
+          "type": "network-flow",
+          "source": "sw-tor-k8s",
+          "target": "node-w-13",
+          "labels": {
+            "source_iface": "xe-0/0/13",
+            "target_iface": "bond0"
+          },
+          "metrics": {
+            "delta_bps": 5000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e3",
+          "type": "network-flow",
+          "source": "sw-tor-k8s",
+          "target": "srv-log-01",
+          "labels": {
+            "source_iface": "xe-0/0/20",
+            "target_iface": "eno1"
+          },
+          "metrics": {
+            "delta_bps": 3000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e4",
+          "type": "network-flow",
+          "source": "node-w-11",
+          "target": "ingest-7d9c",
+          "labels": {
+            "source_iface": "veth3a1f"
+          },
+          "metrics": {
+            "delta_bps": 8000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e5",
+          "type": "network-flow",
+          "source": "node-w-11",
+          "target": "kafka-2",
+          "labels": {
+            "source_iface": "veth9b02"
+          },
+          "metrics": {
+            "delta_bps": 3500000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e6",
+          "type": "network-flow",
+          "source": "node-w-12",
+          "target": "ingest-4f11",
+          "metrics": {
+            "delta_bps": 5500000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e7",
+          "type": "network-flow",
+          "source": "node-w-12",
+          "target": "debug-shell",
+          "metrics": {
+            "delta_bps": 2500000000
+          }
+        }
+      }
+    ]
+  }
 }

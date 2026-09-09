@@ -1,10 +1,10 @@
-import { TraceDoc } from './index';
+import { WireGraph } from './index';
 
 export interface TraceSample {
   key: string;
   name: string;
   desc: string;
-  json: TraceDoc;
+  json: WireGraph;
 }
 
 export const list: TraceSample[];

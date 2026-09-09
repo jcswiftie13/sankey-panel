@@ -16,6 +16,7 @@
   --amber: #f59e0b;
   --rose: #fb7185;
   --gray: #94a3b8;
+  --orange: #c2410c;     /* storage 資料的 write 通道帶（read 沿用青） */
   --radius: 10px;
   /* SVG 文字繼承容器字型：不自帶的話會吃到使用端頁面的字型，圖的量字對不齊 */
   font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -40,9 +41,12 @@
 /* 馬蹄弧兩端都掛盒子右緣，形狀本身讀不出方向，靠這個三角形指流向。
    pointer-events:none 是必要的：不然它會擋掉底下 band 的 hover，tooltip 跟高亮都會斷。 */
 .trace-sankey .lat-arrow{fill:var(--cyan);pointer-events:none}
+.trace-sankey .lat-arrow.arrow-w{fill:var(--orange)}
 /* hover 高亮交給 CSS：狀態由瀏覽器管，mouseleave 沒觸發（觸控、游標衝出視窗）也不會卡住 */
 .trace-sankey .band:hover{fill:url(#gband-h)}
+.trace-sankey g[data-tip]{cursor:default}
 .trace-sankey .band.band-back:hover{fill:url(#gband-back-h)}
+.trace-sankey .band.band-w:hover{fill:url(#gband-w-h)}
 .trace-sankey .band.band-loop:hover{fill:none;stroke-opacity:.85}
 
 /* ---------- svg text ---------- */

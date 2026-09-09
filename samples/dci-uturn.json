@@ -1,385 +1,717 @@
 {
   "kind": "destination",
   "investigation": {
-    "switchId": "core-1",
+    "node_id": "core-1",
     "iface": "et-0/0/0",
+    "delta_bps": 24000000000,
     "direction": "in",
-    "deltaBps": 24000000000,
     "note": "core 進來 +24 Gbps，部分流量經 dci 繞回 bdr 再下去"
   },
-  "hops": [
-    {
-      "switchId": "core-1",
-      "label": "Core 1",
-      "role": "core",
-      "outputs": [
-        {
-          "iface": "et-0/0/1",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-1",
-          "peerIface": "et-1/0/1"
-        },
-        {
-          "iface": "et-0/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-2",
-          "peerIface": "et-1/0/1"
-        },
-        {
-          "iface": "et-0/0/3",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-3",
-          "peerIface": "et-1/0/1"
-        },
-        {
-          "iface": "et-0/0/4",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-4",
-          "peerIface": "et-1/0/1"
-        },
-        {
-          "iface": "et-0/0/5",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-5",
-          "peerIface": "et-1/0/1"
-        },
-        {
-          "iface": "et-0/0/6",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-6",
-          "peerIface": "et-1/0/1"
+  "elements": {
+    "nodes": [
+      {
+        "data": {
+          "id": "core-1",
+          "type": "switch",
+          "name": "Core 1"
         }
-      ]
-    },
-    {
-      "switchId": "bdr-1",
-      "label": "BDR 1",
-      "role": "border",
-      "tier": "bdr",
-      "outputs": [
-        {
-          "iface": "et-2/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "dci-1",
-          "peerIface": "ae0"
-        },
-        {
-          "iface": "et-2/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "spn-1",
-          "peerIface": "et-0/0/1"
+      },
+      {
+        "data": {
+          "id": "bdr-1",
+          "type": "switch",
+          "name": "BDR 1",
+          "labels": {
+            "tier": "bdr"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "bdr-2",
-      "label": "BDR 2",
-      "role": "border",
-      "tier": "bdr",
-      "outputs": [
-        {
-          "iface": "et-2/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "dci-1",
-          "peerIface": "ae0"
-        },
-        {
-          "iface": "et-2/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "spn-1",
-          "peerIface": "et-0/0/2"
+      },
+      {
+        "data": {
+          "id": "bdr-2",
+          "type": "switch",
+          "name": "BDR 2",
+          "labels": {
+            "tier": "bdr"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "bdr-3",
-      "label": "BDR 3",
-      "role": "border",
-      "tier": "bdr",
-      "outputs": [
-        {
-          "iface": "et-2/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "dci-2",
-          "peerIface": "ae0"
-        },
-        {
-          "iface": "et-2/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "spn-2",
-          "peerIface": "et-0/0/3"
+      },
+      {
+        "data": {
+          "id": "bdr-3",
+          "type": "switch",
+          "name": "BDR 3",
+          "labels": {
+            "tier": "bdr"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "bdr-4",
-      "label": "BDR 4",
-      "role": "border",
-      "tier": "bdr",
-      "outputs": [
-        {
-          "iface": "et-2/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "dci-2",
-          "peerIface": "ae0"
-        },
-        {
-          "iface": "et-2/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "spn-2",
-          "peerIface": "et-0/0/4"
+      },
+      {
+        "data": {
+          "id": "bdr-4",
+          "type": "switch",
+          "name": "BDR 4",
+          "labels": {
+            "tier": "bdr"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "bdr-5",
-      "label": "BDR 5",
-      "role": "border",
-      "tier": "bdr",
-      "outputs": [
-        {
-          "iface": "et-2/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "dci-3",
-          "peerIface": "ae0"
-        },
-        {
-          "iface": "et-2/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "spn-3",
-          "peerIface": "et-0/0/5"
+      },
+      {
+        "data": {
+          "id": "bdr-5",
+          "type": "switch",
+          "name": "BDR 5",
+          "labels": {
+            "tier": "bdr"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "bdr-6",
-      "label": "BDR 6",
-      "role": "border",
-      "tier": "bdr",
-      "outputs": [
-        {
-          "iface": "et-2/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "dci-3",
-          "peerIface": "ae0"
-        },
-        {
-          "iface": "et-2/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "spn-3",
-          "peerIface": "et-0/0/6"
+      },
+      {
+        "data": {
+          "id": "bdr-6",
+          "type": "switch",
+          "name": "BDR 6",
+          "labels": {
+            "tier": "bdr"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "dci-1",
-      "label": "DCI 1",
-      "role": "switch",
-      "tier": "dci-spn",
-      "outputs": [
-        {
-          "iface": "et-9/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-3",
-          "peerIface": "et-1/1/1"
-        },
-        {
-          "iface": "et-9/0/2",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-4",
-          "peerIface": "et-1/1/1"
+      },
+      {
+        "data": {
+          "id": "dci-1",
+          "type": "switch",
+          "name": "DCI 1",
+          "labels": {
+            "tier": "dci-spn"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "dci-2",
-      "label": "DCI 2",
-      "role": "switch",
-      "tier": "dci-spn",
-      "outputs": [
-        {
-          "iface": "et-9/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-5",
-          "peerIface": "et-1/1/1"
-        },
-        {
-          "iface": "et-9/0/2",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-6",
-          "peerIface": "et-1/1/1"
+      },
+      {
+        "data": {
+          "id": "dci-2",
+          "type": "switch",
+          "name": "DCI 2",
+          "labels": {
+            "tier": "dci-spn"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "dci-3",
-      "label": "DCI 3",
-      "role": "switch",
-      "tier": "dci-spn",
-      "outputs": [
-        {
-          "iface": "et-9/0/1",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-1",
-          "peerIface": "et-1/1/1"
-        },
-        {
-          "iface": "et-9/0/2",
-          "deltaBps": 1000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "bdr-2",
-          "peerIface": "et-1/1/1"
+      },
+      {
+        "data": {
+          "id": "dci-3",
+          "type": "switch",
+          "name": "DCI 3",
+          "labels": {
+            "tier": "dci-spn"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "spn-1",
-      "label": "SPN 1",
-      "role": "spine",
-      "tier": "dci-spn",
-      "outputs": [
-        {
-          "iface": "et-3/0/1",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "tor-1",
-          "peerIface": "et-0/0/1"
-        },
-        {
-          "iface": "et-3/0/2",
-          "deltaBps": 4000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "tor-2",
-          "peerIface": "et-0/0/1"
+      },
+      {
+        "data": {
+          "id": "spn-1",
+          "type": "switch",
+          "name": "SPN 1",
+          "labels": {
+            "tier": "dci-spn"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "spn-2",
-      "label": "SPN 2",
-      "role": "spine",
-      "tier": "dci-spn",
-      "outputs": [
-        {
-          "iface": "et-3/0/2",
-          "deltaBps": 2000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "tor-2",
-          "peerIface": "et-0/0/2"
-        },
-        {
-          "iface": "et-3/0/3",
-          "deltaBps": 6000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "tor-3",
-          "peerIface": "et-0/0/2"
+      },
+      {
+        "data": {
+          "id": "spn-2",
+          "type": "switch",
+          "name": "SPN 2",
+          "labels": {
+            "tier": "dci-spn"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "spn-3",
-      "label": "SPN 3",
-      "role": "spine",
-      "tier": "dci-spn",
-      "outputs": [
-        {
-          "iface": "et-3/0/1",
-          "deltaBps": 2000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "tor-1",
-          "peerIface": "et-0/0/3"
-        },
-        {
-          "iface": "et-3/0/4",
-          "deltaBps": 6000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "tor-4",
-          "peerIface": "et-0/0/3"
+      },
+      {
+        "data": {
+          "id": "spn-3",
+          "type": "switch",
+          "name": "SPN 3",
+          "labels": {
+            "tier": "dci-spn"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "tor-1",
-      "label": "ToR 1",
-      "role": "tor",
-      "tier": "tor",
-      "outputs": [
-        {
-          "iface": "xe-0/0/10",
-          "deltaBps": 6000000000,
-          "peerKind": "host",
-          "peerId": "srv-1",
-          "peerIface": "eno1"
+      },
+      {
+        "data": {
+          "id": "tor-1",
+          "type": "switch",
+          "name": "ToR 1",
+          "labels": {
+            "tier": "tor"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "tor-2",
-      "label": "ToR 2",
-      "role": "tor",
-      "tier": "tor",
-      "outputs": [
-        {
-          "iface": "xe-0/0/10",
-          "deltaBps": 6000000000,
-          "peerKind": "host",
-          "peerId": "srv-2",
-          "peerIface": "eno1"
+      },
+      {
+        "data": {
+          "id": "tor-2",
+          "type": "switch",
+          "name": "ToR 2",
+          "labels": {
+            "tier": "tor"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "tor-3",
-      "label": "ToR 3",
-      "role": "tor",
-      "tier": "tor",
-      "outputs": [
-        {
-          "iface": "xe-0/0/10",
-          "deltaBps": 6000000000,
-          "peerKind": "host",
-          "peerId": "srv-3",
-          "peerIface": "eno1"
+      },
+      {
+        "data": {
+          "id": "tor-3",
+          "type": "switch",
+          "name": "ToR 3",
+          "labels": {
+            "tier": "tor"
+          }
         }
-      ]
-    },
-    {
-      "switchId": "tor-4",
-      "label": "ToR 4",
-      "role": "tor",
-      "tier": "tor",
-      "outputs": [
-        {
-          "iface": "xe-0/0/10",
-          "deltaBps": 6000000000,
-          "peerKind": "host",
-          "peerId": "srv-4",
-          "peerIface": "eno1"
+      },
+      {
+        "data": {
+          "id": "tor-4",
+          "type": "switch",
+          "name": "ToR 4",
+          "labels": {
+            "tier": "tor"
+          }
         }
-      ]
-    }
-  ]
+      },
+      {
+        "data": {
+          "id": "srv-1",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "srv-2",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "srv-3",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "srv-4",
+          "type": "host"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "data": {
+          "id": "e0",
+          "type": "network-flow",
+          "source": "core-1",
+          "target": "bdr-1",
+          "labels": {
+            "source_iface": "et-0/0/1",
+            "target_iface": "et-1/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e1",
+          "type": "network-flow",
+          "source": "core-1",
+          "target": "bdr-2",
+          "labels": {
+            "source_iface": "et-0/0/2",
+            "target_iface": "et-1/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e2",
+          "type": "network-flow",
+          "source": "core-1",
+          "target": "bdr-3",
+          "labels": {
+            "source_iface": "et-0/0/3",
+            "target_iface": "et-1/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e3",
+          "type": "network-flow",
+          "source": "core-1",
+          "target": "bdr-4",
+          "labels": {
+            "source_iface": "et-0/0/4",
+            "target_iface": "et-1/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e4",
+          "type": "network-flow",
+          "source": "core-1",
+          "target": "bdr-5",
+          "labels": {
+            "source_iface": "et-0/0/5",
+            "target_iface": "et-1/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e5",
+          "type": "network-flow",
+          "source": "core-1",
+          "target": "bdr-6",
+          "labels": {
+            "source_iface": "et-0/0/6",
+            "target_iface": "et-1/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e6",
+          "type": "network-flow",
+          "source": "bdr-1",
+          "target": "dci-1",
+          "labels": {
+            "source_iface": "et-2/0/1",
+            "target_iface": "ae0"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e7",
+          "type": "network-flow",
+          "source": "bdr-1",
+          "target": "spn-1",
+          "labels": {
+            "source_iface": "et-2/0/2",
+            "target_iface": "et-0/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e8",
+          "type": "network-flow",
+          "source": "bdr-2",
+          "target": "dci-1",
+          "labels": {
+            "source_iface": "et-2/0/1",
+            "target_iface": "ae0"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e9",
+          "type": "network-flow",
+          "source": "bdr-2",
+          "target": "spn-1",
+          "labels": {
+            "source_iface": "et-2/0/2",
+            "target_iface": "et-0/0/2"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e10",
+          "type": "network-flow",
+          "source": "bdr-3",
+          "target": "dci-2",
+          "labels": {
+            "source_iface": "et-2/0/1",
+            "target_iface": "ae0"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e11",
+          "type": "network-flow",
+          "source": "bdr-3",
+          "target": "spn-2",
+          "labels": {
+            "source_iface": "et-2/0/2",
+            "target_iface": "et-0/0/3"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e12",
+          "type": "network-flow",
+          "source": "bdr-4",
+          "target": "dci-2",
+          "labels": {
+            "source_iface": "et-2/0/1",
+            "target_iface": "ae0"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e13",
+          "type": "network-flow",
+          "source": "bdr-4",
+          "target": "spn-2",
+          "labels": {
+            "source_iface": "et-2/0/2",
+            "target_iface": "et-0/0/4"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e14",
+          "type": "network-flow",
+          "source": "bdr-5",
+          "target": "dci-3",
+          "labels": {
+            "source_iface": "et-2/0/1",
+            "target_iface": "ae0"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e15",
+          "type": "network-flow",
+          "source": "bdr-5",
+          "target": "spn-3",
+          "labels": {
+            "source_iface": "et-2/0/2",
+            "target_iface": "et-0/0/5"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e16",
+          "type": "network-flow",
+          "source": "bdr-6",
+          "target": "dci-3",
+          "labels": {
+            "source_iface": "et-2/0/1",
+            "target_iface": "ae0"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e17",
+          "type": "network-flow",
+          "source": "bdr-6",
+          "target": "spn-3",
+          "labels": {
+            "source_iface": "et-2/0/2",
+            "target_iface": "et-0/0/6"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e18",
+          "type": "network-flow",
+          "source": "dci-1",
+          "target": "bdr-3",
+          "labels": {
+            "source_iface": "et-9/0/1",
+            "target_iface": "et-1/1/1"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e19",
+          "type": "network-flow",
+          "source": "dci-1",
+          "target": "bdr-4",
+          "labels": {
+            "source_iface": "et-9/0/2",
+            "target_iface": "et-1/1/1"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e20",
+          "type": "network-flow",
+          "source": "dci-2",
+          "target": "bdr-5",
+          "labels": {
+            "source_iface": "et-9/0/1",
+            "target_iface": "et-1/1/1"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e21",
+          "type": "network-flow",
+          "source": "dci-2",
+          "target": "bdr-6",
+          "labels": {
+            "source_iface": "et-9/0/2",
+            "target_iface": "et-1/1/1"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e22",
+          "type": "network-flow",
+          "source": "dci-3",
+          "target": "bdr-1",
+          "labels": {
+            "source_iface": "et-9/0/1",
+            "target_iface": "et-1/1/1"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e23",
+          "type": "network-flow",
+          "source": "dci-3",
+          "target": "bdr-2",
+          "labels": {
+            "source_iface": "et-9/0/2",
+            "target_iface": "et-1/1/1"
+          },
+          "metrics": {
+            "delta_bps": 1000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e24",
+          "type": "network-flow",
+          "source": "spn-1",
+          "target": "tor-1",
+          "labels": {
+            "source_iface": "et-3/0/1",
+            "target_iface": "et-0/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e25",
+          "type": "network-flow",
+          "source": "spn-1",
+          "target": "tor-2",
+          "labels": {
+            "source_iface": "et-3/0/2",
+            "target_iface": "et-0/0/1"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e26",
+          "type": "network-flow",
+          "source": "spn-2",
+          "target": "tor-2",
+          "labels": {
+            "source_iface": "et-3/0/2",
+            "target_iface": "et-0/0/2"
+          },
+          "metrics": {
+            "delta_bps": 2000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e27",
+          "type": "network-flow",
+          "source": "spn-2",
+          "target": "tor-3",
+          "labels": {
+            "source_iface": "et-3/0/3",
+            "target_iface": "et-0/0/2"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e28",
+          "type": "network-flow",
+          "source": "spn-3",
+          "target": "tor-1",
+          "labels": {
+            "source_iface": "et-3/0/1",
+            "target_iface": "et-0/0/3"
+          },
+          "metrics": {
+            "delta_bps": 2000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e29",
+          "type": "network-flow",
+          "source": "spn-3",
+          "target": "tor-4",
+          "labels": {
+            "source_iface": "et-3/0/4",
+            "target_iface": "et-0/0/3"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e30",
+          "type": "network-flow",
+          "source": "tor-1",
+          "target": "srv-1",
+          "labels": {
+            "source_iface": "xe-0/0/10",
+            "target_iface": "eno1"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e31",
+          "type": "network-flow",
+          "source": "tor-2",
+          "target": "srv-2",
+          "labels": {
+            "source_iface": "xe-0/0/10",
+            "target_iface": "eno1"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e32",
+          "type": "network-flow",
+          "source": "tor-3",
+          "target": "srv-3",
+          "labels": {
+            "source_iface": "xe-0/0/10",
+            "target_iface": "eno1"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e33",
+          "type": "network-flow",
+          "source": "tor-4",
+          "target": "srv-4",
+          "labels": {
+            "source_iface": "xe-0/0/10",
+            "target_iface": "eno1"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      }
+    ]
+  }
 }

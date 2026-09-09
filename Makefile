@@ -1,22 +1,17 @@
-# 追查 Sankey：trace-sankey 套件 + React app + CLI。
-# 網頁在 app/（Vite dev server）；CLI 只需要 python3。
-PYTHON ?= python3
-CLI    := $(PYTHON) tools/trace_sankey.py
-FILE   ?= samples/classic.json
-KIND   ?= sankey
-OUT    ?= out.html
+# 追查 Sankey：trace-sankey 套件 + React app。
+# 網頁在 app/（Vite dev server）；check／golden 只需要 node。
 IMAGE  ?= trace-sankey
 PORT   ?= 8080
 
 .DEFAULT_GOAL := help
-.PHONY: help dev serve build docker-build content-build up up-dev down electron draw mermaid html check golden clean
+.PHONY: help dev serve build docker-build content-build up up-dev down electron check golden clean
 
 help:  ## 列出所有 target
 	@echo "追查 Sankey — 可用指令："
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk -F':.*?## ' '{printf "  make %-10s %s\n", $$1, $$2}'
 	@echo ""
-	@echo "變數：FILE=<追查 JSON>  KIND=sankey|flow  OUT=<輸出 html>  DIR=<golden 輸出>"
+	@echo "變數：DIR=<golden 輸出目錄>"
 	@echo "      IMAGE=<映像名>  PORT=<對外 port，會傳給 compose 與 make electron，不必改 yml>"
 	@echo ""
 	@echo "上 Kubernetes：kubectl apply -k deploy（設定走 ConfigMap，見 README）"
@@ -52,25 +47,12 @@ electron:  ## 起 Electron 測試殼載 nginx 的畫面（先 make up；開關�
 	  echo "先跑：cd electron && npm install"; exit 1; }
 	@cd electron && env -u ELECTRON_RUN_AS_NODE SANKEY_URL=http://localhost:$(PORT) npm start
 
-draw:  ## CLI 文字報告（FILE=trace.json）
-	@$(CLI) $(FILE)
-
-mermaid:  ## 印 Mermaid（KIND=sankey 或 flow）
-	@$(CLI) $(FILE) --mermaid $(KIND)
-
-html:  ## 產 plotly 互動 HTML（需要 plotly；OUT=out.html）
-	@$(CLI) $(FILE) --plotly $(OUT)
-
-check:  ## 所有內建範例都跑一次 CLI
-	@fail=0; for f in samples/*.json; do \
-	  $(CLI) "$$f" >/dev/null 2>&1 || { echo "FAIL $$f"; fail=1; }; \
-	done; \
-	[ $$fail -eq 0 ] && echo "所有範例都通過。" || exit 1
+check:  ## 所有範例（內建 + samples/ + stress/）都 build 一次，任何一份失敗就非零退出
+	@node tools/golden.mjs check
 
 golden:  ## dump 目前 render/summary 輸出（重構前後 diff -r 對拍用；DIR=輸出目錄）
 	@node tools/golden.mjs dump $(or $(DIR),/tmp/golden)
 
 clean:  ## 刪掉產生的輸出
-	@rm -f $(OUT)
 	@rm -rf app/dist
 	@echo "清乾淨了。"

@@ -1,73 +1,131 @@
 {
   "kind": "source",
   "investigation": {
-    "switchId": "sw-core-1",
+    "node_id": "sw-core-1",
     "iface": "et-1/0/9",
+    "delta_bps": 20000000000,
     "direction": "out",
-    "deltaBps": 20000000000,
     "note": "Core 1 出向 et-1/0/9 +20 Gbps，問誰灌的"
   },
-  "pruning": {
-    "topN": 3,
-    "minShare": 0.1
-  },
-  "hops": [
-    {
-      "switchId": "sw-core-1",
-      "label": "Core 1",
-      "role": "switch",
-      "inputs": [
-        {
-          "iface": "et-1/0/1",
-          "deltaBps": 12000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "sw-edge-a",
-          "peerIface": "et-0/0/48"
-        },
-        {
-          "iface": "et-1/0/2",
-          "deltaBps": 6000000000,
-          "peerKind": "switch",
-          "peerSwitchId": "sw-edge-b",
-          "peerIface": "et-0/0/48"
+  "elements": {
+    "nodes": [
+      {
+        "data": {
+          "id": "sw-core-1",
+          "type": "switch",
+          "name": "Core 1"
         }
-      ]
-    },
-    {
-      "switchId": "sw-edge-a",
-      "label": "Edge A",
-      "role": "switch",
-      "inputs": [
-        {
-          "iface": "xe-0/0/1",
-          "deltaBps": 7000000000,
-          "peerKind": "host",
-          "peerId": "lab-gpu-01",
-          "peerIface": "eno1"
-        },
-        {
-          "iface": "xe-0/0/2",
-          "deltaBps": 3000000000,
-          "peerKind": "host",
-          "peerId": "lab-gpu-02",
-          "peerIface": "eno1"
+      },
+      {
+        "data": {
+          "id": "sw-edge-a",
+          "type": "switch",
+          "name": "Edge A"
         }
-      ]
-    },
-    {
-      "switchId": "sw-edge-b",
-      "label": "Edge B",
-      "role": "switch",
-      "otherInBps": 2000000000,
-      "inputs": [
-        {
-          "iface": "xe-0/0/5",
-          "deltaBps": 4000000000,
-          "peerKind": "host",
-          "peerId": "backup-relay",
-          "peerIface": "eth0"
+      },
+      {
+        "data": {
+          "id": "sw-edge-b",
+          "type": "switch",
+          "name": "Edge B",
+          "other_in_bps": 2000000000
         }
-      ]
-    }
-  ]
+      },
+      {
+        "data": {
+          "id": "lab-gpu-01",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "lab-gpu-02",
+          "type": "host"
+        }
+      },
+      {
+        "data": {
+          "id": "backup-relay",
+          "type": "host"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "data": {
+          "id": "e0",
+          "type": "network-flow",
+          "source": "sw-edge-a",
+          "target": "sw-core-1",
+          "labels": {
+            "source_iface": "et-0/0/48",
+            "target_iface": "et-1/0/1"
+          },
+          "metrics": {
+            "delta_bps": 12000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e1",
+          "type": "network-flow",
+          "source": "sw-edge-b",
+          "target": "sw-core-1",
+          "labels": {
+            "source_iface": "et-0/0/48",
+            "target_iface": "et-1/0/2"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e2",
+          "type": "network-flow",
+          "source": "lab-gpu-01",
+          "target": "sw-edge-a",
+          "labels": {
+            "source_iface": "eno1",
+            "target_iface": "xe-0/0/1"
+          },
+          "metrics": {
+            "delta_bps": 7000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e3",
+          "type": "network-flow",
+          "source": "lab-gpu-02",
+          "target": "sw-edge-a",
+          "labels": {
+            "source_iface": "eno1",
+            "target_iface": "xe-0/0/2"
+          },
+          "metrics": {
+            "delta_bps": 3000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e4",
+          "type": "network-flow",
+          "source": "backup-relay",
+          "target": "sw-edge-b",
+          "labels": {
+            "source_iface": "eth0",
+            "target_iface": "xe-0/0/5"
+          },
+          "metrics": {
+            "delta_bps": 4000000000
+          }
+        }
+      }
+    ]
+  }
 }

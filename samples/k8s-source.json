@@ -1,72 +1,150 @@
 {
   "kind": "source",
   "investigation": {
-    "switchId": "sw-tor-k8s",
+    "node_id": "sw-tor-k8s",
     "iface": "et-0/0/48",
+    "delta_bps": 18000000000,
     "direction": "out",
-    "deltaBps": 18000000000,
     "note": "ToR uplink 出量 +18G，追是哪些 pod 打出來的"
   },
-  "hops": [
-    {
-      "switchId": "sw-tor-k8s",
-      "label": "ToR k8s",
-      "role": "switch",
-      "inputs": [
-        {
-          "iface": "xe-0/0/21",
-          "deltaBps": 12000000000,
-          "peerKind": "node",
-          "peerSwitchId": "node-w-21",
-          "peerIface": "bond0"
-        },
-        {
-          "iface": "xe-0/0/22",
-          "deltaBps": 6000000000,
-          "peerKind": "node",
-          "peerSwitchId": "node-w-22",
-          "peerIface": "bond0"
+  "elements": {
+    "nodes": [
+      {
+        "data": {
+          "id": "sw-tor-k8s",
+          "type": "switch",
+          "name": "ToR k8s"
         }
-      ]
-    },
-    {
-      "switchId": "node-w-21",
-      "label": "node-w-21",
-      "role": "node",
-      "inputs": [
-        {
-          "deltaBps": 7000000000,
-          "peerKind": "pod",
-          "peerId": "web-6f8d",
-          "namespace": "frontend"
-        },
-        {
-          "deltaBps": 3000000000,
-          "peerKind": "pod",
-          "peerId": "cache-1",
-          "namespace": "frontend"
-        },
-        {
-          "deltaBps": 2000000000,
-          "peerKind": "pod",
-          "peerId": "batch-9k",
-          "namespace": "batch"
+      },
+      {
+        "data": {
+          "id": "node-w-21",
+          "type": "node",
+          "name": "node-w-21"
         }
-      ]
-    },
-    {
-      "switchId": "node-w-22",
-      "label": "node-w-22",
-      "role": "node",
-      "inputs": [
-        {
-          "iface": "veth71aa",
-          "deltaBps": 6000000000,
-          "peerKind": "pod",
-          "peerId": "job-runner-5c",
-          "namespace": "batch"
+      },
+      {
+        "data": {
+          "id": "node-w-22",
+          "type": "node",
+          "name": "node-w-22"
         }
-      ]
-    }
-  ]
+      },
+      {
+        "data": {
+          "id": "web-6f8d",
+          "type": "pod",
+          "labels": {
+            "namespace": "frontend"
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "cache-1",
+          "type": "pod",
+          "labels": {
+            "namespace": "frontend"
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "batch-9k",
+          "type": "pod",
+          "labels": {
+            "namespace": "batch"
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "job-runner-5c",
+          "type": "pod",
+          "labels": {
+            "namespace": "batch"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "data": {
+          "id": "e0",
+          "type": "network-flow",
+          "source": "node-w-21",
+          "target": "sw-tor-k8s",
+          "labels": {
+            "source_iface": "bond0",
+            "target_iface": "xe-0/0/21"
+          },
+          "metrics": {
+            "delta_bps": 12000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e1",
+          "type": "network-flow",
+          "source": "node-w-22",
+          "target": "sw-tor-k8s",
+          "labels": {
+            "source_iface": "bond0",
+            "target_iface": "xe-0/0/22"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e2",
+          "type": "network-flow",
+          "source": "web-6f8d",
+          "target": "node-w-21",
+          "metrics": {
+            "delta_bps": 7000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e3",
+          "type": "network-flow",
+          "source": "cache-1",
+          "target": "node-w-21",
+          "metrics": {
+            "delta_bps": 3000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e4",
+          "type": "network-flow",
+          "source": "batch-9k",
+          "target": "node-w-21",
+          "metrics": {
+            "delta_bps": 2000000000
+          }
+        }
+      },
+      {
+        "data": {
+          "id": "e5",
+          "type": "network-flow",
+          "source": "job-runner-5c",
+          "target": "node-w-22",
+          "labels": {
+            "target_iface": "veth71aa"
+          },
+          "metrics": {
+            "delta_bps": 6000000000
+          }
+        }
+      }
+    ]
+  }
 }

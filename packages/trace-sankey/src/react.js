@@ -7,6 +7,7 @@ import { mount } from './mount.js';
 /* props：
      doc        追查 JSON（必填）
      minBps     顯示門檻（bps），預設 0
+     channels   'both'（預設）／'read'／'write'，只看 storage 資料的其中一個通道
      className / style   直接放到容器 div 上；容器高度由這裡決定，元件不設高度
      onModel / onError / onZoom   轉交 mount()，永遠呼叫到最新的一份（存 ref，
                 callback identity 變了不會觸發重新掛載）
@@ -21,6 +22,7 @@ export var TraceSankey = forwardRef(function TraceSankey(props, ref) {
   useEffect(function () {
     var inst = mount(elRef.current, latest.current.doc, {
       minBps: latest.current.minBps || 0,
+      channels: latest.current.channels || 'both',
       onModel: function (m) { if (latest.current.onModel) latest.current.onModel(m); },
       onError: function (e) { if (latest.current.onError) latest.current.onError(e); },
       onZoom: function (s) { if (latest.current.onZoom) latest.current.onZoom(s); }
@@ -29,10 +31,12 @@ export var TraceSankey = forwardRef(function TraceSankey(props, ref) {
     return function () { inst.destroy(); instRef.current = null; };
   }, []);
 
-  /* 資料或門檻變了才 update；mount 內部的 key 比對讓「同內容的新物件」不重畫、縮放不被洗掉 */
+  /* 資料、門檻或通道變了才 update；mount 內部的 key 比對讓「同內容的新物件」不重畫、縮放不被洗掉 */
   useEffect(function () {
-    if (instRef.current) instRef.current.update(props.doc, { minBps: props.minBps || 0 });
-  }, [props.doc, props.minBps]);
+    if (instRef.current) {
+      instRef.current.update(props.doc, { minBps: props.minBps || 0, channels: props.channels || 'both' });
+    }
+  }, [props.doc, props.minBps, props.channels]);
 
   /* useImperativeHandle 在 mount effect 之前跑，instRef 當下還是 null——
      所以回傳的是轉呼叫的殼，不是實例本身 */
@@ -41,6 +45,7 @@ export var TraceSankey = forwardRef(function TraceSankey(props, ref) {
     return {
       update: function (d, o) { return inst() ? inst().update(d, o) : null; },
       setMinBps: function (n) { return inst() ? inst().setMinBps(n) : null; },
+      setChannels: function (c) { return inst() ? inst().setChannels(c) : null; },
       refresh: function () { if (inst()) inst().refresh(); },
       get model() { return inst() ? inst().model : null; },
       zoom: {
