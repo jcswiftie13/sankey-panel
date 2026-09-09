@@ -45,6 +45,26 @@ API 呼叫關在 `app/src/api.js`，換端點只改 `api.js` 裡的一個常數�
 VITE_DEV_API=http://10.0.0.5:8000 make dev
 ```
 
+#### dev 專用的本機資料來源（不用起後端）
+
+`make dev` 的上方會多一列標著 `dev` 的控制項：一個內建範例下拉（`trace-sankey/samples`
+那十一份），與一顆「選檔…」（讀本機任何 `.json`，`samples/` 與 `stress/` 都載得到）。
+改 `render.js`／CSS 想掃過所有範例、或想看 `stress/05-huge.json` 那種規模時不必起後端。
+兩條路都走 `useTraceDoc` 裡跟 API 回應同一個 `validate()`，所以手改的 JSON 打錯字會出
+一樣的錯誤橫幅，而且**不會清掉你正在看的圖**。
+
+**只有 `make dev` 有這一列。** 它整支關在 `import.meta.env.DEV` 的動態 import 後面，
+`vite build` 會把那個條件換成 `false`、整段連同 `import()` 一起消掉，所以 chunk 根本不會產生——
+`app/dist` 裡沒有任何範例位元組，「同一顆 content 映像跨環境共用」的前提不變。
+`make build`／`make up-dev`／`make electron` 端的都是正式 build，那裡沒有這一列**是設計，不是壞掉**。
+要自己確認：
+
+```bash
+npm run build --workspace app
+grep -ra "sw-edge-a\|lab-gpu-01\|DevSampleBar\|trace-sankey/samples" app/dist/assets/*.js   # 期望沒有輸出
+find app/dist -name '*.js' | wc -l                                                            # 期望 1，沒有多出 chunk
+```
+
 ### 用 nginx 部署
 
 要對外給人看（或給 Electron 載）時不要用 dev server。**網頁內容與 nginx 是分開的兩層**，
@@ -811,7 +831,7 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 - tier 內部的邊畫成**欄右側的弧帶**（往右凸再折回），厚度與青帶共用同一把比例尺，守恆照常經過。
   它不是另一種狀態，就是一條已追查的帶，只是兩端排在同一欄才改畫成馬蹄形；馬蹄形讀不出方向，
   所以弧的終點端有個**箭頭指流向**。
-- 範例見 `samples/dci-tier.json`（網頁上的「同層互連（tier）」）。
+- 範例見 `samples/dci-tier.json`（`make dev` 的 dev 範例下拉裡叫「同層互連（tier）」）。
 
 ## 追查方向
 
@@ -934,6 +954,8 @@ app/                         Vite + React 使用端
   src/useTraceDoc.js         資料來源 hook：查詢、abort、契約驗證
   src/TraceQueryBar.jsx      查詢條件表單（七個欄位 + 送出前檢查）
   src/App.jsx                圖、顯示門檻、圖例、縮放工具列的接線
+  src/DevSampleBar.jsx       dev 專用的本機資料來源列（內建範例下拉＋選檔）。
+                             只被 App 的 import.meta.env.DEV 分支動態載入，不進正式 bundle
 electron/                    Electron 測試殼（make electron）：BrowserView 載 nginx，
                              可用環境變數重現各種「host 設錯」的情況。
                              刻意不在 npm workspaces 裡，見 electron/README.md

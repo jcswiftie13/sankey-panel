@@ -99,6 +99,8 @@ packages/trace-sankey/
   types/index.d.ts        手寫型別（JS 原始碼不轉 TS）
 app/                      Vite + React 使用端
   src/App.jsx             圖、顯示門檻、圖例、縮放、快捷鍵的接線
+  src/DevSampleBar.jsx    dev 專用的本機資料來源列（內建範例下拉＋選檔）；只被 App 的
+                          import.meta.env.DEV 動態 import 載入，正式 bundle 裡不存在
   src/api.js              追查 API 的唯一出入口：組 query、fetch、翻譯錯誤、時間轉換
   src/useTraceDoc.js      資料來源 hook：run() → fetch → validate；abort 舊查詢
   src/TraceQueryBar.jsx   查詢表單；buildParams() 是可測的純函式
@@ -161,7 +163,23 @@ app 端約束（`App.jsx`）：門檻重畫 debounce 200ms、提示文字不 deb
 **拖放 effect 要留著**：開檔與拖放功能已移除，但它無條件 `preventDefault()` 且掛在
 capture 階段，這是 host 沒設 `will-navigate` 白名單時唯一擋得住「整頁導航到
 `file://…json`」的地方——別因為「沒有開檔功能了」就把它一起刪掉。
-舊版 query string／分頁／編輯器／開檔／拖放／localStorage 續存均為移除狀態。
+舊版 query string／分頁／編輯器／localStorage 續存均為移除狀態；**開檔以 dev 專用的形式回來了**
+（見下），拖放沒有回來。
+**dev 專用的本機資料來源**（`DevSampleBar.jsx`：內建範例下拉＋選檔）整支關在 App 的
+`if (import.meta.env.DEV) { import('./DevSampleBar.jsx') }` 後面——`vite build` 把條件換成
+`false`、整段連同 `import()` 一起消掉，Rollup 因此**不產生那個 chunk**，正式 bundle 零範例位元組
+（這是「同一顆 content 映像跨環境共用」的延伸，見 §11）。所以那支檔案裡可以放心「靜態」
+import `trace-sankey/samples`。**不要**改成靜態 import ＋ 條件渲染：那要賭 Rollup 能證明那條
+JSX 分支是死的，多牽一條引用就會安靜地把 30KB 範例烤進去、沒有任何警告。
+動這塊之後一定要重跑驗證：`npm run build --workspace app` 後
+`grep -ra "sw-edge-a\|lab-gpu-01\|DevSampleBar\|trace-sankey/samples" app/dist/assets/*.js`
+必須沒有輸出，且 `find app/dist -name '*.js' | wc -l` 仍是 1。
+`make up-dev` 與 Electron 殼載的都是正式 build，**那裡沒有這一列是設計、不是壞掉**。
+資料進 doc 的第二條路是 `useTraceDoc` 的 `showDoc(json, label)`：先 abort 前一個查詢
+（否則慢的舊回應會蓋掉剛載進來的那份）、走**同一個** `validate()`、失敗只設 error 不動 doc。
+`JSON.parse` 失敗的呼叫端直接傳 `null` 進來就好，`validate(null)` 會回「最外層必須是 JSON 物件。」，
+落進同一個橫幅，不必開第二條錯誤通道。`source`（`{kind:'api'}`／`{kind:'local',label}`）
+**只在 `run()` 成功時**才變回 api——查詢失敗不動 doc，來源標示就得跟著圖走。
 **app 沒有 `channels` 切換鈕**（刻意，那是給使用套件的人接的 API）；圖例在 model 有通道邊時
 自動換成 read／write 兩色、有 status 時多一行外框色說明。
 
