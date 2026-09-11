@@ -5,7 +5,7 @@
    overflow:hidden 裁掉。內容來源是 render 寫在每條 .band 與每張卡的 <g> 上的 data-tip JSON：
    帶子是 {from,to,fi,ti,bps,...}、節點是 {node:1,title,rows:[[k,v],...]}（render 已格式化好）。 */
 import { fmtRate, fmtBytes } from './model/format.js';
-import { esc } from './render.js';
+import { esc } from './layout/text.js';
 
 function row(k: string, v: string) { return '<div class="t-row"><span>' + esc(k) + '</span><span>' + esc(v) + '</span></div>'; }
 
