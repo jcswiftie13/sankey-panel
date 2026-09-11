@@ -270,11 +270,13 @@ build 分七步（門檻／通道散在步驟 2、4b、6 三處，用 ★ 標）
    **葉 pod 再接推導邊**（`linkPod`）：有 application 祖先 → pod→app（`appFor`，鍵帶 ns）＋ app→ns（全 app 共用一條，
    累加）；否則 pod→ns（`nsFor`）。第一次在 hop→pod 邊之後立刻建（邊序＝z-order），之後同 pod 只累加。
    推導邊 `unit` 沿用 pod 入邊、`channel:null`、`derived:true`。source 模式全部反接。
-   **葉再接 owner 卡**（`linkOwner`／`ownerFor`／`ownerGroups`）：依 `clients[].owner` 分組（沒 owner 的
-   全歸「未知 owner」，鍵用獨立變數 `unknownOwner` 不是字串，真有人叫這名字才不會被併掉），
-   同名 owner 全圖合一。**整張卡只有一組 owner 才把量帶過去**（`metered`，全額、算進 `meteredPorts`）；
-   一張卡掛多個 owner 就每組各一條 `owns:true` 的**歸屬線**：`bps` 恆 0、只表達歸屬——
-   按台數拆開就是 `5499b24` 移除過的攤分推估（見 §10.13）。owner 卡另記 `clientCount`／`portCount`。
+   **葉再接 owner 卡**（`linkOwner`／`ownerFor`／`ownerGroups`）：依 `clients[].owner` 分組、同名全圖合一。
+   **查不到 owner 的那一組不開卡也不連線**（「查不到」不是一個人），但 `ownerGroups` 仍要回傳它——
+   `metered` 看的是**全部**組數：卡上還有不知道是誰的機器時，那張卡的量就不是這個 owner 一個人的。
+   **整張卡只有一組（且具名）才把量帶過去**（`metered`，全額、算進 `meteredPorts`）；否則每個具名 owner
+   各一條 `owns:true` 的**歸屬線**：`bps` 恆 0、只表達歸屬——拆開就是 `5499b24` 移除過的攤分推估
+   （見 §10.13）。一個 owner 都查不到的葉整個不接（`ownerLinked` 不設，維持終點葉卡）。
+   owner 卡另記 `clientCount`／`portCount`／`meteredPorts`。
 3. **錨卡** `__anchor__`：**有 `investigation` 才建**；root 若是 1b 丟掉的 node → `ok:false`；
    `root.noFlow = false`（錨邊就是它的流量）。★ 錨邊在過濾之後才建，所以追查起點永遠保留。
 4. **掛邊**；★ **4b 移除孤立節點**（`minBps > 0 || channels !== 'both'` 時）：**noFlow 卡豁免**，其餘一條邊都

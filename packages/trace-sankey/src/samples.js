@@ -327,8 +327,9 @@ var SAMPLES = [
     name: '無鄰居 port 的 client',
     desc: '追到 access port 就沒有 LLDP 鄰居了。後端改用 ARP／MAC table／DHCP／CMDB 查出這個 port 上掛了誰，' +
       '寫成 nodes[].data.clients；一個 port 一張葉卡（量測不到 per-client 流量，不做攤分），卡上列 IP／hostname／owner。' +
-      '再依 owner 聚合出一欄 owner 卡：整張卡同一個 owner 才把量帶過去，一個 port 掛多個 owner 時' +
-      '量停在 port、只畫灰虛線的歸屬線。最後一張是沒有 clients 的對照組。',
+      '再依 owner 聚合出一欄 owner 卡：整張卡只有這一個 owner 才把量帶過去，port 上還有別人（或查不到' +
+      ' owner）的機器時量停在 port、只畫灰虛線的歸屬線。一個 owner 都查不到的 port 不接 owner 層。' +
+      '最後一張是沒有 clients 的對照組。',
     json: {
       kind: 'destination',
       investigation: {

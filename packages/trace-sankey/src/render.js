@@ -612,10 +612,11 @@ function nodeTip(n, model) {
       if (resOut(n)) rows.push(['其他輸出', A(n.otherOut, n.unit)]);
     }
   } else {
-    /* owner 卡的量只來自「整張卡同一個 owner」的 port。名下全是混合 owner 的 port 時
-       bps 是 0，那不是「沒有流量」而是「量停在 port」——不能印成 0。 */
+    /* owner 卡的量只來自「整張卡只有這一個 owner」的 port。名下的 port 上只要還有別人的
+       機器（或查不到 owner 的機器），bps 就是 0——那不是「沒有流量」而是「量停在 port」，
+       不能印成 0。 */
     if (n.role === 'owner') {
-      rows.push(['已量到的合計', n.bps > 0 ? R(n.bps, n.unit) : '—（名下的 port 都掛著多個 owner，量停在 port）']);
+      rows.push(['已量到的合計', n.bps > 0 ? R(n.bps, n.unit) : '—（名下的 port 上還有別人的機器，量停在 port）']);
       rows.push(['client', n.clientCount + ' 台']);
       rows.push(['port', n.portCount + ' 個']);
     } else {
@@ -819,7 +820,7 @@ function appCard(n, model, nsColor) { return groupCard(n, model, nsColor, 'appli
 
 /* owner 終點卡：client 的負責人。跟 ns／app 一樣是邏輯彙總（實線描邊，虛線留給設備／截斷），
    但 owner 不是 namespace、沒有 ns 色，用葉卡那支灰——不新增顏色定義。
-   bps 只來自「整張卡同一個 owner」的 port；名下全是混合 owner 的 port 時 bps 是 0，
+   bps 只來自「整張卡只有這一個 owner」的 port；名下的 port 上還有別人的機器時 bps 是 0，
    那不是「沒有流量」而是「量停在 port」，所以第三行改印台數，不能印一個 0 出來。 */
 function ownerCard(n, model) {
   var s = [];

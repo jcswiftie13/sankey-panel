@@ -23,8 +23,9 @@ function bandHtml(d) {
     /* 無鄰居 port 上查到的 client：一筆直接印，多筆印數量與清單（完整欄位在卡片的 tooltip） */
     (d.clients ? row('client', d.clients.length === 1 ? d.clients[0]
       : d.clients.length + ' 個：' + d.clients.join(' · ')) : '') +
-    /* 歸屬線：這個 port 上掛著多個 owner，量停在 port（拆開就是攤分推估，我們不做） */
-    (d.owns ? row('歸屬', '這個 port 掛了多個 owner，量停在 port（不攤分）') : '') +
+    /* 歸屬線：這個 port 上還有別人（或查不到 owner）的機器，量停在 port——
+       拆開就是攤分推估，我們不做 */
+    (d.owns ? row('歸屬', '這個 port 上還有別人的機器，量停在 port（不攤分）') : '') +
     (d.tier ? row('tier', d.tier) : '') +
     (d.attr ? row('attribution', d.attr === 'split' ? 'split（平均攤分的估計值）' : d.attr) : '') +
     (d.anchor ? row('這條是追查起點', '') : '') +

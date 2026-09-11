@@ -675,20 +675,25 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
 
 有 `clients` 的 port 葉卡右邊會再長一欄 **owner 卡**，同名 owner 全圖合一，
 「這個人名下總共多少流量」直接在圖上讀（比照 pod → application → namespace 的推導卡）。
-`owner` 是自由字串，原樣當鍵；沒有 `owner` 的 client 全歸同一張「未知 owner」卡
-（用內部鍵，真的有人叫這個名字也不會被併掉）。**沒有 `clients` 的葉不長 owner 層**，
-維持原本的「追查終止」小卡。
+`owner` 是自由字串，原樣當鍵。**查不到 `owner` 的 client 不開卡、也不連線**——「查不到」
+不是一個人，做成一張卡只會是全圖最大的一張、佔著最顯眼的位置卻什麼都沒說。
+**沒有 `clients` 的葉、以及一個 `owner` 都查不到的 port，都不長 owner 層**，維持原本的
+「追查終止」小卡。
 
-量怎麼帶過去，取決於這個 port 掛了幾個 owner：
+量怎麼帶過去，取決於這個 port 上有幾種人的機器：
 
 | 情況 | 帶 | 為什麼 |
 | --- | --- | --- |
-| 整張卡同一個 owner（含全部都沒有 owner） | **實量帶**：青色、帶全額數字 | 跟 pod → app 一樣是同一筆數字的重新分組 |
-| 一張卡掛了多個 owner | **歸屬線**：灰虛線、不帶數字 | 後端量得到的只有整個 port 的 Δ bps，按台數拆給各 owner 就是攤分推估（見「不做的事」） |
+| 整張卡**只有這一個** owner | **實量帶**：青色、帶全額數字 | 跟 pod → app 一樣是同一筆數字的重新分組 |
+| 卡上還有別人的機器，**或還有查不到 owner 的機器** | **歸屬線**：灰虛線、不帶數字 | 後端量得到的只有整個 port 的 Δ bps，拆給各 owner 就是攤分推估（見「不做的事」） |
+| 整張卡**一個 owner 都查不到** | 不接、沒有線 | 沒有可聚合的對象 |
 
-- 混合 owner 的 port **照樣分多條線連到每一個 owner**，只是那些線不帶量——歸屬看得到，量停在 port。
+- **查不到 owner 的 client 雖然不開卡，但仍然算一組**：一張卡上有具名 owner ＋ 也有查不到的機器時，
+  那張卡**算混合**，到具名 owner 只畫不帶量的歸屬線。那個 port 的量裡有不知道是誰的機器的份，
+  整額記到具名那位頭上就是灌水，而且圖上完全看不出來。
+- 混合的 port **照樣分多條線連到每一個具名 owner**，只是那些線不帶量——歸屬看得到，量停在 port。
 - owner 卡上第一行是**已量到的合計**（只累加實量帶）。名下只要有一個 port 是混合的，
-  數字後面就標「（部分 port）」；名下全是混合 port 時第一行改印「量停在 port」，
+  數字後面就標「（部分 port）」；名下的 port 上都還有別人的機器時第一行改印「量停在 port」，
   **絕不印一個 0**——那會被讀成「這個人沒有流量」。第二行是 `N 台 client · M 個 port`。
 - 接了 owner 卡的 port 葉，左上角從「追查終止」改成 `port`（它已經是中繼了，比照 pod 卡）。
 - owner 層在葉之後，**完全不影響每台 hop 的守恆**（殘差只算 hop）。
@@ -707,8 +712,8 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
 | 殘差色塊 | `other_in_bps`／`other_out_bps`，或平衡式自動補 |
 | 葉卡 | `type` 不是 hop／群組的節點：標題 `name`／`id`、`labels.namespace` 色條、iface、數量合計；右上角 `未再往下追` |
 | 葉卡（帶 `clients`） | 標題只在有 `name` 時畫；`labels.namespace` 色條、`clients` 的 `hostname` / `ip` / `owner` 三欄表格（有表頭、每台一列、全部列出、空欄不畫）、數量合計（**不重複印 iface**）；右上角 `client`／`N 個 client` |
-| owner 卡 | 從葉卡的 `clients[].owner` 推導：標題＝owner 字串（沒有的歸「未知 owner」）、已量到的合計（只算「整張卡同一個 owner」的 port，不足時標「（部分 port）」／全無時印「量停在 port」）、`N 台 client · M 個 port` |
-| 歸屬線 | 一個 port 掛多個 owner 時葉卡 → 各 owner 卡的灰虛線，**不帶量、不印數字** |
+| owner 卡 | 從葉卡的 `clients[].owner` 推導（查不到 owner 的不開卡）：標題＝owner 字串、已量到的合計（只算「整張卡只有這一個 owner」的 port，不足時標「（部分 port）」／全無時印「量停在 port」）、`N 台 client · M 個 port` |
+| 歸屬線 | port 上不只一位的機器（含查不到 owner 的）時，葉卡 → 各具名 owner 卡的灰虛線，**不帶量、不印數字** |
 | pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條（推導的 ns）、iface、數量 |
 | application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：標題＝群組的 `name`、合計、pod 數、成員最差 `status` 框 |
 | 錨卡 | `investigation`：`iface`、方向、`delta_bps`、`note`（tooltip） |
@@ -940,10 +945,11 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 - 追查終止葉節點是灰色虛線小卡（「追查終止」「未再往下追」＋ iface ＋ 帶寬），不是又一台 switch。
   節點帶 `clients` 時右上角改成 `client`／`N 個 client`，卡面改成 `hostname` / `ip` / `owner`
   三欄表格、每台一列全部列出，並省掉合成 id 標題與重複的 iface（見「`clients`」）。
-- **`clients` 再依 `owner` 聚合出一欄 owner 卡**（同名全圖合一，沒 owner 的歸「未知 owner」）：
-  整張卡同一個 owner 才把量整額帶過去（青色實量帶），一個 port 掛多個 owner 時**量停在 port**、
-  只畫灰虛線的歸屬線（不帶量、不印數字）——按台數拆開就是攤分推估。接了 owner 的 port 葉
-  左上角改成 `port`。整欄 owner 的欄標題是「追查終止 · owner」。
+- **`clients` 再依 `owner` 聚合出一欄 owner 卡**（同名全圖合一；查不到 owner 的**不開卡也不連線**，
+  但仍算一組）：整張卡只有這一個 owner 才把量整額帶過去（青色實量帶），port 上還有別人（或查不到
+  owner）的機器時**量停在 port**、只畫灰虛線的歸屬線（不帶量、不印數字）——拆開就是攤分推估。
+  一個 owner 都查不到的 port 不接 owner 層。接了 owner 的 port 葉左上角改成 `port`。
+  整欄 owner 的欄標題是「追查終止 · owner」。
 - k8s 接在同一條 Sankey 上：switch → node（天藍虛線盒）→ pod（天藍虛線中繼卡，標 name 與
   `ns/<namespace>`）→ namespace（ns 色終點卡）。不是每個 switch iface 都接 node；node 可以
   當葉（沒有往下的邊就整台由平衡式補成其他輸出）；pod 沒有 namespace 也合法（不接 ns、沒有色條）。

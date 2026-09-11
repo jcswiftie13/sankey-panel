@@ -212,7 +212,7 @@ export default function App() {
           <span><i className="lg-rose" />其他輸出（截斷／太小，貼右側，高度等比）</span>
           <span><i className="lg-gray" />追查終止葉節點（不是又一台 switch）</span>
           {hasOwns && (
-            <span><i className="lg-own" />歸屬（這個 port 掛了多個 owner，量停在 port、不攤分）</span>
+            <span><i className="lg-own" />歸屬（這個 port 上不只這一位的機器，量停在 port、不攤分）</span>
           )}
           {hasStatus && (
             <span><i className="lg-status" />外框色＝status（<b className="c-warn">warning</b>／<b className="c-crit">critical</b>）</span>
