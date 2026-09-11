@@ -1,5 +1,6 @@
 # 網頁與 nginx 拆成兩層：內容在自己的小映像裡，nginx 用官方映像＋掛載。
-#   改 deploy/conf.d/default.conf → docker compose exec web nginx -s reload（完全不用 build）
+#   改 deploy/templates/default.conf.template → docker compose restart web（完全不用 build）
+#     （只 nginx -s reload 不會生效：reload 不重跑 envsubst，見 template 檔頭）
 #   換一版網頁           → make up（只重建那個幾 MB 的 content 映像）
 #   nginx 升版           → 改下面的 tag 就好，內容不動
 #
@@ -34,11 +35,25 @@ services:
     depends_on:
       content:
         condition: service_completed_successfully
+    environment:
+      # 強制：官方 entrypoint 的 envsubst 沒有 filter 時會把 conf 裡的 $host、$uri…
+      # 全部換成空字串，而 try_files 那行換完仍是合法語法 → 整站靜默壞掉。
+      # 詳見 deploy/templates/default.conf.template 檔頭。這個值不是機密，寫死在這裡。
+      NGINX_ENVSUBST_FILTER: "^TRACE_"
+      # 後端的 service token，X-API-Key 的值（例：export TRACE_API_AUTH='sk-…'）。
+      # `:-` 讓沒設定時是「已定義的空字串」而不是「未定義」——未定義的話 envsubst 不認得它，
+      # dollar-brace 參照會原樣留在渲染結果裡，後端收到字面字串然後回 401。
+      TRACE_API_AUTH: ${TRACE_API_AUTH:-}
     volumes:
       - web:/usr/share/nginx/html:ro
       # 掛目錄不掛單檔：單檔 bind mount 綁 inode，編輯器存檔換掉 inode
-      # 之後容器內那支檔案會消失（見 deploy/conf.d/default.conf 檔頭）。
-      - ./deploy/conf.d:/etc/nginx/conf.d:ro
+      # 之後容器內那支檔案會消失（見 deploy/templates/default.conf.template 檔頭）。
+      - ./deploy/templates:/etc/nginx/templates:ro
+    # conf.d 是 envsubst 的輸出目的地，必須可寫，不能再掛成唯讀。
+    # 用 tmpfs 而不是讓它留在映像層：順便蓋掉官方自帶的 default.conf（不會有兩個 server 區塊），
+    # 而且渲染出來、帶著明文 token 的那份 conf 只留在記憶體裡、不落到容器磁碟。
+    tmpfs:
+      - /etc/nginx/conf.d
     # 對外 port 只有這一個來源；Makefile 的 PORT 會傳進來，不用兩邊手動同步。
     ports:
       - "${PORT:-8080}:80"

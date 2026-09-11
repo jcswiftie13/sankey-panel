@@ -4,7 +4,7 @@
    1. 免 CORS——請求與網頁同源，瀏覽器的同源政策根本不介入。
    2. 免把後端網址烤進 bundle——Vite 是在 build 時把 import.meta.env 做字串替換，
       網址一旦固化就得每個環境 build 一顆映像，跟「同一顆 content 映像跨環境共用」衝突。
-      後端在哪是 deploy/conf.d/default.conf 的事，不是前端程式的事。
+      後端在哪是 deploy/templates/default.conf.template 的事，不是前端程式的事。
    端點路徑改這一個常數就好。 */
 const ENDPOINT = '/api/trace';
 

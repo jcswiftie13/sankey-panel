@@ -12,7 +12,7 @@
 <body>
   <iframe id="f" referrerpolicy="no-referrer"></iframe>
   <!-- EMBED=iframe 專用：模擬「host 不是用 BrowserView，而是拿自己的頁面
-       <iframe> 你」的情況。這時 deploy/conf.d/default.conf 的
+       <iframe> 你」的情況。這時 deploy/templates/default.conf.template 的
        X-Frame-Options: DENY 就會真的生效，畫面應該是全空的。
        src 從 query 帶進來，才不會把 URL 寫死。 -->
   <script>

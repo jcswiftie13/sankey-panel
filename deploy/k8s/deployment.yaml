@@ -32,15 +32,36 @@ spec:
           ports:
             - name: http
               containerPort: 80
+          env:
+            # 強制：沒有 filter 的話 envsubst 會把 conf 裡的 $host、$uri… 全換成空字串，
+            # 而 try_files 那行換完仍是合法語法 → 整站靜默壞掉。
+            # 詳見 deploy/templates/default.conf.template 檔頭。這個值不是機密。
+            - name: NGINX_ENVSUBST_FILTER
+              value: "^TRACE_"
+            # 後端的 service token（X-API-Key 的值）。Secret 由部署者自己建、不進 repo：
+            #   kubectl create secret generic trace-sankey-api-auth --from-literal=auth='sk-…'
+            # 刻意不加 optional: true——缺 Secret 時 pod 直接 CreateContainerConfigError，
+            # 比「安靜地把字面 dollar-brace 參照送給後端然後 401」好查太多。
+            # 不需要 token 的叢集就建一把空值的：空字串 → nginx 整個不送這個 header。
+            - name: TRACE_API_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: trace-sankey-api-auth
+                  key: auth
           volumeMounts:
             - name: web
               mountPath: /usr/share/nginx/html
               readOnly: true
-            # 掛整個 conf.d 目錄（不是單一檔案）：這樣官方映像自帶的
-            # default.conf 會被整組取代掉，不會有兩個 server 區塊打架。
+            # 掛整個 templates 目錄（不是單一檔案）：官方 entrypoint 會把裡面的
+            # default.conf.template 跑過 envsubst，輸出到下面那個可寫的 conf.d。
+            - name: templates
+              mountPath: /etc/nginx/templates
+              readOnly: true
+            # conf.d 是 envsubst 的「輸出」目的地，必須可寫，不能再掛唯讀 ConfigMap。
+            # 空的 emptyDir 同時也蓋掉官方映像自帶的 default.conf，不會有兩個 server 區塊打架；
+            # medium: Memory 讓渲染出來、帶著明文 token 的那份 conf 不落到節點磁碟。
             - name: conf
               mountPath: /etc/nginx/conf.d
-              readOnly: true
           readinessProbe:
             httpGet:
               path: /
@@ -56,6 +77,9 @@ spec:
       volumes:
         - name: web
           emptyDir: {}
-        - name: conf
+        - name: templates
           configMap:
             name: trace-sankey-nginx
+        - name: conf
+          emptyDir:
+            medium: Memory

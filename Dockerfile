@@ -24,6 +24,14 @@ COPY --from=build /src/app/dist /dist
 
 FROM nginx:1.27-alpine AS standalone
 COPY --from=build /src/app/dist /usr/share/nginx/html
-COPY deploy/conf.d/ /etc/nginx/conf.d/
+# 掛的是 template：官方映像的 entrypoint 會在啟動時 envsubst 成 /etc/nginx/conf.d/default.conf。
+COPY deploy/templates/ /etc/nginx/templates/
+# NGINX_ENVSUBST_FILTER 是強制的（沒有它 conf 裡的 $host、$uri… 會被換成空字串，
+# 而且 try_files 那行換完仍是合法語法，整站會靜默壞掉）——見 template 檔頭。
+# TRACE_API_AUTH 給空字串是為了讓它「已定義」：未定義的話 envsubst 不認得它，
+# dollar-brace 參照會原樣留在渲染結果裡。空字串 → nginx 整個不送 X-API-Key，
+# 行為與加這段之前完全一樣。要注入 token 就 docker run -e TRACE_API_AUTH='sk-…'。
+ENV NGINX_ENVSUBST_FILTER="^TRACE_" \
+    TRACE_API_AUTH=""
 EXPOSE 80
 # 不寫 CMD：官方 nginx 映像自帶前景模式的 entrypoint。

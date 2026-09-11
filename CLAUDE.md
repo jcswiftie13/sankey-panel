@@ -30,8 +30,10 @@ repo 名 `sankey-panel` 只是倉庫名）。原始情境：你在某台 switch 
 **明確不做**（README）：不自動偵測 switch/counter、不掃網、無帳號無資料庫、追來源不做
 左右鏡射、殘差不畫成穿越全圖的 sink 河、未追對端不畫成完整 switch 盒。參考面板有而我們刻意不跟的
 UI（Read/Write 切換鈕、Flat/Node layout、全路徑高亮、summary 表、Locate、淺色主題、scope bar）
-列在 README「與參考面板的行為分歧」。**沒有帳號、token 或 session**：連得到 `/api/` 的人
-就查得到全部資料（CORS 只約束網頁裡的 JS，擋不住 curl），存取控制留給部署層做。
+列在 README「與參考面板的行為分歧」。**沒有使用者層的存取控制**：沒有帳號、登入或 session，
+連得到 nginx 的人就查得到全部資料（CORS 只約束網頁裡的 JS，擋不住 curl），存取控制留給部署層做。
+nginx **與後端之間**可以有一把 service token（環境變數 `TRACE_API_AUTH`，見 §11），
+那是給後端拒絕「沒經過 nginx 的直連」用的，不是身分驗證——nginx 會替每個訪客補上那個 header。
 
 ## 2. 架構與技術棧
 
@@ -51,14 +53,16 @@ npm workspaces monorepo-lite，兩個部分（外加一個**刻意不在 workspa
   開發時 Vite 直接吃套件 src/（workspace symlink），改套件存檔即熱更新，**沒有 ?v= 快取紀律了**。
 - **部署——nginx 靜態託管，網頁與 nginx 分成兩層**（細節與陷阱見 §11）。`Dockerfile` 三個
   stage（build → content → standalone）＋ `docker-compose.yml`（content 映像倒進 volume +
-  官方 nginx）＋ `docker-compose.dev.yml`（bind mount app/dist）＋ `deploy/conf.d/default.conf`
+  官方 nginx）＋ `docker-compose.dev.yml`（bind mount app/dist）＋ `deploy/templates/default.conf.template`
   ＋ `deploy/kustomization.yaml`（k8s）。`make up` / `make up-dev` / `make down` /
   `make content-build` / `make docker-build` / `make build`；對外 port 用 `PORT=`。
   **靜態檔 + 一段 `/api/` 反向代理**：前端只打同源相對路徑（免 CORS、不把後端網址烤進
   bundle），後端位置寫在 `set $trace_api …` 那一行；`proxy_pass` 是**變數 + `resolver`**，
   不是固定 hostname——固定 hostname 會讓 nginx 在 API 沒起來時直接啟動失敗（見 §11）。
-  `deploy/conf.d/default.conf` 蓋掉映像的
-  `conf.d/default.conf`，被 include 在 `http {}` 內所以只能有一個 `server {}`；**nginx 的
+  `deploy/templates/default.conf.template` 是 **template 不是 conf**：官方映像的
+  `20-envsubst-on-templates.sh` 啟動時 envsubst 成 `/etc/nginx/conf.d/default.conf`，
+  蓋掉映像自帶的那支（`NGINX_ENVSUBST_FILTER=^TRACE_` 是強制的，見 §11）。
+  被 include 在 `http {}` 內所以只能有一個 `server {}`；**nginx 的
   `add_header` 不繼承**，`= /index.html`、`/assets/` 與 `/api/` 三個 location 各自重寫一份
   安全標頭，連 server 層共**四處**，改標頭要四處一起改。消費端是 **Electron BrowserView**
   （`http://localhost:8080`，不是 iframe）：host 端必須用 `will-navigate` 白名單擋掉預設的
@@ -116,7 +120,9 @@ docs/superpowers/specs/   設計文件（本次改格式的定案與盤點基準
 Dockerfile                三個 stage：build（node）→ content（busybox+dist，3MB）→ standalone（nginx 全包）
 docker-compose.yml        分離式：content 映像倒進 named volume + 官方 nginx（make up）
 docker-compose.dev.yml    nginx bind mount 主機的 app/dist（make up-dev）；專案名刻意不同
-deploy/conf.d/default.conf  nginx server 區塊：try_files SPA fallback、快取分層、gzip
+deploy/templates/default.conf.template
+                          nginx server 區塊的 envsubst template：/api/ 反向代理（含由環境變數
+                          注入的 X-API-Key）、try_files SPA fallback、快取分層、gzip
 deploy/kustomization.yaml   k8s 入口（kubectl apply -k deploy）；ConfigMap 直接讀上面那支
 deploy/k8s/               Deployment（initContainer 倒內容到 emptyDir）與 Service
 Makefile                  入口指令
@@ -438,16 +444,20 @@ emptyDir + initContainer——同一套心智模型，本機測到的就是叢�
    映像內容填它，之後永遠不再更新——靠那個行為的話，第二次換網頁會**安靜地繼續端舊內容**。
    所以 `content` service 是明確的一次性任務：先 `rm -rf`（三個 glob 才掃得到 dotfile）
    再 `cp -a`。k8s 的 emptyDir 每個 pod 都是全新的，不需要清，但指令寫一致好維護。
-2. **設定掛的是 `deploy/conf.d/` 整個目錄，不是單一檔案**。Docker 單檔 bind mount 綁的是
+2. **設定掛的是 `deploy/templates/` 整個目錄，不是單一檔案**。Docker 單檔 bind mount 綁的是
    inode，而 `sed -i`／vim／VS Code 存檔都是「寫新檔再改名蓋過去」，inode 一換容器裡那支
-   檔案就消失、`nginx -s reload` 噴 No such file or directory。改回單檔掛載會重現這個 bug。
-   （這也剛好和 k8s 把 ConfigMap 掛成整個 conf.d 的語意一致。）
+   檔案就消失。改回單檔掛載會重現這個 bug。
+   （這也剛好和 k8s 把 ConfigMap 掛成整個 templates 的語意一致。）
+   反過來 **`/etc/nginx/conf.d/` 現在是 envsubst 的輸出目的地，必須可寫**——compose 用
+   `tmpfs`、k8s 用 `emptyDir{medium: Memory}`，不能再掛成唯讀（順便讓渲染出來、帶著明文
+   token 的那份 conf 不落到磁碟）。
 3. **compose 專案名沿用預設（目錄名 `sankey-panel`）是刻意的**：拆分前建的容器才會被同一個
    `make down` 收掉。改成別的名字會讓舊容器變孤兒、繼續佔著 8080（實測踩過）。
    `docker-compose.dev.yml` 才用不同專案名（`sankey-panel-dev`），兩套各自 up/down。
 
 `deploy/kustomization.yaml` 放在 `deploy/` 而不是 `deploy/k8s/`：kustomize 預設不准讀
-kustomization 所在目錄以外的檔案（`../` 會被擋），放上層才能直接讀 `conf.d/default.conf`，
+kustomization 所在目錄以外的檔案（`../` 會被擋），放上層才能直接讀
+`templates/default.conf.template`，
 不必加 `--load-restrictor`、也不必把設定複製第二份（本 repo 已經有 §10.1 那個重複維護的坑，
 不要再製造第二個）。generator 會在 ConfigMap 名字後加內容 hash，所以改設定自動觸發
 rolling restart。
@@ -458,14 +468,42 @@ rolling restart。
 
 API 位置：**已用 nginx `proxy_pass` 解決，不需要執行期 `config.json`**。前端只打同源相對
 路徑 `/api/…`，所以沒有任何網址會被 Vite 在 build 時烤進 bundle，同一顆 content 映像跨環境
-共用；後端在哪只是 `set $trace_api …` 那一行的事，改完 `nginx -s reload` 即可，完全不用 build。
+共用；後端在哪只是 `set $trace_api …` 那一行的事，改完 `docker compose restart web` 即可，
+完全不用 build。
 `proxy_pass` 一定要寫成「變數 + `resolver`」：固定 hostname 會在 nginx **啟動時**解析，
 API 還沒起來就「host not found in upstream」啟動失敗、連靜態頁都端不出來；寫成變數會把 DNS
 延到每次請求，API 晚起來最多是 502。k8s 上 `resolver` 要換成 kube-dns 的 ClusterIP。
-另外：**API 不要對外 publish port**，只有 nginx 需要連得到它——這個工具沒有任何存取控制。
+另外：**API 不要對外 publish port**，只有 nginx 需要連得到它——這個工具沒有使用者層的存取控制。
 
-驗證：`make up` 後 `curl -sI localhost:8080`；改 conf → `docker compose exec web nginx -s
-reload` 應立刻生效且完全不 build；改 `app/index.html` → `make up` **連做兩次**（第二次
-volume 非空，才是真正的陷阱測試）。**關掉 API 再 `make down && make up`，nginx 必須照常起來、
-靜態頁照常能開**——這條就是在測上面那個 `resolver` 的坑。這塊完全不碰 `packages/` 與
+後端的 auth token：**由 nginx 注入，瀏覽器完全看不到**，前端一行都沒改。整個 conf 走官方映像
+自帶的 `20-envsubst-on-templates.sh`（`/etc/nginx/templates/*.template` → `/etc/nginx/conf.d/`），
+`proxy_set_header X-API-Key "${TRACE_API_AUTH}";` 的值由環境變數填入。四件必須知道的事：
+
+- **`NGINX_ENVSUBST_FILTER=^TRACE_` 是強制的**，compose／k8s／Dockerfile 三處都設了。
+  那支腳本用 `name ~ /$filter/` 挑環境變數，filter 空字串時 `name ~ //` **對每一個都成立**，
+  於是 conf 裡的 `$host`／`$uri`／`$request_uri`／`$scheme`／`$trace_api` 全被換成空字串。
+  最惡劣的是 `try_files $uri $uri/ /index.html` 變成 `try_files / /index.html`——**仍然是合法
+  語法**，nginx 照常啟動然後每個路徑都回 index.html，沒有任何錯誤訊息。寫新的部署設定別漏掉。
+  （考慮過「把每個 nginx 變數也設成環境變數」保留它們：可行但更糟，conf 日後新增變數就靜默壞掉。）
+- **`TRACE_API_AUTH` 必須「已定義」，空字串可以、未定義不行**。空字串 → `proxy_set_header` 的
+  值為空 → nginx 整個不送這個 header，行為與加這功能之前一樣；未定義 → envsubst 不認得它，
+  那個 `${…}` 參照原樣留在渲染結果裡，後端收到字面字串然後回 401。compose 用 `${TRACE_API_AUTH:-}`、
+  Dockerfile 用 `ENV TRACE_API_AUTH=""`；k8s 刻意用**非 optional** 的 `secretKeyRef`，
+  缺 Secret 直接 CreateContainerConfigError，比安靜地 401 好查。Secret 由部署者自己建、不進 repo。
+- 值是 **API key 本身**，不帶 `Bearer` 之類的 scheme 前綴。這一行也會清掉 client
+  自己帶的 `X-API-Key`，是刻意的。
+- **這不是使用者身分驗證**，只是給後端拒絕「沒經過 nginx 的直連」。token 在 `docker inspect`／
+  `kubectl describe pod`／容器裡 `nginx -T` 都看得到明文——那是「nginx 要送出這個 header」的
+  本質，拿得到 docker socket 或 exec 權限的人本來就拿得到。
+
+`make dev` 不經過 nginx，所以 `app/vite.config.js` 的 dev proxy 自己補同一個 header
+（`process.env.TRACE_API_AUTH`，條件展開——寫成 `{ 'X-API-Key': undefined }` 會讓
+http-proxy 送出壞 header）。**兩邊要一起改**，否則 dev 與正式環境行為分歧。
+
+驗證：`make up` 後 `curl -sI localhost:8080`；**`docker compose exec web nginx -T` 檢查
+`$uri`／`$host`／`$trace_api` 原樣還在**（這條抓的就是 filter 沒設的靜默壞法）；改 template →
+`docker compose restart web`（只 `nginx -s reload` **不會**重跑 envsubst）；改 `app/index.html`
+→ `make up` **連做兩次**（第二次 volume 非空，才是真正的陷阱測試）。**關掉 API 再
+`make down && make up`，nginx 必須照常起來、靜態頁照常能開**——這條就是在測上面那個 `resolver`
+的坑。`make up-dev` 是獨立的 compose 檔，最容易漏改，也要走一次。這塊完全不碰 `packages/` 與
 `app/src/`，不需要跑 golden。

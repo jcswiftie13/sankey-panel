@@ -76,7 +76,7 @@ build 階段（node:22）──┤        │ 開機倒進共享 volume
   npm ci + vite build  │        ▼
                        │  [volume] ──► nginx:1.27-alpine（官方映像，零客製）
                        │                    ▲
-                       └─ trace-sankey      │ 掛 deploy/conf.d/
+                       └─ trace-sankey      │ 掛 deploy/templates/
                           （自足映像，次要）
 ```
 
@@ -92,28 +92,82 @@ make docker-build  # 自足映像：一個 image 全包，適合交付給不想�
 
 | 要改什麼 | 怎麼做 | 要重建嗎 |
 |---|---|---|
-| nginx 設定 | 改 `deploy/conf.d/default.conf` → `docker compose exec web nginx -s reload` | 完全不用 |
+| nginx 設定 | 改 `deploy/templates/default.conf.template` → `docker compose restart web` | 完全不用 |
 | 網頁內容 | `make up`（只重建 3MB 的 content 映像，nginx 容器不重啟） | 只重建 content |
 | nginx 版本 | 改 `docker-compose.yml` 的 `nginx:1.27-alpine` tag | 不用 |
 | 對外 port | `make up PORT=9000` | 不用 |
 
-- nginx 設定在 `deploy/conf.d/default.conf`：`try_files $uri $uri/ /index.html` 的 SPA
-  fallback、`index.html` 不快取、`/assets/`（Vite 的 content hash 檔名）永久快取、gzip。
-  **掛的是整個 `conf.d/` 目錄不是單一檔案**——Docker 的單檔 bind mount 綁 inode，
+- nginx 設定在 `deploy/templates/default.conf.template`：`try_files $uri $uri/ /index.html`
+  的 SPA fallback、`index.html` 不快取、`/assets/`（Vite 的 content hash 檔名）永久快取、gzip。
+  **掛的是整個 `templates/` 目錄不是單一檔案**——Docker 的單檔 bind mount 綁 inode，
   而 vim／VS Code／`sed -i` 存檔都是換掉 inode，容器裡那支檔案會直接消失。
+- **它是 template 不是最終 conf**：官方映像自帶的 `20-envsubst-on-templates.sh` 會在容器啟動時
+  把 `/etc/nginx/templates/*.template` 跑過 `envsubst`，輸出到 `/etc/nginx/conf.d/`。
+  這是為了把後端要的 auth token 從環境變數注入進去（見下面「API 的 auth token」）。
+  兩個連帶後果：`/etc/nginx/conf.d/` 變成輸出目的地、必須可寫（compose 用 `tmpfs`、
+  k8s 用 `emptyDir`），而且**改了 template 只 `nginx -s reload` 不會生效**（reload 不重跑
+  envsubst），要 `docker compose restart web`，或手動重跑一次再 reload：
+
+  ```bash
+  docker compose exec web /docker-entrypoint.d/20-envsubst-on-templates.sh \
+    && docker compose exec web nginx -s reload
+  ```
 - 對外 port 只有 `PORT` 一個來源（`Makefile` 傳給 compose），不必兩邊手動同步。
 - 服務在根路徑 `/`。要掛子路徑得在 `app/vite.config.js` 加 `base`，並同步改 nginx 的
   `location` 與 `try_files` 目標。
 - **`/api/` 反向代理到追查 API**：前端只打同源相對路徑（免 CORS），後端位置寫在
-  `deploy/conf.d/default.conf` 的 `set $trace_api http://api:8000;` 那一行。
+  `deploy/templates/default.conf.template` 的 `set $trace_api http://api:8000;` 那一行。
   這是刻意的——Vite 會在 **build 時**把網址烤進 bundle，前端一旦寫死後端網址，
-  同一顆 content 映像就沒辦法跨環境共用了。換環境只要改設定 + `nginx -s reload`。
+  同一顆 content 映像就沒辦法跨環境共用了。換環境只要改設定 + `docker compose restart web`。
 - `proxy_pass` 寫成**變數 + `resolver`** 而不是固定 hostname：nginx 啟動時就會解析固定
   hostname，API 還沒起來會直接「host not found in upstream」**啟動失敗**，連靜態頁都端不出來。
   寫成變數會把 DNS 延到每次請求才查，API 晚起來最多是 502。k8s 上要把 `resolver` 換成
   kube-dns 的 ClusterIP。
-- **API 不要對外 publish port**：只有 nginx 需要連得到它。這個工具沒有帳號驗證，
-  連得到 `/api/` 的人就查得到全部資料（見「查詢 API」一節）。
+- **API 不要對外 publish port**：只有 nginx 需要連得到它。這個工具沒有使用者層的存取控制，
+  連得到 nginx 的人就查得到全部資料（見「查詢 API」一節）。
+
+##### API 的 auth token
+
+後端若要求 `X-API-Key`，**由 nginx 注入、瀏覽器完全看不到**：前端一行都不用改，
+`app/src/api.js` 仍然只打同源相對路徑。token 走環境變數 `TRACE_API_AUTH`，
+在容器啟動時被 `envsubst` 填進 `proxy_set_header X-API-Key "…";`。
+
+值是 **API key 本身**，不帶 `Bearer` 之類的 scheme 前綴。三個路徑各自這樣給：
+
+```bash
+export TRACE_API_AUTH='sk-…'
+make up            # compose：docker-compose.yml 的 environment 讀這個變數
+make dev           # Vite dev proxy 自己補同一個 header（不經過 nginx，見 app/vite.config.js）
+
+# k8s：Secret 由部署者自己建，不進 repo
+kubectl create secret generic trace-sankey-api-auth --from-literal=auth='sk-…'
+
+# standalone 映像
+docker run -e TRACE_API_AUTH='sk-…' -p 8080:80 trace-sankey
+```
+
+compose 也會自動讀專案目錄的 `.env`（已加進 `.gitignore`）。但 compose 的 `.env`
+解析器會剝引號、`make dev` 走的 shell 不會——**只用 `export` 這一種寫法**，免得兩邊行為分歧。
+
+⚠️ 沒設 `TRACE_API_AUTH` 時它是空字串，nginx 就整個不送這個 header，行為與加這功能之前一樣。
+不要讓它變成「未定義」：`envsubst` 不認得未定義的變數，那個 `${…}` 參照會原樣留在渲染結果裡，
+後端會收到字面字串然後回 401。三份部署設定都已經替你定義成空字串，k8s 則是刻意要求
+Secret 一定要存在（缺了就 `CreateContainerConfigError`，比安靜地 401 好查）。
+
+⚠️ **環境變數 `NGINX_ENVSUBST_FILTER=^TRACE_` 是強制的**，compose／k8s／Dockerfile 三處都設好了。
+官方那支腳本沒有 filter 時會把**每一個**環境變數都拿去替換，於是 conf 裡的 `$host`、`$uri`、
+`$request_uri`、`$scheme`、`$trace_api` 會全被換成空字串——最惡劣的是
+`try_files $uri $uri/ /index.html` 變成 `try_files / /index.html`，**仍然是合法語法**，
+nginx 照常啟動然後每個路徑都回 `index.html`，沒有任何錯誤訊息。自己寫新的部署設定時別漏掉。
+
+⚠️ **這不是使用者身分驗證**。它只解決「後端要一把 service token」，讓後端能拒絕沒有經過
+nginx 的直連。連得到這台 nginx 的人一樣查得到全部資料——nginx 會替他補上 token。
+使用者層的存取控制仍然留給部署層做（API 不對外開 port、nginx 綁內網或 IP 白名單）。
+
+token 在這些地方仍然是明文，這是「nginx 要送出這個 header」的本質、不是設計缺陷：
+`docker inspect` / `docker compose config` / `kubectl describe pod` 看得到環境變數，
+容器裡 `nginx -T` 看得到渲染結果。拿得到 docker socket 或 `exec` 權限的人本來就拿得到。
+渲染結果本身放在 `tmpfs`／`emptyDir{medium: Memory}`，不會落到磁碟。
 
 #### 上 Kubernetes
 
@@ -125,8 +179,11 @@ kubectl apply -k deploy      # kustomization.yaml 在 deploy/，不是 deploy/k8
 kubectl kustomize deploy     # 只看 render 結果
 ```
 
-ConfigMap 由 `configMapGenerator` **直接讀 `deploy/conf.d/default.conf`**，設定不會有第二份
-拷貝；generator 會在名字後面加內容 hash，所以改設定就自動觸發 rolling restart。
+ConfigMap 由 `configMapGenerator` **直接讀 `deploy/templates/default.conf.template`**，設定不會有
+第二份拷貝；generator 會在名字後面加內容 hash，所以改設定就自動觸發 rolling restart。
+ConfigMap 裡放的是 template（帶 `${TRACE_API_AUTH}` 參照），真正的 token 走 Secret →
+容器環境變數 → envsubst，**絕不進 ConfigMap**；所以 `kustomization.yaml` 刻意沒有
+`secretGenerator`，那會把明文寫進 repo。`/etc/nginx/conf.d` 是 in-memory `emptyDir`。
 換網頁改 `deploy/kustomization.yaml` 的 `images:` tag。Ingress／TLS 留給部署端自己加。
 
 #### Electron BrowserView 端
@@ -146,7 +203,7 @@ contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
 - 用 http origin 而不是 `file://`：查詢打的是同源相對路徑 `/api/…`，`file://` 下沒有
   可用的同源可言，代理不會生效。
-- `deploy/conf.d/default.conf` 的 `X-Frame-Options: DENY` 不會擋 BrowserView——它是獨立的
+- `deploy/templates/default.conf.template` 的 `X-Frame-Options: DENY` 不會擋 BrowserView——它是獨立的
   top-level WebContents，不是 frame；擋的是真的被別人 `<iframe>` 進去。
 
 `electron/` 底下有一支可跑的測試殼（`make electron`），既是參考實作，
@@ -208,7 +265,7 @@ SVG 的文字顏色與字級在 `trace-sankey/style.css`，不載入會沒有正
 
 這個網頁的消費端是**別人的 Electron**：畫面被塞進一個 `BrowserView` 裡，指向前面那台 nginx。
 關鍵前提是 **host 那一側的設定不是你能改的**——你能控制的只有三樣東西：`app/` 的網頁、
-`deploy/conf.d/default.conf` 的 nginx，以及未來的後端 API。
+`deploy/templates/default.conf.template` 的 nginx，以及未來的後端 API。
 
 這一章逐項列出：**host 的哪個設定會影響你 → 你在自己這一側能怎麼因應**。
 每一節都可以用 `electron/` 底下的測試殼現場重現（開關表見 [electron/README.md](electron/README.md)）。
@@ -255,7 +312,7 @@ contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
 ### 2. host 改用 `<iframe>` / `<webview>` 嵌 → 一片空白
 
-**原因**：`deploy/conf.d/default.conf` 的 `X-Frame-Options: DENY`。
+**原因**：`deploy/templates/default.conf.template` 的 `X-Frame-Options: DENY`。
 BrowserView／WebContentsView 不受影響（它們不是 frame），真的被 `<iframe>` 嵌才會被擋。
 
 **nginx 端的因應**：改用 CSP 的 `frame-ancestors` 白名單對方的 origin：
@@ -344,7 +401,7 @@ host 會用 `setBounds()` 指定 view 的像素大小，也可能一開始給 0�
 
 先講結論：**view 的類別依然無關；但 API 化會新增一批 host 相關的坑，而它們有同一個解——
 讓 nginx `proxy_pass /api/` 到後端，網頁只打相對路徑 `/api/...`。這個解已經落地**
-（`deploy/conf.d/default.conf` 的 `/api/` location，網頁端在 `app/src/api.js`）。
+（`deploy/templates/default.conf.template` 的 `/api/` location，網頁端在 `app/src/api.js`）。
 一招解掉四件事：
 
 | 坑 | 網頁直接打後端 origin | 走 nginx 同源 proxy |
@@ -444,9 +501,13 @@ http://localhost:8080/?hostname=tor-01&from_ts=1757000000000&to_ts=1757003600000
   不會安靜地改用別的時間。
 - **查詢失敗不會動網址**——網址永遠代表你正在看的那張圖。
 
-**沒有存取控制**：這個工具沒有帳號、token 或 session，連得到服務的人就查得到全部資料
-（瀏覽器的同源政策／CORS 只約束網頁裡的 JS，擋不住 curl）。要限制的話請在部署層做——
-API 不對外開 port、nginx 綁內網或加 IP 白名單。
+**沒有使用者層的存取控制**：這個工具沒有帳號、登入或 session，連得到服務的人就查得到
+全部資料（瀏覽器的同源政策／CORS 只約束網頁裡的 JS，擋不住 curl）。要限制的話請在部署層
+做——API 不對外開 port、nginx 綁內網或加 IP 白名單。
+
+後端**與 nginx 之間**可以有一把 service token（環境變數 `TRACE_API_AUTH`，由 nginx 注入，
+見「用 nginx 部署 → API 的 auth token」）。那是給後端拒絕「沒有經過 nginx 的直連」用的，
+**不會**讓這個工具變成有身分驗證：連得到 nginx 的人一樣查得到全部資料，nginx 會替他補上 token。
 
 ## 輸入 JSON 規格
 
@@ -1033,8 +1094,11 @@ Dockerfile                   多階段；--target content = 只有 dist 的小�
                              不帶 target = nginx 全包的自足映像（次要）
 docker-compose.yml           分離式：content 映像倒進 volume + 官方 nginx（make up）
 docker-compose.dev.yml       nginx 直接 bind mount 主機 app/dist（make up-dev）
-deploy/conf.d/default.conf   nginx server 區塊：/api/ 反向代理、SPA fallback、快取、gzip
-deploy/kustomization.yaml    k8s：ConfigMap 直接讀上面那支 conf，不複製第二份
+deploy/templates/default.conf.template
+                             nginx server 區塊：/api/ 反向代理（含由環境變數注入的
+                             X-API-Key）、SPA fallback、快取、gzip。官方映像的
+                             entrypoint 會 envsubst 成 /etc/nginx/conf.d/default.conf
+deploy/kustomization.yaml    k8s：ConfigMap 直接讀上面那支 template，不複製第二份
 deploy/k8s/                  k8s Deployment（initContainer 倒內容）與 Service
 ```
 
