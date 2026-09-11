@@ -1,38 +1,54 @@
 {
   "name": "trace-sankey",
   "version": "0.1.0",
-  "description": "網路交換器 interface counter 增量的追查 Sankey 視覺化（零依賴、純 ESM、SVG 字串渲染）",
+  "description": "網路交換器 interface counter 增量的追查 Sankey 視覺化（TypeScript、純 ESM；React 元件與 Node 端 SVG 字串渲染）",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
-      "types": "./types/index.d.ts",
-      "default": "./src/index.js"
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
     },
     "./react": {
-      "types": "./types/react.d.ts",
-      "default": "./src/react.js"
+      "types": "./dist/react.d.ts",
+      "development": "./src/react.ts",
+      "default": "./dist/react.js"
+    },
+    "./static": {
+      "types": "./dist/static.d.ts",
+      "development": "./src/static.ts",
+      "default": "./dist/static.js"
     },
     "./samples": {
-      "types": "./types/samples.d.ts",
-      "default": "./src/samples.js"
+      "types": "./dist/samples.d.ts",
+      "development": "./src/samples.ts",
+      "default": "./dist/samples.js"
     },
     "./style.css": "./styles/trace-sankey.css"
   },
   "files": [
-    "src",
+    "dist",
     "styles",
-    "types"
+    "README.md"
   ],
   "sideEffects": [
     "*.css"
   ],
-  "peerDependencies": {
-    "react": ">=16.8"
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^5.9.3"
   }
 }

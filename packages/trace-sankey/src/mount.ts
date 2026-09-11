@@ -13,11 +13,36 @@ import { build } from './model.js';
 import { render } from './render.js';
 import { createZoom } from './zoom.js';
 import { createTooltip } from './tooltip.js';
+import type { BuildOptions, Channel, TraceModel, TraceModelError, TraceModelOk } from './types.js';
+import type { ZoomInstance } from './zoom.js';
 
-export function mount(el, doc, opts) {
+export interface MountOptions extends BuildOptions {
+  /** 每次 build 成功（拿 warnings/filtered/edges 拼圖例、統計） */
+  onModel?: (model: TraceModelOk) => void;
+  /** build 失敗（mount 不畫錯誤 UI，文案是使用端的事） */
+  onError?: (errors: string[]) => void;
+  /** 縮放倍率變化（螢幕實際倍率；量不到時 null） */
+  onZoom?: (screenScale: number | null) => void;
+}
+export interface MountInstance {
+  /** 回傳 build 結果（含 ok:false）。同 doc 同門檻同通道的重複呼叫不重畫、縮放保留。 */
+  update(doc?: unknown, opts?: BuildOptions): TraceModel;
+  setMinBps(minBps: number): TraceModel;
+  setChannels(channels: 'both' | Channel): TraceModel;
+  /** 最近一次成功 build 的 model（失敗後是 null） */
+  readonly model: TraceModelOk | null;
+  zoom: Pick<ZoomInstance, 'fit' | 'actual' | 'zoomBy' | 'refresh' | 'step' | 'isPanning'>;
+  /** 容器尺寸變了呼叫這個 */
+  refresh(): void;
+  /** 冪等；解綁 listener、移除 body 上的 tooltip、清空容器 */
+  destroy(): void;
+}
+
+/** 容器要先有高度再 mount（fit 用容器實際大小算）；高度由使用端 CSS 決定 */
+export function mount(el: HTMLElement, doc: unknown, opts?: MountOptions): MountInstance {
   opts = opts || {};
-  var minBps = opts.minBps || 0;
-  var channels = opts.channels || 'both';
+  var minBps: number = opts.minBps || 0;
+  var channels: 'both' | Channel = opts.channels || 'both';
   var zoom = createZoom();
   var tip = createTooltip();
   var chart = document.createElement('div');
@@ -26,9 +51,9 @@ export function mount(el, doc, opts) {
   el.appendChild(chart);
 
   var lastKey = null;   /* 同一份資料重畫就沿用既有 SVG，保住縮放狀態 */
-  var model = null;
+  var model: TraceModelOk | null = null;
 
-  function update(nextDoc, o) {
+  function update(nextDoc?: unknown, o?: BuildOptions): TraceModel {
     if (nextDoc !== undefined) doc = nextDoc;
     if (o && o.minBps !== undefined) minBps = o.minBps || 0;
     if (o && o.channels !== undefined) channels = o.channels || 'both';
@@ -41,7 +66,7 @@ export function mount(el, doc, opts) {
       tip.hide();
       lastKey = null;
       model = null;
-      if (opts.onError) opts.onError(m.errors);
+      if (opts.onError) opts.onError((m as TraceModelError).errors);
       return m;
     }
     model = m;
@@ -67,16 +92,17 @@ export function mount(el, doc, opts) {
     model = null;
   }
 
-  var inst = {
+  var inst: MountInstance = {
     update: update,
-    setMinBps: function (n) { return update(undefined, { minBps: n }); },
-    setChannels: function (c) { return update(undefined, { channels: c }); },
+    setMinBps: function (n: number) { return update(undefined, { minBps: n }); },
+    setChannels: function (c: 'both' | Channel) { return update(undefined, { channels: c }); },
     zoom: {
       fit: zoom.fit, actual: zoom.actual, zoomBy: zoom.zoomBy,
       refresh: zoom.refresh, step: zoom.step, isPanning: zoom.isPanning
     },
     refresh: zoom.refresh,
-    destroy: destroy
+    destroy: destroy,
+    model: null
   };
   /* 唯讀屬性：最近一次成功 build 的 model（失敗後是 null） */
   Object.defineProperty(inst, 'model', { get: function () { return model; } });

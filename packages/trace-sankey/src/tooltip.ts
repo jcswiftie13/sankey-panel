@@ -7,9 +7,9 @@
 import { fmtRate, fmtBytes } from './model.js';
 import { esc } from './render.js';
 
-function row(k, v) { return '<div class="t-row"><span>' + esc(k) + '</span><span>' + esc(v) + '</span></div>'; }
+function row(k: string, v: string) { return '<div class="t-row"><span>' + esc(k) + '</span><span>' + esc(v) + '</span></div>'; }
 
-function bandHtml(d) {
+function bandHtml(d: any) {
   var isBytes = d.unit === 'bytesPerSec';
   var h = '<b>' + esc(d.from) + ' → ' + esc(d.to) + '</b>' +
     row('出口 iface', d.fi || '—') +
@@ -41,13 +41,20 @@ function bandHtml(d) {
   return h;
 }
 
-function nodeHtml(d) {
+function nodeHtml(d: any) {
   var h = '<b>' + esc(d.title) + '</b>';
   (d.rows || []).forEach(function (r) { h += row(r[0], r[1]); });
   return h;
 }
 
-export function createTooltip() {
+export interface TooltipInstance {
+  /** 綁 .band 與帶 data-tip 的卡片 <g> */
+  bind(container: HTMLElement, isPanning?: () => boolean): void;
+  hide(): void;
+  destroy(): void;
+}
+
+export function createTooltip(): TooltipInstance {
   var tip = document.createElement('div');
   tip.className = 'trace-sankey-tooltip';
   tip.hidden = true;
@@ -56,8 +63,8 @@ export function createTooltip() {
   function hide() { tip.hidden = true; }
 
   /* 每次重畫 SVG 後對新的 .band 與帶 data-tip 的卡片 <g> 重綁；isPanning 讓拖曳中不彈 tooltip */
-  function bind(container, isPanning) {
-    Array.prototype.forEach.call(container.querySelectorAll('.band, g[data-tip]'), function (el) {
+  function bind(container: HTMLElement, isPanning?: () => boolean) {
+    Array.prototype.forEach.call(container.querySelectorAll('.band, g[data-tip]'), function (el: Element) {
       /* render 在每條帶裡輸出原生 <title> 當備援（headless 產 .svg、或不接 tooltip
          時是唯一的 hover 資訊）。這裡 JS tooltip 接手了，備援留著會變成第二個
          無樣式的瀏覽器提示框——移除它，而不是叫 render 不輸出（render 輸出要
@@ -72,7 +79,7 @@ export function createTooltip() {
         tip.innerHTML = d.node ? nodeHtml(d) : bandHtml(d);
         tip.hidden = false;
       });
-      el.addEventListener('mousemove', function (ev) {
+      el.addEventListener('mousemove', function (ev: MouseEvent) {
         var w = tip.offsetWidth || 260, h = tip.offsetHeight || 90;
         tip.style.left = Math.min(ev.clientX + 14, window.innerWidth - w - 10) + 'px';
         tip.style.top = Math.max(8, Math.min(ev.clientY + 14, window.innerHeight - h - 10)) + 'px';

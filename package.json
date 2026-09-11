@@ -5,5 +5,9 @@
   "workspaces": [
     "packages/*",
     "app"
-  ]
+  ],
+  "scripts": {
+    "build": "npm run build --workspace trace-sankey && npm run build --workspace app",
+    "check": "npm run build --workspace trace-sankey && node tools/golden.mjs check"
+  }
 }

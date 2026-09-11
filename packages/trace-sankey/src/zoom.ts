@@ -11,13 +11,33 @@ var EDGE = 0.35;                /* 平移夾住：內容至少要蓋住視窗這
 /* 一個 createZoom() 實例管一個容器。dispose() 把 listener 全解掉——
    單例時代「bind 一次永不解綁」沒關係，變成可重複建立的實例後，
    mount/destroy 循環（尤其 React StrictMode 的雙重掛載）不解綁就會疊 listener。 */
-export function createZoom() {
-  var st = null;                  /* {wrap, svg, layer, k, tx, ty} */
-  var opts = {};
-  var boundWrap = null;
-  var panning = false, moved = false, pid = null;
+export interface ZoomOptions {
+  onPanStart?: () => void;
+  onPanEnd?: () => void;
+  /** 螢幕實際倍率（1 = 原始大小）；量不到（display:none）時是 null */
+  onChange?: (screenScale: number | null) => void;
+}
+export interface ZoomInstance {
+  /** wrap 內要有 svg 與 <g class="zoom-layer">；同一 layer 重 attach 沿用縮放 */
+  attach(wrap: HTMLElement, opts?: ZoomOptions): boolean;
+  detach(): void;
+  /** 徹底收掉：解綁全部 listener，之後這個實例不能再用 */
+  dispose(): void;
+  refresh(): void;
+  fit(): void;
+  actual(): void;
+  zoomBy(factor: number): void;
+  step: number;
+  isPanning(): boolean;
+}
+
+export function createZoom(): ZoomInstance {
+  var st: any = null;             /* {wrap, svg, layer, k, tx, ty} */   /* TODO(types) */
+  var opts: ZoomOptions = {};
+  var boundWrap: HTMLElement | null = null;
+  var panning = false, moved = false, pid: number | null = null;
   var sx = 0, sy = 0, sTx = 0, sTy = 0, raf = 0;
-  var pts = {}, pinch = null;     /* 雙指 */
+  var pts: Record<string, any> = {}, pinch: any = null;     /* 雙指 */
 
   /* ---------- 幾何 ---------- */
   function ctm() {
@@ -202,7 +222,7 @@ export function createZoom() {
   /* ---------- attach / detach ---------- */
   /* listener 只綁一次：.chart-wrap 不會被重畫掉，#chart 的子節點才會。
      每次 attach() 只抽換 st，否則一次重畫就疊一組 listener。 */
-  function bind(wrap) {
+  function bind(wrap: HTMLElement) {
     if (boundWrap === wrap) return;
     boundWrap = wrap;
     wrap.addEventListener('wheel', onWheel, { passive: false });
@@ -214,7 +234,7 @@ export function createZoom() {
   }
 
   /* 同一個 layer 再 attach（只是切分頁回來）就沿用縮放；換了圖才重新 initial()。 */
-  function attach(wrap, o) {
+  function attach(wrap: HTMLElement, o?: ZoomOptions): boolean {
     var svg = wrap && wrap.querySelector('svg');
     var layer = svg && svg.querySelector('.zoom-layer');
     if (!layer) { detach(); return false; }

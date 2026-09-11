@@ -2,7 +2,30 @@
    刻意不用 JSX（只有一個 createElement），套件才不需要任何 build step。
    react 是 optional peerDependency——只有走 'trace-sankey/react' 子路徑才會載到這支。 */
 import { createElement, forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import type { CSSProperties, ForwardRefExoticComponent, RefAttributes } from 'react';
 import { mount } from './mount.js';
+import type { MountInstance } from './mount.js';
+import type { Channel, TraceModelOk } from './types.js';
+
+export interface TraceSankeyProps {
+  /** 追查 JSON（契約見 README）。換一個「內容相同的新物件」不會重畫、縮放保留。 */
+  doc: unknown;
+  /** 顯示門檻（bps），預設 0 */
+  minBps?: number;
+  /** storage 資料只看其中一個通道，預設 'both' */
+  channels?: 'both' | Channel;
+  /** 容器高度由這兩個決定，元件不設高度 */
+  className?: string;
+  style?: CSSProperties;
+  onModel?: (model: TraceModelOk) => void;
+  onError?: (errors: string[]) => void;
+  onZoom?: (screenScale: number | null) => void;
+}
+
+/** ref 拿到的控制介面（轉呼叫 MountInstance） */
+export type TraceSankeyHandle = Pick<MountInstance, 'update' | 'setMinBps' | 'setChannels' | 'refresh' | 'model'> & {
+  zoom: Pick<MountInstance['zoom'], 'fit' | 'actual' | 'zoomBy' | 'refresh' | 'isPanning'>;
+};
 
 /* props：
      doc        追查 JSON（必填）
@@ -12,10 +35,11 @@ import { mount } from './mount.js';
      onModel / onError / onZoom   轉交 mount()，永遠呼叫到最新的一份（存 ref，
                 callback identity 變了不會觸發重新掛載）
    ref：拿到轉發 MountInstance 的控制介面（update / setMinBps / refresh / zoom.*）。 */
-export var TraceSankey = forwardRef(function TraceSankey(props, ref) {
-  var elRef = useRef(null);
-  var instRef = useRef(null);
-  var latest = useRef(props);
+export var TraceSankey: ForwardRefExoticComponent<TraceSankeyProps & RefAttributes<TraceSankeyHandle>> =
+  forwardRef<TraceSankeyHandle, TraceSankeyProps>(function TraceSankey(props, ref) {
+  var elRef = useRef<HTMLDivElement | null>(null);
+  var instRef = useRef<MountInstance | null>(null);
+  var latest = useRef<TraceSankeyProps>(props);
   latest.current = props;
 
   /* 掛載一次、卸載時 destroy（destroy 冪等，StrictMode 的雙重掛載安全） */
@@ -43,15 +67,15 @@ export var TraceSankey = forwardRef(function TraceSankey(props, ref) {
   useImperativeHandle(ref, function () {
     function inst() { return instRef.current; }
     return {
-      update: function (d, o) { return inst() ? inst().update(d, o) : null; },
-      setMinBps: function (n) { return inst() ? inst().setMinBps(n) : null; },
-      setChannels: function (c) { return inst() ? inst().setChannels(c) : null; },
+      update: function (d?: unknown, o?: any) { return inst() ? inst().update(d, o) : null; },
+      setMinBps: function (n: number) { return inst() ? inst().setMinBps(n) : null; },
+      setChannels: function (c: 'both' | Channel) { return inst() ? inst().setChannels(c) : null; },
       refresh: function () { if (inst()) inst().refresh(); },
       get model() { return inst() ? inst().model : null; },
       zoom: {
         fit: function () { if (inst()) inst().zoom.fit(); },
         actual: function () { if (inst()) inst().zoom.actual(); },
-        zoomBy: function (f) { if (inst()) inst().zoom.zoomBy(f); },
+        zoomBy: function (f: number) { if (inst()) inst().zoom.zoomBy(f); },
         refresh: function () { if (inst()) inst().zoom.refresh(); },
         isPanning: function () { return !!(inst() && inst().zoom.isPanning()); }
       }

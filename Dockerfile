@@ -13,8 +13,9 @@ COPY app/package.json app/
 COPY packages/trace-sankey/package.json packages/trace-sankey/
 RUN npm ci
 COPY . .
-# trace-sankey 套件沒有 build step（exports 直指 src/），整個建置只有這一步。
-RUN npm run build --workspace app
+# root 的 build script 先 tsc 編 trace-sankey 套件（exports 的 default 指 dist/），再 vite build app。
+# 順序寫死在 root package.json，不賭 npm --workspaces 的排序。
+RUN npm run build
 
 # 內容映像：只放 dist。用 busybox 不用 scratch，是因為 compose 的 init service 與
 # k8s 的 initContainer 都要在裡面跑 `sh -c 'cp -a …'` 把內容倒進共享 volume——

@@ -1064,16 +1064,17 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 
 ```
 Makefile                     跑起來與驗證的入口（make help）
-packages/trace-sankey/       npm 套件（零依賴、純 ESM、無 build step）
-  src/model.js               驗證、分類節點、加總同鍵的邊、顯示門檻／通道過濾、算殘差
-  src/render.js              SVG Sankey、等比殘差色塊、各種卡片、欄標題、hop 摘要（summary）
-  src/zoom.js                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
-  src/tooltip.js             createTooltip()：帶子與卡片 hover 的 tooltip
-  src/mount.js               mount(el, doc, opts)：一行接好整條管線
-  src/react.js               <TraceSankey> React 元件（trace-sankey/react）
-  src/samples.js             十個內建範例（trace-sankey/samples）；storage 是參考面板的 demo fixture
+packages/trace-sankey/       npm 套件（TypeScript、純 ESM；tsc 編到 dist/）
+  src/model.ts               驗證、分類節點、加總同鍵的邊、顯示門檻／通道過濾、算殘差
+  src/render.ts              SVG Sankey、等比殘差色塊、各種卡片、欄標題、hop 摘要（summary）
+  src/zoom.ts                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
+  src/tooltip.ts             createTooltip()：帶子與卡片 hover 的 tooltip
+  src/mount.ts               mount(el, doc, opts)：一行接好整條管線
+  src/react.ts               <TraceSankey> React 元件（trace-sankey/react）
+  src/static.ts              render()/summary() 字串渲染入口（trace-sankey/static；Node 也能跑）
+  src/samples.ts             十個內建範例（trace-sankey/samples）；storage 是參考面板的 demo fixture
+  src/types.ts               wire 契約與 model 的介面（dist/*.d.ts 由 tsc 產生）
   styles/trace-sankey.css    圖與 tooltip 的樣式（trace-sankey/style.css）
-  types/index.d.ts           TypeScript 型別
 app/                         Vite + React 使用端
   src/api.js                 追查 API 的唯一出入口（組 query、fetch、翻譯錯誤）
   src/useTraceDoc.js         資料來源 hook：查詢、abort、契約驗證

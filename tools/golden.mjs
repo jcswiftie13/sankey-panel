@@ -25,10 +25,12 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIN_BPS = [0, 5e8];
 
+/* 走套件名（root node_modules/trace-sankey 是 workspace symlink）而不是檔案路徑：
+   Node 不認 exports 的 development 條件，所以拿到的是 dist/——跟外部使用者裝到的東西
+   同一份。所以要先 npm run build -w trace-sankey（make check／golden 會先做）。 */
 async function loadEsm() {
-  const src = (f) => import(join(ROOT, 'packages/trace-sankey/src', f));
-  const [model, render, samples] = await Promise.all([src('model.js'), src('render.js'), src('samples.js')]);
-  return { build: model.build, render: render.render, summary: render.summary, samples: samples.list };
+  const [core, stat, samples] = await Promise.all([import('trace-sankey'), import('trace-sankey/static'), import('trace-sankey/samples')]);
+  return { build: core.build, render: stat.render, summary: stat.summary, samples: samples.list };
 }
 
 function inputs(samples) {

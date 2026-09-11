@@ -2,6 +2,8 @@
    殘差＝盒子外側與帶寬等比的虛線色塊、終止＝灰虛線小卡。
    帶上的數字一律是實際量測值，沒有推估值；單位跟著邊（bps 帶 + 號、bytes/s 不帶）。 */
 import { fmtBps as F, fmtDelta as D, fmtRate as R, fmtAmount as A, fmtBytes, TYPE_LABEL } from './model.js';
+import type { TraceModelOk } from './types.js';
+/* TODO(types)：Phase 3 拆 layout 時把 n／e／geo 收成正式型別 */
 
 var NODE_W = 208, LEAF_W = 178, ANCHOR_W = 152;
 var HEADER_H = 36, ROW_H = 24, ROW_GAP = 9, BODY_PAD = 12, BODY_MIN = 26;
@@ -401,7 +403,7 @@ function backwardRibbon(e) {
     ' L' + e.x2 + ',' + e.y2;
 }
 
-function render(model) {
+function render(model: TraceModelOk): string {
   var geo = layout(model);
   var out = [];
   /* 尺寸交給 CSS（.chart svg）：SVG 填滿容器，meet-fit 就是「符合視窗」。 */
@@ -440,7 +442,7 @@ function render(model) {
   });
 
   /* 帶：先畫，壓在盒子下面 */
-  model.edges.forEach(function (e) {
+  model.edges.forEach(function (e: any) {
     var meta = {
       from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
       fi: e.fromIface, ti: e.toIface, bps: e.bps, anchor: !!e.isAnchor,
@@ -502,7 +504,7 @@ function render(model) {
   });
 
   /* 帶上的數字。橫向弧帶的數字放弧頂，回流帶放底部水平段中點，放中點會壓在欄上 */
-  model.edges.forEach(function (e) {
+  model.edges.forEach(function (e: any) {
     if (e.owns) return;                        /* 歸屬線沒有量，印數字就是憑空生一個值 */
     var mx = (e.backward && !e.backNear) ? (e.backXD + e.backXU) / 2
       : e.lateral ? e.x1 + 0.72 * e.bulge : (e.x1 + e.x2) / 2;
@@ -512,7 +514,7 @@ function render(model) {
   });
 
   /* 盒子 */
-  model.nodes.forEach(function (n) {
+  model.nodes.forEach(function (n: any) {
     if (n.kind === 'node') out.push(nodeBox(n, model, geo.nsColor));
     else if (n.kind === 'leaf') {
       if (n.role === 'pod') out.push(podCard(n, model, geo.nsColor));
@@ -526,7 +528,7 @@ function render(model) {
 
   /* 殘差：貼盒子外側、與帶寬等比的虛線色塊，不進走廊。
      直接走槽位，畫出來的東西跟 layout() 保留的空間就不可能不一致。 */
-  model.nodes.forEach(function (n) {
+  model.nodes.forEach(function (n: any) {
     if (n.kind !== 'node') return;
     n.leftSlots.concat(n.rightSlots).forEach(function (sl) {
       if (sl.res) out.push(residual(n, sl));
@@ -539,7 +541,7 @@ function render(model) {
 }
 
 function colCaption(col, dir) {
-  var kinds = {};
+  var kinds: Record<string, boolean> = {};
   col.forEach(function (n) { kinds[n.kind] = true; });
   /* 錨欄要整欄只有錨卡：no-flow 卡沒有邊、會落在第 0 欄，混進來不能標成「追查起點」 */
   if (kinds.anchor && col.length === 1) return dir === 'destination' ? '追查起點 (in)' : '追查起點 (out)';
@@ -882,13 +884,13 @@ function residual(n, sl) {
 }
 
 /* ---------- 圖外資訊：hop 數字摘要 ---------- */
-function summary(model) {
+function summary(model: TraceModelOk): string {
   var rows = model.nodes.filter(function (n) { return n.kind === 'node'; })
     .sort(function (a, b) { return a.col - b.col; });
   var h = ['<h3>hop 數字摘要（圖外資訊）</h3><div class="tbl-wrap"><table><thead><tr>',
     '<th>hop</th><th>追查輸入</th><th>出口增加</th><th class="c-amber">其他進</th>',
     '<th class="c-rose">其他出</th></tr></thead><tbody>'];
-  rows.forEach(function (n) {
+  rows.forEach(function (n: any) {
     h.push('<tr><td>' + esc(n.label) + ' <span class="c-dim">' + esc(n.id) + '</span>' +
       (n.noFlow ? ' <span class="c-dim">(no-flow)</span>' : '') + '</td>' +
       '<td class="num">' + A(n.tracedIn, n.unit) + '</td>' +
@@ -899,7 +901,7 @@ function summary(model) {
   h.push('</tbody></table></div>');
   /* namespace 流量小計：ns 終點節點就是單一事實來源（bps＝pod 匯流邊加總、
      pod 數＝邊數），表跟圖不可能對不上 */
-  var nsNodes = model.nodes.filter(function (n) { return n.role === 'ns'; });
+  var nsNodes: any[] = model.nodes.filter(function (n) { return n.role === 'ns'; });
   if (nsNodes.length) {
     var sorted = nsNodes.slice().sort(function (a, b) { return b.bps - a.bps; });
     h.push('<h3>namespace 流量小計（終點）</h3><div class="tbl-wrap"><table><thead><tr>' +

@@ -39,12 +39,15 @@ nginx **與後端之間**可以有一把 service token（環境變數 `TRACE_API
 
 npm workspaces monorepo-lite，兩個部分（外加一個**刻意不在 workspaces 裡**的 `electron/`，見下）：
 
-- **`packages/trace-sankey/`——核心套件**。零依賴、純 ESM、**無 build step**（package.json 的
-  exports 直接指 `src/`）。`build()`/`render()` 是純函式（`render(model)` 回傳 SVG 字串、
-  無任何 DOM 量測），Node 也能跑（SSR 安全）；`mount()`/`createZoom()`/`createTooltip()`
-  需要瀏覽器。**沒有 d3、沒有任何第三方**；SVG 是字串陣列 `out.push('<path .../>')` 拼起來。
-  程式風格沿用手寫 ES5（`var`、`function`，唯 import/export 是 ESM），改碼請維持。
-  react 是 optional peerDependency，只有 `trace-sankey/react` 子路徑會載到。
+- **`packages/trace-sankey/`——核心套件**。TypeScript、純 ESM，**用 tsc 編到 `dist/`**
+  （`npm run build -w trace-sankey`；exports 的 `default` 指 `dist/`、`development` 條件指 `src/*.ts`
+  ——Vite dev 會挑後者所以改套件存檔即熱更新，Node／`vite build`／外部使用者永遠拿 `dist/`）。
+  `build()`/`render()` 是純函式（`render(model)` 回傳 SVG 字串、無任何 DOM 量測），Node 也能跑
+  （SSR 安全）；`mount()`/`createZoom()`/`createTooltip()` 需要瀏覽器。**沒有 d3、沒有任何第三方**；
+  SVG 目前是字串陣列 `out.push('<path .../>')` 拼起來（React 改寫進行中，見 git log）。
+  程式風格目前仍是手寫 ES5（`var`、`function`），Phase 2 起換成 `const`／箭頭函式。
+  `react`／`react-dom >=18` 是必要 peerDependencies。型別由 tsc 從原始碼產生（`dist/*.d.ts`），
+  介面本體在 `src/types.ts`。
 - **`app/`——Vite + React 使用端**。查詢表單 + 圖 + 顯示門檻，加圖例與縮放工具列。
   **圖的接線**在 `App.jsx`；資料來源在 `useTraceDoc.js`、API 呼叫在 `api.js`、
   表單在 `TraceQueryBar.jsx`。`npm install`（repo 根目錄）後 `make dev`
@@ -91,16 +94,19 @@ Makefile：`make dev`（=`serve`）/ `build`（vite build）/ `up`／`up-dev`／
 ```
 packages/trace-sankey/
   package.json            exports："."（主入口）、"./react"、"./samples"、"./style.css"
-  src/model.js            wire JSON 驗證 → 分類節點 → 加總同鍵的邊（含門檻／通道）→ 排欄/破環 → 殘差
-  src/render.js           版面計算 + SVG 字串組裝 + 各種卡片 + hop 摘要表（summary；app 目前沒用）
-  src/zoom.js             createZoom() 工廠：縮放平移（只改 <g class="zoom-layer"> 的 transform）
-  src/tooltip.js          createTooltip()：tooltip 元素掛 body、對 .band 與卡片 <g>[data-tip] 綁 hover
-  src/mount.js            mount(el, doc, opts)：build → render → zoom → tooltip 接成一個實例
-  src/react.js            <TraceSankey> 薄殼（純 JS createElement，不用 JSX → 套件不需 build）
-  src/samples.js          10 個內建範例（純資料；N()/E() 是字面值簡寫；storage 是參考面板的 fixture）
-  src/index.js            主入口 re-export
+  src/model.ts            wire JSON 驗證 → 分類節點 → 加總同鍵的邊（含門檻／通道）→ 排欄/破環 → 殘差
+  src/render.ts           版面計算 + SVG 字串組裝 + 各種卡片 + hop 摘要表（summary；app 目前沒用）
+  src/zoom.ts             createZoom() 工廠：縮放平移（只改 <g class="zoom-layer"> 的 transform）
+  src/tooltip.ts          createTooltip()：tooltip 元素掛 body、對 .band 與卡片 <g>[data-tip] 綁 hover
+  src/mount.ts            mount(el, doc, opts)：build → render → zoom → tooltip 接成一個實例
+  src/react.ts            <TraceSankey> 薄殼（純 createElement，包一層 mount()）
+  src/samples.ts          10 個內建範例（純資料；N()/E() 是字面值簡寫；storage 是參考面板的 fixture）
+  src/static.ts           'trace-sankey/static'：render()/summary()/esc 字串渲染入口（Node／golden 用）
+  src/types.ts            wire 契約與 model 的介面；dist/*.d.ts 由 tsc 產生
+  src/index.ts            主入口 re-export
+  tsconfig.json           NodeNext、strict 暫關（Phase 2 開）；相對匯入一律寫 ./x.js（指向 .ts）
   styles/trace-sankey.css 圖表與 tooltip 樣式；CSS 變數 scope 在 .trace-sankey，不進 :root
-  types/index.d.ts        手寫型別（JS 原始碼不轉 TS）
+  dist/                   tsc 輸出（gitignore／dockerignore）
 app/                      Vite + React 使用端
   src/App.jsx             圖、顯示門檻、圖例、縮放、快捷鍵的接線
   src/DevSampleBar.jsx    dev 專用的本機資料來源列（內建範例下拉＋選檔）；只被 App 的

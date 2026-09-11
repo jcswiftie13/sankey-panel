@@ -1,17 +1,26 @@
 /* 範例追查 JSON（elements wire 格式）。純資料，不抓 counter、不掃網。
    三個簡寫只是省字，不是轉換器：G(10) = 10 Gbps、N(...) = 一個節點、E(...) = 一條 network-flow 邊。 */
-var G = function (n) { return Math.round(n * 1e9); };
+import type { WireGraph } from './types.js';
+
+export interface TraceSample {
+  key: string;
+  name: string;
+  desc: string;
+  json: WireGraph;
+}
+
+var G = function (n: number) { return Math.round(n * 1e9); };
 /* N(id, type, name?, extra?)：extra 直接合併進 data（labels／other_*_bps） */
-function N(id, type, name, extra) {
-  var d = { id: id, type: type };
+function N(id: string, type: string, name?: string | null, extra?: Record<string, any>) {
+  var d: any = { id: id, type: type };
   if (name) d.name = name;
   if (extra) Object.keys(extra).forEach(function (k) { d[k] = extra[k]; });
   return { data: d };
 }
 /* E(id, source, source_iface, target, target_iface, bps)：iface 給空字串就不寫進 labels（k8s 內部沒有 switch iface） */
-function E(id, src, sif, dst, dif, bps) {
-  var d = { id: id, type: 'network-flow', source: src, target: dst };
-  var labels = {};
+function E(id: string, src: string, sif: string, dst: string, dif: string, bps: number) {
+  var d: any = { id: id, type: 'network-flow', source: src, target: dst };
+  var labels: any = {};
   if (sif) labels.source_iface = sif;
   if (dif) labels.target_iface = dif;
   if (sif || dif) d.labels = labels;
@@ -19,7 +28,7 @@ function E(id, src, sif, dst, dif, bps) {
   return { data: d };
 }
 
-var SAMPLES = [
+var SAMPLES: TraceSample[] = [
   {
     key: 'classic',
     name: '經典不守恆',
@@ -302,7 +311,7 @@ var SAMPLES = [
       add('dci-' + j, 'et-9/0/1', 'bdr-' + t1, 'et-1/1/1', G(1));
       add('dci-' + j, 'et-9/0/2', 'bdr-' + t2, 'et-1/1/1', G(1));
     });
-    [[1, [[1, 4], [2, 4]]], [2, [[2, 2], [3, 6]]], [3, [[1, 2], [4, 6]]]].forEach(function (s) {
+    ([[1, [[1, 4], [2, 4]]], [2, [[2, 2], [3, 6]]], [3, [[1, 2], [4, 6]]]] as [number, number[][]][]).forEach(function (s) {
       s[1].forEach(function (o) { add('spn-' + s[0], 'et-3/0/' + o[0], 'tor-' + o[0], 'et-0/0/' + s[0], G(o[1])); });
     });
     [1, 2, 3, 4].forEach(function (k) { add('tor-' + k, 'xe-0/0/10', 'srv-' + k, 'eno1', G(6)); });
@@ -821,7 +830,7 @@ var SAMPLES = [
   }
 ];
 
-var byKey = {};
+var byKey: Record<string, TraceSample> = {};
 SAMPLES.forEach(function (s) { byKey[s.key] = s; });
 
 var defaultKey = 'classic';
