@@ -44,6 +44,11 @@ export const validate = (doc: unknown): string[] => {
     if (str(d.id)) {
       if (byId['k:' + d.id]) errs.push('nodes[' + i + '].data.id「' + d.id + '」重複。');
       else byId['k:' + d.id] = d as WireNodeData;
+      /* build() 自己合成的 ns／app／owner 卡與錨卡跟輸入節點共用同一張表：撞名會靜默把
+         輸入那台蓋掉（圖少一台、沒有警告），React 也會抱 key 重複。在這裡擋掉。 */
+      if (/^(ns|app|owner)-\d+$/.test(d.id) || d.id === '__anchor__') {
+        errs.push('nodes[' + i + '].data.id「' + d.id + '」是保留字（ns-N／app-N／owner-N／__anchor__ 是圖上自動合成的節點 id）。');
+      }
     }
     if (d.name != null && typeof d.name !== 'string') errs.push('nodes[' + i + '].data.name 必須是字串。');
     if (d.parent != null && !str(d.parent)) errs.push('nodes[' + i + '].data.parent 必須是非空字串。');
