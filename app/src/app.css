@@ -63,6 +63,8 @@ body{
 .lg-amber{background:rgba(245,158,11,.16);border:1.4px dashed var(--amber)}
 .lg-rose{background:rgba(251,113,133,.16);border:1.4px dashed var(--rose)}
 .lg-gray{height:0!important;border-top:2px dashed var(--gray)}
+/* 歸屬線：跟 lg-gray 同一支灰，但線更細——圖上它就是比帶子細的一條虛線 */
+.lg-own{height:0!important;border-top:1.5px dashed var(--gray);opacity:.75}
 /* storage 資料：write 通道帶（read 沿用青）與 status 外框 */
 .lg-write{background:linear-gradient(90deg,#c2410c,#7c2d12)}
 .lg-status{background:transparent;border:1.8px solid var(--rose);border-radius:3px;height:7px!important}

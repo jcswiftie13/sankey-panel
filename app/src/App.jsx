@@ -140,6 +140,8 @@ export default function App() {
   /* storage 資料才有 read／write 通道與 status 外框；switch 追查資料的圖例維持原樣 */
   const hasChannel = !!model && model.edges.some(e => e.channel);
   const hasStatus = !!model && model.nodes.some(n => n.status);
+  /* owner 層：灰虛線的歸屬線不解釋的話會被當成一條很小的流量 */
+  const hasOwns = !!model && model.edges.some(e => e.owns);
   const z = () => chartRef.current && chartRef.current.zoom;
   /* 表單驗證錯誤與查詢錯誤共用同一個橫幅：擇一顯示，表單的優先（那是你剛按下去的動作） */
   const banner = formError || loadError;
@@ -209,6 +211,9 @@ export default function App() {
           <span><i className="lg-amber" />其他輸入（貼左側，高度與帶寬等比）</span>
           <span><i className="lg-rose" />其他輸出（截斷／太小，貼右側，高度等比）</span>
           <span><i className="lg-gray" />追查終止葉節點（不是又一台 switch）</span>
+          {hasOwns && (
+            <span><i className="lg-own" />歸屬（這個 port 上不只這一位的機器，量停在 port、不攤分）</span>
+          )}
           {hasStatus && (
             <span><i className="lg-status" />外框色＝status（<b className="c-warn">warning</b>／<b className="c-crit">critical</b>）</span>
           )}

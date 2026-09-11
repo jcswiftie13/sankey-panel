@@ -551,7 +551,7 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
 | --- | --- | --- |
 | **hop** | `switch`、`node`、`pod`、`netapp-node`、`netapp-aggr`、`netapp-svm`、`pvc` | 有槽位、算殘差的盒子。`switch`／`pvc` 實線框；`node`／`pod`／`netapp-*` 是「設備」，虛線框（root 的青框與 status 色優先）。副標：`id`，非 switch 加 ` · <type>` |
 | **群組** | `namespace`、`application`、`cluster`、`storage-cluster`、`controller` | **不直接畫**，只能出現在別的節點的 `parent` 鏈上；pod 的 application／namespace 終點卡由此推導。flow 邊接到群組是驗證錯誤 |
-| **葉** | 其他任何值（`host`、`router`…） | 灰色「追查終止」小卡（`追查終止`／`未再往下追`＋iface＋數量）。帶 `clients` 時右上角換成 client 標記、卡面改成 client 表格（見「`clients`」）。**不能再有往下走的 flow 邊**（追終點：不能當 `source`；追來源：不能當 `target`）→ 驗證錯誤；要接下去請改用 hop 型 type |
+| **葉** | 其他任何值（`host`、`router`…） | 灰色「追查終止」小卡（`追查終止`／`未再往下追`＋iface＋數量）。帶 `clients` 時右上角換成 client 標記、卡面改成 client 表格，並再接一欄 owner 卡（見「`clients`」）。**不能再有往下走的 flow 邊**（追終點：不能當 `source`；追來源：不能當 `target`）→ 驗證錯誤；要接下去請改用 hop 型 type |
 
 再細分幾條規則：
 
@@ -671,6 +671,33 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
   兩台以上時帶的 tooltip 改用 `client` 那一列列出清單。
 - 範例：`samples/client.json`。
 
+#### 依 `owner` 再聚合一層
+
+有 `clients` 的 port 葉卡右邊會再長一欄 **owner 卡**，同名 owner 全圖合一，
+「這個人名下總共多少流量」直接在圖上讀（比照 pod → application → namespace 的推導卡）。
+`owner` 是自由字串，原樣當鍵。**查不到 `owner` 的 client 不開卡、也不連線**——「查不到」
+不是一個人，做成一張卡只會是全圖最大的一張、佔著最顯眼的位置卻什麼都沒說。
+**沒有 `clients` 的葉、以及一個 `owner` 都查不到的 port，都不長 owner 層**，維持原本的
+「追查終止」小卡。
+
+量怎麼帶過去，取決於這個 port 上有幾種人的機器：
+
+| 情況 | 帶 | 為什麼 |
+| --- | --- | --- |
+| 整張卡**只有這一個** owner | **實量帶**：青色、帶全額數字 | 跟 pod → app 一樣是同一筆數字的重新分組 |
+| 卡上還有別人的機器，**或還有查不到 owner 的機器** | **歸屬線**：灰虛線、不帶數字 | 後端量得到的只有整個 port 的 Δ bps，拆給各 owner 就是攤分推估（見「不做的事」） |
+| 整張卡**一個 owner 都查不到** | 不接、沒有線 | 沒有可聚合的對象 |
+
+- **查不到 owner 的 client 雖然不開卡，但仍然算一組**：一張卡上有具名 owner ＋ 也有查不到的機器時，
+  那張卡**算混合**，到具名 owner 只畫不帶量的歸屬線。那個 port 的量裡有不知道是誰的機器的份，
+  整額記到具名那位頭上就是灌水，而且圖上完全看不出來。
+- 混合的 port **照樣分多條線連到每一個具名 owner**，只是那些線不帶量——歸屬看得到，量停在 port。
+- owner 卡上第一行是**已量到的合計**（只累加實量帶）。名下只要有一個 port 是混合的，
+  數字後面就標「（部分 port）」；名下的 port 上都還有別人的機器時第一行改印「量停在 port」，
+  **絕不印一個 0**——那會被讀成「這個人沒有流量」。第二行是 `N 台 client · M 個 port`。
+- 接了 owner 卡的 port 葉，左上角從「追查終止」改成 `port`（它已經是中繼了，比照 pod 卡）。
+- owner 層在葉之後，**完全不影響每台 hop 的守恆**（殘差只算 hop）。
+
 ### 畫面對照：每個欄位出現在哪
 
 | 畫面元素 | 來源 |
@@ -685,12 +712,14 @@ API 不對外開 port、nginx 綁內網或加 IP 白名單。
 | 殘差色塊 | `other_in_bps`／`other_out_bps`，或平衡式自動補 |
 | 葉卡 | `type` 不是 hop／群組的節點：標題 `name`／`id`、`labels.namespace` 色條、iface、數量合計；右上角 `未再往下追` |
 | 葉卡（帶 `clients`） | 標題只在有 `name` 時畫；`labels.namespace` 色條、`clients` 的 `hostname` / `ip` / `owner` 三欄表格（有表頭、每台一列、全部列出、空欄不畫）、數量合計（**不重複印 iface**）；右上角 `client`／`N 個 client` |
+| owner 卡 | 從葉卡的 `clients[].owner` 推導（查不到 owner 的不開卡）：標題＝owner 字串、已量到的合計（只算「整張卡只有這一個 owner」的 port，不足時標「（部分 port）」／全無時印「量停在 port」）、`N 台 client · M 個 port` |
+| 歸屬線 | port 上不只一位的機器（含查不到 owner 的）時，葉卡 → 各具名 owner 卡的灰虛線，**不帶量、不印數字** |
 | pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條（推導的 ns）、iface、數量 |
 | application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：標題＝群組的 `name`、合計、pod 數、成員最差 `status` 框 |
 | 錨卡 | `investigation`：`iface`、方向、`delta_bps`、`note`（tooltip） |
-| 帶的 tooltip | from／to、出口／入口 iface、速率（含 channel）、ns、`client`（下游那端的葉有 `clients` 時）、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
-| 卡片的 tooltip | 型別／名稱、id、ns、ontap_cluster、已追查 in／out 與殘差（或合計＋pod 數）、usage、status、health、model、perf(raw)、alerts、no-flow、`clients`（每筆一列、不截斷） |
-| 欄標題 | 整欄同一非 switch 型別 → `第 N 跳 · <型別名>`；整欄 pod／application／namespace 各有文案 |
+| 帶的 tooltip | from／to、出口／入口 iface、速率（含 channel；**歸屬線沒有這一列**）、ns、`client`（下游那端的葉有 `clients` 時；往 owner 卡的邊改列 port 那端）、`歸屬`（歸屬線）、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
+| 卡片的 tooltip | 型別／名稱、id、ns、ontap_cluster、已追查 in／out 與殘差（或合計＋pod 數；owner 卡是已量到的合計＋台數＋port 數）、usage、status、health、model、perf(raw)、alerts、no-flow、`clients`（每筆一列、不截斷） |
+| 欄標題 | 整欄同一非 switch 型別 → `第 N 跳 · <型別名>`；整欄 pod／application／namespace／owner 各有文案（整欄都接了 owner 的 port 葉標 `第 N 跳 · port`） |
 
 ### 範例
 
@@ -916,6 +945,11 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 - 追查終止葉節點是灰色虛線小卡（「追查終止」「未再往下追」＋ iface ＋ 帶寬），不是又一台 switch。
   節點帶 `clients` 時右上角改成 `client`／`N 個 client`，卡面改成 `hostname` / `ip` / `owner`
   三欄表格、每台一列全部列出，並省掉合成 id 標題與重複的 iface（見「`clients`」）。
+- **`clients` 再依 `owner` 聚合出一欄 owner 卡**（同名全圖合一；查不到 owner 的**不開卡也不連線**，
+  但仍算一組）：整張卡只有這一個 owner 才把量整額帶過去（青色實量帶），port 上還有別人（或查不到
+  owner）的機器時**量停在 port**、只畫灰虛線的歸屬線（不帶量、不印數字）——拆開就是攤分推估。
+  一個 owner 都查不到的 port 不接 owner 層。接了 owner 的 port 葉左上角改成 `port`。
+  整欄 owner 的欄標題是「追查終止 · owner」。
 - k8s 接在同一條 Sankey 上：switch → node（天藍虛線盒）→ pod（天藍虛線中繼卡，標 name 與
   `ns/<namespace>`）→ namespace（ns 色終點卡）。不是每個 switch iface 都接 node；node 可以
   當葉（沒有往下的邊就整台由平衡式補成其他輸出）；pod 沒有 namespace 也合法（不接 ns、沒有色條）。
@@ -943,7 +977,8 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
   的「namespace 流量小計」表（目前 app 沒有顯示這張表）。
 - 整欄同一種非 switch 型別時欄標題帶型別名：「第 N 跳 · k8s node」「第 N 跳 · NetApp aggregate」
   「第 N 跳 · SVM」「第 N 跳 · PVC」；整欄都是 pod 卡標「第 N 跳 · pod」；整欄 application 標
-  「第 N 跳 · application」；整欄都是 ns 終點標「追查終止 · namespace」。沒有 `investigation` 時
+  「第 N 跳 · application」；整欄都是 ns 終點標「追查終止 · namespace」；整欄都是 owner 卡標
+  「追查終止 · owner」，整欄都是接了 owner 的 port 葉標「第 N 跳 · port」。沒有 `investigation` 時
   第一欄就是「第 0 跳」——編號是相對欄號，不是輸入裡的跳數。
 - hop 數字摘要是圖外資訊（`summary()` 回傳 HTML 字串），不是盒子內標籤；目前 app 沒有顯示。
 - 圖區是固定尺寸畫布：SVG 填滿容器，`viewBox` 的 meet-fit 就是「符合視窗」，

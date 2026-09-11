@@ -8,6 +8,9 @@ var HEADER_H = 36, ROW_H = 24, ROW_GAP = 9, BODY_PAD = 12, BODY_MIN = 26;
 var COL_GAP = 218, VGAP = 34;
 var PAD_TOP = 46, PAD_BOTTOM = 26, PAD_SIDE = 122;
 var THICK_MAX = 86, THICK_MIN = 3;
+/* 歸屬線的線寬：不帶量，不能照 thick() 佔一般帶的視覺重量；
+   但 fill:none 的帶 hover 判定就是 stroke-width，太細會點不到 */
+var OWN_T = 2.4;
 var RES_LEN = 34, RES_GAP = 8;   /* 高度改用 thick()，不再有固定的 RES_H／RES_PAD */
 
 /* namespace 色盤：依「首次出現順序」配色、超過就循環。不用 hash——色盤只有 5 色，
@@ -56,6 +59,9 @@ function clientCols(n) {
 }
 /* 卡寬：欄寬總和＋欄距＋左右 padding，並以 LEAF_W 為下限（只有 ip 一欄時不要變成細長條） */
 function clientW(n) {
+  /* owner 是自由字串（部門＋姓名＋分機都可能在裡面），LEAF_W 截得太兇。
+     欄寬下限本來就是 NODE_W，加寬到這個值不會把後面的欄推開。 */
+  if (n.role === 'owner') return NODE_W;
   var cols = clientCols(n);
   if (!cols.length) return LEAF_W;
   var w = CLIENT_PAD * 2 + CLIENT_GAP * (cols.length - 1);
@@ -75,6 +81,7 @@ function clientRows(n) {
    有 clients 時多的是：name 那行（只有真的給了 name 才有）、表頭一行、每台一行。
    沒有 clients 時回傳值與舊版完全相同。 */
 function leafH(n) {
+  if (n.role === 'owner') return 84;      /* 量一行、台數／port 數一行 */
   var cols = clientCols(n);
   if (!cols.length) return n.namespace ? 80 : 70;
   return 70 + (n.namespace ? 14 : 0) + (n.named ? 14 : 0) + 14 + n.clients.length * 14;
@@ -113,6 +120,11 @@ function layout(model) {
   var scale = THICK_MAX / maxVal;
   var thick = function (v) { return Math.max(THICK_MIN, v * scale); };
 
+  /* 每條邊的視覺厚度。歸屬線（owns）沒有量測值、bps 恆 0，照 thick() 會拿到 THICK_MIN
+     的實心帶，讀起來像一條很小的流量——固定給一條細線，語意上才是「只有歸屬、沒有量」。
+     其餘邊 __t === thick(e.bps)，沒有 owner 層的圖槽位逐 byte 不變。 */
+  edges.forEach(function (e) { e.__t = e.owns ? OWN_T : thick(e.bps); });
+
   /* 只跨一欄的回流：兩欄之間的走廊共用、中間沒有盒子，port 掛相向的邊緣
      （source 左緣、target 右緣）就能整條畫在走廊裡，跟一般帶一樣短。
      跨兩欄以上的才需要繞圖底外圈。 */
@@ -128,22 +140,22 @@ function layout(model) {
        槽位排最後（殘差之前）。跨多欄的回流維持 in 左緣、out 右緣、也排最後：
        迴路帶從盒子疊的最下方出入，往下繞出圖外時才不會跨過自己的其他帶。 */
     n.leftSlots = n.inEdges.filter(function (e) { return !e.lateral && !e.backward; }).map(function (e) {
-      return { edge: e, role: 'in', iface: e.toIface, t: thick(e.bps) };
+      return { edge: e, role: 'in', iface: e.toIface, t: e.__t };
     }).concat(n.inEdges.filter(function (e) { return e.backward && !e.backNear; }).map(function (e) {
-      return { edge: e, role: 'in', iface: e.toIface, t: thick(e.bps) };
+      return { edge: e, role: 'in', iface: e.toIface, t: e.__t };
     })).concat(n.outEdges.filter(function (e) { return e.backNear; }).map(function (e) {
-      return { edge: e, role: 'back-out', iface: e.fromIface, t: thick(e.bps) };
+      return { edge: e, role: 'back-out', iface: e.fromIface, t: e.__t };
     }));
     n.rightSlots = n.outEdges.filter(function (e) { return !e.lateral && !e.backward; }).map(function (e) {
-      return { edge: e, role: 'out', iface: e.fromIface, t: thick(e.bps) };
+      return { edge: e, role: 'out', iface: e.fromIface, t: e.__t };
     }).concat(n.outEdges.filter(function (e) { return e.lateral; }).map(function (e) {
-      return { edge: e, role: 'lat-out', iface: e.fromIface, t: thick(e.bps) };
+      return { edge: e, role: 'lat-out', iface: e.fromIface, t: e.__t };
     })).concat(n.inEdges.filter(function (e) { return e.lateral; }).map(function (e) {
-      return { edge: e, role: 'lat-in', iface: e.toIface, t: thick(e.bps) };
+      return { edge: e, role: 'lat-in', iface: e.toIface, t: e.__t };
     })).concat(n.inEdges.filter(function (e) { return e.backNear; }).map(function (e) {
-      return { edge: e, role: 'back-in', iface: e.toIface, t: thick(e.bps) };
+      return { edge: e, role: 'back-in', iface: e.toIface, t: e.__t };
     })).concat(n.outEdges.filter(function (e) { return e.backward && !e.backNear; }).map(function (e) {
-      return { edge: e, role: 'out', iface: e.fromIface, t: thick(e.bps) };
+      return { edge: e, role: 'out', iface: e.fromIface, t: e.__t };
     }));
     /* 殘差是真的槽位，排在已追查 port 之後（最外側），才會跟它們一起被 place() 置中。
        放最外側而不是插在中間：place() 依順序指派 cy，插中間會把下面所有帶子往下推、
@@ -246,22 +258,32 @@ function layout(model) {
      把「對端是帶 ns 的 pod 葉」的槽位依對端的 y 重排（寫回原本的索引位置，
      其他槽位含殘差槽原地不動）——只有 pod 葉邊會被重排，非 k8s 圖槽位順序逐 byte 不變。
      ns 終點也要重排：多台 node 的 pod 匯進同一個 ns，匯流帶照 pod 的 y 排才不互穿。 */
+  function farOf(sl) { return model.nodeMap[sl.role === 'in' ? sl.edge.fromId : sl.edge.toId]; }
+  /* 依對端的 y 重排 want() 挑中的槽位，寫回原本的索引位置——其他槽位（含殘差槽）原地不動 */
+  function reorderSlots(slots, want) {
+    var idxs = [];
+    slots.forEach(function (sl, i) {
+      if (!sl.edge || sl.edge.lateral || sl.edge.backward) return;
+      if (want(farOf(sl))) idxs.push(i);
+    });
+    if (idxs.length < 2) return;
+    var picked = idxs.map(function (i) { return slots[i]; });
+    picked.sort(function (a, b) { return farOf(a).y - farOf(b).y; });
+    idxs.forEach(function (i, k) { slots[i] = picked[k]; });
+  }
   nodes.forEach(function (n) {
     if (n.kind !== 'node' && n.role !== 'ns' && n.role !== 'app') return;
     [n.leftSlots, n.rightSlots].forEach(function (slots) {
-      function far(sl) {
-        return model.nodeMap[sl.role === 'in' ? sl.edge.fromId : sl.edge.toId];
-      }
-      var idxs = [];
-      slots.forEach(function (sl, i) {
-        if (!sl.edge || sl.edge.lateral || sl.edge.backward) return;
-        var f = far(sl);
-        if (f.kind === 'leaf' && f.role === 'pod' && f.namespace) idxs.push(i);
-      });
-      if (idxs.length < 2) return;
-      var picked = idxs.map(function (i) { return slots[i]; });
-      picked.sort(function (a, b) { return far(a).y - far(b).y; });
-      idxs.forEach(function (i, k) { slots[i] = picked[k]; });
+      reorderSlots(slots, function (f) { return f.kind === 'leaf' && f.role === 'pod' && f.namespace; });
+    });
+  });
+  /* owner 層同理，而且更嚴重：port 葉的出邊順序是 clients 的出現順序、owner 卡的入邊順序是
+     建邊順序，兩者都跟對端的 y 無關——一張 port 掛五個 owner 時歸屬線會整束交叉。
+     兩端都依對端 y 重排。沒有 owner 層的圖不進這個迴圈，槽位順序逐 byte 不變。 */
+  nodes.forEach(function (n) {
+    if (!n.ownerLinked && n.role !== 'owner') return;
+    [n.leftSlots, n.rightSlots].forEach(function (slots) {
+      reorderSlots(slots, function (f) { return n.role === 'owner' || f.role === 'owner'; });
     });
   });
 
@@ -341,6 +363,13 @@ function ribbon(e) {
     ' C' + mx + ',' + (e.y2 + b) + ' ' + mx + ',' + (e.y1 + a) + ' ' + e.x1 + ',' + (e.y1 + a) + ' Z';
 }
 
+/* 歸屬線：ribbon() 的中線版本。fill 是 none、靠 stroke 畫，比照回流的 band-loop——
+   帶狀路徑沒辦法畫成虛線，而虛線正是「這條沒有量」的視覺記號。 */
+function ownLine(e) {
+  var mx = (e.x1 + e.x2) / 2;
+  return 'M' + e.x1 + ',' + e.y1 + ' C' + mx + ',' + e.y1 + ' ' + mx + ',' + e.y2 + ' ' + e.x2 + ',' + e.y2;
+}
+
 /* 同欄互連：兩端都在欄右緣的馬蹄形弧帶，往右凸 B 再折回。
    外緣接兩端「遠離中線」的邊界、內緣接近側，弧頂寬度才會 ≈ 平均帶寬。 */
 function lateralRibbon(e, B) {
@@ -416,6 +445,7 @@ function render(model) {
       from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
       fi: e.fromIface, ti: e.toIface, bps: e.bps, anchor: !!e.isAnchor,
       backward: e.backward || undefined,    /* stringify 會把 undefined 丟掉：沒回流的圖輸出不變 */
+      owns: e.owns || undefined,            /* 同上：沒 owner 層的圖輸出不變 */
       ns: e.namespace || undefined,         /* 同上：沒 ns 的圖輸出不變 */
     /* 兩台以上 client 時卡片標題不是 client 身分（合成 id 或使用者給的 name），
        hover 這條帶要知道那頭掛了誰就靠這個鍵。同樣只在有值時出現。 */
@@ -447,6 +477,15 @@ function render(model) {
       }
       return;
     }
+    /* 歸屬線：只表達「這個 port 掛的機器屬於誰」，量停在 port。灰虛線沿用葉卡外框的語彙，
+       不新增顏色；stroke-linecap 留預設，短虛線才不會糊在一起。 */
+    if (e.owns) {
+      out.push('<path class="band band-own" d="' + ownLine(e) + '" fill="none" ' +
+        'stroke="#94a3b8" stroke-opacity=".55" stroke-width="' + OWN_T + '" stroke-dasharray="5 4" ' +
+        'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
+        esc(meta.from + ' → ' + meta.to + '：歸屬（量停在 port）') + '</title></path>');
+      return;
+    }
     out.push('<path class="band' + (e.lateral ? ' band-lat' : '') + (isW ? ' band-w' : '') + '" d="' +
       (e.lateral ? lateralRibbon(e, e.bulge) : ribbon(e)) + '" fill="url(#' + (isW ? 'gband-w' : 'gband') + ')" ' +
       'stroke="' + (isW ? '#c2410c' : '#22d3ee') + '" stroke-opacity=".35" stroke-width="1" ' +
@@ -464,6 +503,7 @@ function render(model) {
 
   /* 帶上的數字。橫向弧帶的數字放弧頂，回流帶放底部水平段中點，放中點會壓在欄上 */
   model.edges.forEach(function (e) {
+    if (e.owns) return;                        /* 歸屬線沒有量，印數字就是憑空生一個值 */
     var mx = (e.backward && !e.backNear) ? (e.backXD + e.backXU) / 2
       : e.lateral ? e.x1 + 0.72 * e.bulge : (e.x1 + e.x2) / 2;
     var my = (e.backward && !e.backNear) ? e.backY - e.backT / 2 - 10 : (e.y1 + e.y2) / 2;
@@ -478,6 +518,7 @@ function render(model) {
       if (n.role === 'pod') out.push(podCard(n, model, geo.nsColor));
       else if (n.role === 'ns') out.push(nsCard(n, model, geo.nsColor));
       else if (n.role === 'app') out.push(appCard(n, model, geo.nsColor));
+      else if (n.role === 'owner') out.push(ownerCard(n, model));
       else out.push(leafCard(n, model, geo.nsColor));
     }
     else out.push(anchorCard(n, model));
@@ -508,6 +549,13 @@ function colCaption(col, dir) {
     var same = role !== 'switch' && col.every(function (n) { return n.kind === 'node' && n.role === role; });
     return '第 ' + col[0].col + ' 跳' + (same ? ' · ' + (TYPE_LABEL[role] || role) : '');
   }
+  /* owner 終點欄：client 的負責人是追查的盡頭 */
+  if (col.every(function (n) { return n.role === 'owner'; })) return '追查終止 · owner';
+  /* 整欄都接了 owner 卡的 port 葉：它們已經是中繼，比照 pod 欄印「第 N 跳」。
+     混欄（真終點的葉混在裡面）維持既有的「追查終止」，標了反而誤導。 */
+  if (col.every(function (n) { return n.kind === 'leaf' && n.role === 'leaf' && n.ownerLinked; })) {
+    return '第 ' + col[0].col + ' 跳 · port';
+  }
   /* ns 終點欄：namespace 是追查的盡頭 */
   if (col.every(function (n) { return n.role === 'ns'; })) return '追查終止 · namespace';
   /* pod／application 是中繼了（另一側接 ns），整欄比照「第 N 跳」；含 pod 的混葉欄同理 */
@@ -528,6 +576,7 @@ function typeWord(n) {
   if (n.kind === 'anchor') return '追查起點';
   if (n.role === 'ns') return 'namespace';
   if (n.role === 'app') return 'application';
+  if (n.role === 'owner') return 'owner';
   if (n.kind === 'leaf') return n.type || 'host';
   return n.role;
 }
@@ -551,7 +600,7 @@ function nodeTip(n, model) {
     if (n.note) rows.push(['備註', n.note]);
     return { node: 1, title: title, rows: rows };
   }
-  if (n.role !== 'ns' && n.role !== 'app' && n.id !== n.label) rows.push(['id', n.id]);
+  if (n.role !== 'ns' && n.role !== 'app' && n.role !== 'owner' && n.id !== n.label) rows.push(['id', n.id]);
   if (n.namespace && n.role !== 'ns') rows.push(['namespace', 'ns/' + n.namespace]);
   if (n.ontapCluster) rows.push(['ontap_cluster', n.ontapCluster]);
   if (n.kind === 'node') {
@@ -563,8 +612,17 @@ function nodeTip(n, model) {
       if (resOut(n)) rows.push(['其他輸出', A(n.otherOut, n.unit)]);
     }
   } else {
-    rows.push([n.role === 'ns' || n.role === 'app' ? '合計' : '流量', R(n.bps, n.unit)]);
-    if (n.podCount != null) rows.push(['pod', n.podCount + ' 個']);
+    /* owner 卡的量只來自「整張卡只有這一個 owner」的 port。名下的 port 上只要還有別人的
+       機器（或查不到 owner 的機器），bps 就是 0——那不是「沒有流量」而是「量停在 port」，
+       不能印成 0。 */
+    if (n.role === 'owner') {
+      rows.push(['已量到的合計', n.bps > 0 ? R(n.bps, n.unit) : '—（名下的 port 上還有別人的機器，量停在 port）']);
+      rows.push(['client', n.clientCount + ' 台']);
+      rows.push(['port', n.portCount + ' 個']);
+    } else {
+      rows.push([n.role === 'ns' || n.role === 'app' ? '合計' : '流量', R(n.bps, n.unit)]);
+      if (n.podCount != null) rows.push(['pod', n.podCount + ' 個']);
+    }
   }
   if (n.usage) rows.push(['usage', usageText(n.usage)]);
   if (n.status) rows.push(['status', n.status + (n.role === 'ns' || n.role === 'app' ? '（成員 pod 中最差）' : '')]);
@@ -591,7 +649,11 @@ function tipAttr(n, model) { return ' data-tip="' + esc(JSON.stringify(nodeTip(n
 /* 帶的 tooltip 要列的 client：取封包下游那一端的節點（追來源模式反過來），
    有 clients 就回 hostname／IP 的字串陣列。完整欄位在卡片自己的 tooltip 裡。 */
 function clientsMeta(e, model) {
-  var far = model.nodeMap[model.dir === 'destination' ? e.toId : e.fromId];
+  /* 往 owner 卡的邊剛好相反：owner 卡上沒有 clients，要列的是 port 那一端掛了誰 */
+  var toOwner = model.nodeMap[e.toId].role === 'owner' || model.nodeMap[e.fromId].role === 'owner';
+  var down = model.dir === 'destination' ? e.toId : e.fromId;
+  var up = model.dir === 'destination' ? e.fromId : e.toId;
+  var far = model.nodeMap[toOwner ? up : down];
   if (!far || !far.clients) return null;
   return far.clients.map(function (c) { return c.hostname || c.ip; });
 }
@@ -647,7 +709,9 @@ function leafCard(n, model, nsColor) {
     s.push('<rect x="' + (n.x + 1.5) + '" y="' + (n.y + 5) + '" width="4" height="' + (n.h - 10) +
       '" rx="2" fill="' + nsc + '" fill-opacity=".85"/>');
   }
-  s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">追查終止</text>');
+  /* 接了 owner 卡的 port 已經不是終點了（比照 pod 卡從「追查終止」變成 pod） */
+  s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">' +
+    (n.ownerLinked ? 'port' : '追查終止') + '</text>');
   var cols = clientCols(n), ly;
   if (cols.length) {
     /* 有 client 的卡：合成 id（sw-tor-1:xe-0/0/12）不當標題——順著帶子回去就知道是哪台
@@ -753,6 +817,29 @@ function groupCard(n, model, nsColor, word) {
 }
 function nsCard(n, model, nsColor) { return groupCard(n, model, nsColor, 'namespace'); }
 function appCard(n, model, nsColor) { return groupCard(n, model, nsColor, 'application'); }
+
+/* owner 終點卡：client 的負責人。跟 ns／app 一樣是邏輯彙總（實線描邊，虛線留給設備／截斷），
+   但 owner 不是 namespace、沒有 ns 色，用葉卡那支灰——不新增顏色定義。
+   bps 只來自「整張卡只有這一個 owner」的 port；名下的 port 上還有別人的機器時 bps 是 0，
+   那不是「沒有流量」而是「量停在 port」，所以第三行改印台數，不能印一個 0 出來。 */
+function ownerCard(n, model) {
+  var s = [];
+  s.push('<g' + tipAttr(n, model) + '>');
+  s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8" ' +
+    'fill="#94a3b8" fill-opacity=".10" stroke="#94a3b8" stroke-width="1.4"/>');
+  s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">owner</text>');
+  s.push('<text class="leaf-main" x="' + (n.x + 12) + '" y="' + (n.y + 34) + '">' +
+    esc(clip(n.label, 34)) + '</text>');
+  /* 量與台數分兩行：擠成一行會讀成「這個量是這幾個 port 的總和」，
+     而名下只要有一個 port 掛著多個 owner，那個 port 的量就沒有算進來。 */
+  s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + (n.y + 48) + '">' +
+    (n.bps > 0 ? esc(R(n.bps, n.unit)) + (n.meteredPorts < n.portCount ? '（部分 port）' : '')
+               : '量停在 port') + '</text>');
+  s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 64) + '">' +
+    n.clientCount + ' 台 client · ' + n.portCount + ' 個 port</text>');
+  s.push('</g>');
+  return s.join('');
+}
 
 function anchorCard(n, model) {
   var inv = model.investigation;

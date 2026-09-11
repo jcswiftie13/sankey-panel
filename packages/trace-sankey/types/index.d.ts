@@ -109,7 +109,7 @@ export interface TraceNode {
   id: string;
   label: string;
   kind: 'node' | 'leaf' | 'anchor';
-  /** hop：= type；葉：'leaf'／'pod'／'ns'／'app'；錨：'anchor' */
+  /** hop：= type；葉：'leaf'／'pod'／'ns'／'app'／'owner'；錨：'anchor' */
   role: string | null;
   namespace: string | null;
   status?: 'normal' | 'warning' | 'critical' | null;
@@ -136,6 +136,8 @@ export interface TraceEdge {
   backward?: boolean;
   /** 同欄互連（畫成右側弧帶） */
   lateral?: boolean;
+  /** 歸屬線：port 上掛著多個 owner，量停在 port，這條邊只表達歸屬，bps 恆 0 */
+  owns?: boolean;
   [key: string]: unknown;
 }
 

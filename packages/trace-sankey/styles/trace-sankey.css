@@ -48,6 +48,9 @@
 .trace-sankey .band.band-back:hover{fill:url(#gband-back-h)}
 .trace-sankey .band.band-w:hover{fill:url(#gband-w-h)}
 .trace-sankey .band.band-loop:hover{fill:none;stroke-opacity:.85}
+/* 歸屬線也是 fill:none 的描邊帶：hover 只能加深 stroke。虛線很細，hover 判定放寬到整條線 */
+.trace-sankey .band-own{pointer-events:stroke;stroke-linecap:butt}
+.trace-sankey .band.band-own:hover{fill:none;stroke-opacity:1}
 
 /* ---------- svg text ---------- */
 /* 圖上的文字都不可互動，免得帶子上的數字擋掉 hover */

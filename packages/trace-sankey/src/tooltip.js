@@ -14,13 +14,18 @@ function bandHtml(d) {
   var h = '<b>' + esc(d.from) + ' → ' + esc(d.to) + '</b>' +
     row('出口 iface', d.fi || '—') +
     row('入口 iface', d.ti || '—') +
-    /* delta_bps 是「速率的差」；bytes/s 是絕對速率，標籤跟著換 */
-    row(isBytes ? '速率' + (d.channel ? '（' + d.channel + '）' : '') : '速率增量 Δ', fmtRate(d.bps, d.unit)) +
+    /* delta_bps 是「速率的差」；bytes/s 是絕對速率，標籤跟著換。
+       歸屬線的 bps 是 0，那不是「零流量」而是「沒有量」——印出來就是憑空生一個值 */
+    (d.owns ? '' :
+      row(isBytes ? '速率' + (d.channel ? '（' + d.channel + '）' : '') : '速率增量 Δ', fmtRate(d.bps, d.unit))) +
     (d.channel ? row('channel', d.channel) : '') +
     (d.ns ? row('namespace', 'ns/' + d.ns) : '') +
     /* 無鄰居 port 上查到的 client：一筆直接印，多筆印數量與清單（完整欄位在卡片的 tooltip） */
     (d.clients ? row('client', d.clients.length === 1 ? d.clients[0]
       : d.clients.length + ' 個：' + d.clients.join(' · ')) : '') +
+    /* 歸屬線：這個 port 上還有別人（或查不到 owner）的機器，量停在 port——
+       拆開就是攤分推估，我們不做 */
+    (d.owns ? row('歸屬', '這個 port 上還有別人的機器，量停在 port（不攤分）') : '') +
     (d.tier ? row('tier', d.tier) : '') +
     (d.attr ? row('attribution', d.attr === 'split' ? 'split（平均攤分的估計值）' : d.attr) : '') +
     (d.anchor ? row('這條是追查起點', '') : '') +
