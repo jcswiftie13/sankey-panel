@@ -1,8 +1,9 @@
 /* SVG Sankey 繪製：青帶＝已追查（storage 資料的 read 通道同色、write 通道燃橘）、
    殘差＝盒子外側與帶寬等比的虛線色塊、終止＝灰虛線小卡。
    帶上的數字一律是實際量測值，沒有推估值；單位跟著邊（bps 帶 + 號、bytes/s 不帶）。 */
-import { fmtBps as F, fmtDelta as D, fmtRate as R, fmtAmount as A, fmtBytes, TYPE_LABEL } from './model.js';
-import type { TraceModelOk } from './types.js';
+import { fmtBps as F, fmtDelta as D, fmtRate as R, fmtAmount as A, fmtBytes } from './model/format.js';
+import { TYPE_LABEL } from './model/classify.js';
+import type { TraceModelOk } from './model/types.js';
 /* TODO(types)：Phase 3 拆 layout 時把 n／e／geo 收成正式型別 */
 
 var NODE_W = 208, LEAF_W = 178, ANCHOR_W = 152;
@@ -21,16 +22,16 @@ var RES_LEN = 34, RES_GAP = 8;   /* 高度改用 thick()，不再有固定的 RE
    玫瑰（其他出）、灰（葉）、#7dd3fc 天藍（k8s node 框）。 */
 var NS_COLORS = ['#a78bfa', '#34d399', '#facc15', '#60a5fa', '#f472b6'];
 
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+function esc(s: any) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c: any) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c];
   });
 }
 
 /* SVG 沒有 text-overflow，長字串會直接戳出卡外：卡面文字自己截。
    以半形 1、CJK（含全形標點）2 估寬——不精確，但 .leaf-sub 是等寬感的 10px 小字，
    估寬夠用且不必量 DOM（render() 必須是純函式、Node 也要能跑）。完整值一律進 tooltip。 */
-function clip(s, budget) {
+function clip(s: any, budget: any) {
   s = String(s == null ? '' : s);
   var w = 0, i = 0;
   for (; i < s.length; i++) {
@@ -52,37 +53,37 @@ var CLIENT_COLS = [
   { key: 'owner', budget: 18, w: 100 }
 ];
 var CLIENT_GAP = 10, CLIENT_PAD = 12;
-function clientCols(n) {
+function clientCols(n: any) {
   var cs = n.clients;
   if (!cs || !cs.length) return [];
-  return CLIENT_COLS.filter(function (col) {
-    return cs.some(function (c) { return c[col.key]; });
+  return CLIENT_COLS.filter(function (col: any) {
+    return cs.some(function (c: any) { return c[col.key]; });
   });
 }
 /* 卡寬：欄寬總和＋欄距＋左右 padding，並以 LEAF_W 為下限（只有 ip 一欄時不要變成細長條） */
-function clientW(n) {
+function clientW(n: any) {
   /* owner 是自由字串（部門＋姓名＋分機都可能在裡面），LEAF_W 截得太兇。
      欄寬下限本來就是 NODE_W，加寬到這個值不會把後面的欄推開。 */
   if (n.role === 'owner') return NODE_W;
   var cols = clientCols(n);
   if (!cols.length) return LEAF_W;
   var w = CLIENT_PAD * 2 + CLIENT_GAP * (cols.length - 1);
-  cols.forEach(function (col) { w += col.w; });
+  cols.forEach(function (col: any) { w += col.w; });
   return Math.max(LEAF_W, w);
 }
 /* 一列一台，每格各自截斷；沒有值的格子留空（不要補「—」，空白本身就讀得出來） */
-function clientRows(n) {
+function clientRows(n: any) {
   var cols = clientCols(n);
   if (!cols.length) return [];
-  return n.clients.map(function (c) {
-    return cols.map(function (col) { return c[col.key] ? clip(c[col.key], col.budget) : ''; });
+  return n.clients.map(function (c: any) {
+    return cols.map(function (col: any) { return c[col.key] ? clip(c[col.key], col.budget) : ''; });
   });
 }
 
 /* 帶 namespace 的葉多一行資訊（ns 標示），卡要高一階；沒 ns 的 pod 跟一般葉一樣高。
    有 clients 時多的是：name 那行（只有真的給了 name 才有）、表頭一行、每台一行。
    沒有 clients 時回傳值與舊版完全相同。 */
-function leafH(n) {
+function leafH(n: any) {
   if (n.role === 'owner') return 84;      /* 量一行、台數／port 數一行 */
   var cols = clientCols(n);
   if (!cols.length) return n.namespace ? 80 : 70;
@@ -90,24 +91,24 @@ function leafH(n) {
 }
 
 /* hop 盒的標題區高度：有 usage 副標（兩欄都在才畫）就多一行 */
-function hasUsage(n) { return !!(n.usage && n.usage.used_bytes != null && n.usage.capacity_bytes != null); }
-function headerH(n) { return HEADER_H + (hasUsage(n) ? 12 : 0); }
+function hasUsage(n: any) { return !!(n.usage && n.usage.used_bytes != null && n.usage.capacity_bytes != null); }
+function headerH(n: any) { return HEADER_H + (hasUsage(n) ? 12 : 0); }
 /* 非 switch 的設備型別（k8s node／pod、netapp 三型別）畫虛線框；pvc／app／ns 實線，與參考面板一致 */
 var DEVICE_TYPES = ['node', 'pod', 'netapp-node', 'netapp-aggr', 'netapp-svm'];
-var STATUS_COLOR = { critical: '#fb7185', warning: '#f59e0b' };
+var STATUS_COLOR: Record<string, string> = { critical: '#fb7185', warning: '#f59e0b' };
 
 /* 殘差門檻用 model 算好的 resEps：小於 counter 浮點雜訊的殘差不畫，也不佔版面。
    注意這是「相對這台自己流量」的判斷，粗細卻是全圖 maxVal 的比例——
    小 hop 的真殘差可能過得了門檻但只有 THICK_MIN 這麼細，那是對的。 */
-function resIn(n) { return n.kind === 'node' && n.otherIn > (n.resEps || 0) ? n.otherIn : 0; }
-function resOut(n) { return n.kind === 'node' && n.otherOut > (n.resEps || 0) ? n.otherOut : 0; }
+function resIn(n: any) { return n.kind === 'node' && n.otherIn > (n.resEps || 0) ? n.otherIn : 0; }
+function resOut(n: any) { return n.kind === 'node' && n.otherOut > (n.resEps || 0) ? n.otherOut : 0; }
 
-function layout(model) {
+function layout(model: any) {
   var nodes = model.nodes, edges = model.edges;
 
   /* namespace → 顏色：掃節點（葉與 hop 級 ns 都算）依首次出現順序取色 */
-  var nsColor = {};
-  nodes.forEach(function (n) {
+  var nsColor: Record<string, string> = {};
+  nodes.forEach(function (n: any) {
     if (n.namespace && nsColor[n.namespace] == null) {
       nsColor[n.namespace] = NS_COLORS[Object.keys(nsColor).length % NS_COLORS.length];
     }
@@ -116,47 +117,47 @@ function layout(model) {
   /* 殘差跟青帶共用同一把比例尺，比例才讀得出來。殘差比所有邊都大時青帶會變細，
      那正是「沒追到的佔大多數」該有的觀感。 */
   var maxVal = 0;
-  edges.forEach(function (e) { maxVal = Math.max(maxVal, e.bps); });
-  nodes.forEach(function (n) { maxVal = Math.max(maxVal, resIn(n), resOut(n)); });
+  edges.forEach(function (e: any) { maxVal = Math.max(maxVal, e.bps); });
+  nodes.forEach(function (n: any) { maxVal = Math.max(maxVal, resIn(n), resOut(n)); });
   if (maxVal <= 0) maxVal = 1;
   var scale = THICK_MAX / maxVal;
-  var thick = function (v) { return Math.max(THICK_MIN, v * scale); };
+  var thick = function (v: any) { return Math.max(THICK_MIN, v * scale); };
 
   /* 每條邊的視覺厚度。歸屬線（owns）沒有量測值、bps 恆 0，照 thick() 會拿到 THICK_MIN
      的實心帶，讀起來像一條很小的流量——固定給一條細線，語意上才是「只有歸屬、沒有量」。
      其餘邊 __t === thick(e.bps)，沒有 owner 層的圖槽位逐 byte 不變。 */
-  edges.forEach(function (e) { e.__t = e.owns ? OWN_T : thick(e.bps); });
+  edges.forEach(function (e: any) { e.__t = e.owns ? OWN_T : thick(e.bps); });
 
   /* 只跨一欄的回流：兩欄之間的走廊共用、中間沒有盒子，port 掛相向的邊緣
      （source 左緣、target 右緣）就能整條畫在走廊裡，跟一般帶一樣短。
      跨兩欄以上的才需要繞圖底外圈。 */
-  edges.forEach(function (e) {
+  edges.forEach(function (e: any) {
     e.backNear = !!e.backward &&
       model.nodeMap[e.fromId].col - model.nodeMap[e.toId].col === 1;
   });
 
   /* 每個節點的 port 槽位。橫向邊（同 tier 同欄互連）兩端都掛右側：
      弧帶整條活在欄右側的間隙，受端若從左邊進就得繞過整個盒子。 */
-  nodes.forEach(function (n) {
+  nodes.forEach(function (n: any) {
     /* 相鄰欄回流（backNear）：out 掛 source 左緣、in 掛 target 右緣（相向），
        槽位排最後（殘差之前）。跨多欄的回流維持 in 左緣、out 右緣、也排最後：
        迴路帶從盒子疊的最下方出入，往下繞出圖外時才不會跨過自己的其他帶。 */
-    n.leftSlots = n.inEdges.filter(function (e) { return !e.lateral && !e.backward; }).map(function (e) {
+    n.leftSlots = n.inEdges.filter(function (e: any) { return !e.lateral && !e.backward; }).map(function (e: any) {
       return { edge: e, role: 'in', iface: e.toIface, t: e.__t };
-    }).concat(n.inEdges.filter(function (e) { return e.backward && !e.backNear; }).map(function (e) {
+    }).concat(n.inEdges.filter(function (e: any) { return e.backward && !e.backNear; }).map(function (e: any) {
       return { edge: e, role: 'in', iface: e.toIface, t: e.__t };
-    })).concat(n.outEdges.filter(function (e) { return e.backNear; }).map(function (e) {
+    })).concat(n.outEdges.filter(function (e: any) { return e.backNear; }).map(function (e: any) {
       return { edge: e, role: 'back-out', iface: e.fromIface, t: e.__t };
     }));
-    n.rightSlots = n.outEdges.filter(function (e) { return !e.lateral && !e.backward; }).map(function (e) {
+    n.rightSlots = n.outEdges.filter(function (e: any) { return !e.lateral && !e.backward; }).map(function (e: any) {
       return { edge: e, role: 'out', iface: e.fromIface, t: e.__t };
-    }).concat(n.outEdges.filter(function (e) { return e.lateral; }).map(function (e) {
+    }).concat(n.outEdges.filter(function (e: any) { return e.lateral; }).map(function (e: any) {
       return { edge: e, role: 'lat-out', iface: e.fromIface, t: e.__t };
-    })).concat(n.inEdges.filter(function (e) { return e.lateral; }).map(function (e) {
+    })).concat(n.inEdges.filter(function (e: any) { return e.lateral; }).map(function (e: any) {
       return { edge: e, role: 'lat-in', iface: e.toIface, t: e.__t };
-    })).concat(n.inEdges.filter(function (e) { return e.backNear; }).map(function (e) {
+    })).concat(n.inEdges.filter(function (e: any) { return e.backNear; }).map(function (e: any) {
       return { edge: e, role: 'back-in', iface: e.toIface, t: e.__t };
-    })).concat(n.outEdges.filter(function (e) { return e.backward && !e.backNear; }).map(function (e) {
+    })).concat(n.outEdges.filter(function (e: any) { return e.backward && !e.backNear; }).map(function (e: any) {
       return { edge: e, role: 'out', iface: e.fromIface, t: e.__t };
     }));
     /* 殘差是真的槽位，排在已追查 port 之後（最外側），才會跟它們一起被 place() 置中。
@@ -178,14 +179,14 @@ function layout(model) {
   });
 
   /* 欄位 x */
-  var cols = [];
-  nodes.forEach(function (n) { (cols[n.col] = cols[n.col] || []).push(n); });
+  var cols: any[] = [];
+  nodes.forEach(function (n: any) { (cols[n.col] = cols[n.col] || []).push(n); });
   var x = PAD_SIDE, colX = [];
   for (var c = 0; c < cols.length; c++) {
     var list = cols[c] || [];
-    var w = list.reduce(function (m, n) { return Math.max(m, n.w); }, NODE_W);
+    var w = list.reduce(function (m: any, n: any) { return Math.max(m, n.w); }, NODE_W);
     colX[c] = x;
-    list.forEach(function (n) { n.x = x; });
+    list.forEach(function (n: any) { n.x = x; });
     x += w + COL_GAP;
   }
   var totalW = x - COL_GAP + PAD_SIDE;
@@ -193,25 +194,25 @@ function layout(model) {
   /* 欄位 y：先照上游中心排序，再整欄對齊上游重心 */
   for (var ci = 0; ci < cols.length; ci++) {
     var col = cols[ci] || [];
-    col.forEach(function (n, i) {
-      var parents = n.inEdges.filter(function (e) {
+    col.forEach(function (n: any, i: any) {
+      var parents = n.inEdges.filter(function (e: any) {
         var p = model.nodeMap[e.fromId];
         return p.col < n.col && typeof p.__cy === 'number';
       });
       n.__hasXParent = parents.length > 0;
       n.__pref = parents.length
-        ? parents.reduce(function (s, e) { return s + model.nodeMap[e.fromId].__cy; }, 0) / parents.length
+        ? parents.reduce(function (s: any, e: any) { return s + model.nodeMap[e.fromId].__cy; }, 0) / parents.length
         : i * 1e-3;
       n.__ord = i;
     });
     /* 只被同欄餵的節點（如 dci）沒有跨欄父節點：__pref 繼承橫向上游，
        平手時再靠 subOrder 落在生產者與消費者之間。照 subOrder 走可沿鏈傳遞。 */
-    col.slice().sort(function (a, b) { return (a.subOrder || 0) - (b.subOrder || 0); })
-      .forEach(function (n) {
+    col.slice().sort(function (a: any, b: any) { return (a.subOrder || 0) - (b.subOrder || 0); })
+      .forEach(function (n: any) {
         if (n.__hasXParent) return;
-        var lat = n.inEdges.filter(function (e) { return e.lateral; });
+        var lat = n.inEdges.filter(function (e: any) { return e.lateral; });
         if (lat.length) {
-          n.__pref = lat.reduce(function (s, e) { return s + model.nodeMap[e.fromId].__pref; }, 0) / lat.length;
+          n.__pref = lat.reduce(function (s: any, e: any) { return s + model.nodeMap[e.fromId].__pref; }, 0) / lat.length;
         }
       });
     /* pod 葉依 namespace 分組：同 ns 的 pod 共用「組平均 __pref」當第一排序鍵，
@@ -219,31 +220,31 @@ function layout(model) {
        跨 node 的同 ns pod 相鄰但各自貼近自己的上游。只有帶 ns 的 pod 葉會設
        __nsPref——沒有 pod 的圖兩個新鍵全空，比較器退化成原本的三鍵，輸出不變。
        注意 source 模式 pod 在第 0 欄沒有跨欄上游、__pref 是輸入順序：分組照文件順序聚攏。 */
-    var nsAgg = {}, nsSeq = 0;
-    col.forEach(function (n) {
+    var nsAgg: Record<string, any> = {}, nsSeq = 0;
+    col.forEach(function (n: any) {
       n.__nsPref = null; n.__nsIdx = 0;
       if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) return;
       var a = nsAgg[n.namespace] || (nsAgg[n.namespace] = { s: 0, c: 0, idx: ++nsSeq });
       a.s += n.__pref; a.c++;
     });
-    col.forEach(function (n) {
+    col.forEach(function (n: any) {
       if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) return;
       var a = nsAgg[n.namespace];
       n.__nsPref = a.s / a.c;
       n.__nsIdx = a.idx;
     });
-    col.sort(function (a, b) {
+    col.sort(function (a: any, b: any) {
       var ka = a.__nsPref != null ? a.__nsPref : a.__pref;
       var kb = b.__nsPref != null ? b.__nsPref : b.__pref;
       return (ka - kb) || (a.__nsIdx - b.__nsIdx) || (a.__pref - b.__pref) ||
         ((a.subOrder || 0) - (b.subOrder || 0)) || (a.__ord - b.__ord);
     });
     var y = 0;
-    col.forEach(function (n) { n.y = y; y += n.h + VGAP; });
+    col.forEach(function (n: any) { n.y = y; y += n.h + VGAP; });
     var blockH = Math.max(0, y - VGAP);
-    var prefAvg = col.reduce(function (s, n) { return s + n.__pref; }, 0) / (col.length || 1);
+    var prefAvg = col.reduce(function (s: any, n: any) { return s + n.__pref; }, 0) / (col.length || 1);
     var shift = col.length && ci > 0 ? (prefAvg - blockH / 2) : 0;
-    col.forEach(function (n) {
+    col.forEach(function (n: any) {
       n.y += shift;
       n.__cy = n.y + n.h / 2;
     });
@@ -251,56 +252,56 @@ function layout(model) {
 
   /* 正規化 y（空模型：沒有 investigation 的圖被門檻濾光時，minY/maxY 給 0 免得算出 NaN viewBox） */
   var minY = nodes.length ? Infinity : 0, maxY = nodes.length ? -Infinity : 0;
-  nodes.forEach(function (n) { minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y + n.h); });
+  nodes.forEach(function (n: any) { minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y + n.h); });
   var dy = PAD_TOP - minY;
-  nodes.forEach(function (n) { n.y += dy; n.__cy = n.y + n.h / 2; });
+  nodes.forEach(function (n: any) { n.y += dy; n.__cy = n.y + n.h / 2; });
   var totalH = (maxY + dy) + PAD_BOTTOM;
 
   /* pod 依 ns 分組後，欄內順序可能偏離 hop 上 port 的宣告順序，帶子會互穿。
      把「對端是帶 ns 的 pod 葉」的槽位依對端的 y 重排（寫回原本的索引位置，
      其他槽位含殘差槽原地不動）——只有 pod 葉邊會被重排，非 k8s 圖槽位順序逐 byte 不變。
      ns 終點也要重排：多台 node 的 pod 匯進同一個 ns，匯流帶照 pod 的 y 排才不互穿。 */
-  function farOf(sl) { return model.nodeMap[sl.role === 'in' ? sl.edge.fromId : sl.edge.toId]; }
+  function farOf(sl: any) { return model.nodeMap[sl.role === 'in' ? sl.edge.fromId : sl.edge.toId]; }
   /* 依對端的 y 重排 want() 挑中的槽位，寫回原本的索引位置——其他槽位（含殘差槽）原地不動 */
-  function reorderSlots(slots, want) {
-    var idxs = [];
-    slots.forEach(function (sl, i) {
+  function reorderSlots(slots: any, want: any) {
+    var idxs: any[] = []; 
+    slots.forEach(function (sl: any, i: any) {
       if (!sl.edge || sl.edge.lateral || sl.edge.backward) return;
       if (want(farOf(sl))) idxs.push(i);
     });
     if (idxs.length < 2) return;
-    var picked = idxs.map(function (i) { return slots[i]; });
-    picked.sort(function (a, b) { return farOf(a).y - farOf(b).y; });
-    idxs.forEach(function (i, k) { slots[i] = picked[k]; });
+    var picked = idxs.map(function (i: any) { return slots[i]; });
+    picked.sort(function (a: any, b: any) { return farOf(a).y - farOf(b).y; });
+    idxs.forEach(function (i: any, k: any) { slots[i] = picked[k]; });
   }
-  nodes.forEach(function (n) {
+  nodes.forEach(function (n: any) {
     if (n.kind !== 'node' && n.role !== 'ns' && n.role !== 'app') return;
-    [n.leftSlots, n.rightSlots].forEach(function (slots) {
-      reorderSlots(slots, function (f) { return f.kind === 'leaf' && f.role === 'pod' && f.namespace; });
+    [n.leftSlots, n.rightSlots].forEach(function (slots: any) {
+      reorderSlots(slots, function (f: any) { return f.kind === 'leaf' && f.role === 'pod' && f.namespace; });
     });
   });
   /* owner 層同理，而且更嚴重：port 葉的出邊順序是 clients 的出現順序、owner 卡的入邊順序是
      建邊順序，兩者都跟對端的 y 無關——一張 port 掛五個 owner 時歸屬線會整束交叉。
      兩端都依對端 y 重排。沒有 owner 層的圖不進這個迴圈，槽位順序逐 byte 不變。 */
-  nodes.forEach(function (n) {
+  nodes.forEach(function (n: any) {
     if (!n.ownerLinked && n.role !== 'owner') return;
-    [n.leftSlots, n.rightSlots].forEach(function (slots) {
-      reorderSlots(slots, function (f) { return n.role === 'owner' || f.role === 'owner'; });
+    [n.leftSlots, n.rightSlots].forEach(function (slots: any) {
+      reorderSlots(slots, function (f: any) { return n.role === 'owner' || f.role === 'owner'; });
     });
   });
 
   /* port 中心點 */
-  nodes.forEach(function (n) {
+  nodes.forEach(function (n: any) {
     var top = n.kind === 'node' ? n.y + headerH(n) : n.y;
     var avail = n.kind === 'node' ? n.h - headerH(n) - BODY_PAD : n.h;
     place(n.leftSlots, top, avail);
     place(n.rightSlots, top, avail);
-    n.leftSlots.forEach(function (s) {
+    n.leftSlots.forEach(function (s: any) {
       if (!s.edge) return;                       /* 殘差槽沒有 edge */
       if (s.role === 'back-out') { s.edge.x1 = n.x; s.edge.y1 = s.cy; s.edge.t1 = s.t; }
       else { s.edge.x2 = n.x; s.edge.y2 = s.cy; s.edge.t2 = s.t; }
     });
-    n.rightSlots.forEach(function (s) {
+    n.rightSlots.forEach(function (s: any) {
       if (!s.edge) return;
       if (s.role === 'lat-in' || s.role === 'back-in') { s.edge.x2 = n.x + n.w; s.edge.y2 = s.cy; s.edge.t2 = s.t; }
       else { s.edge.x1 = n.x + n.w; s.edge.y1 = s.cy; s.edge.t1 = s.t; }
@@ -308,29 +309,29 @@ function layout(model) {
   });
 
   /* 橫向弧帶的凸出量：跨距短的在內圈、長的在外圈，弧才不會互相穿過 */
-  var latByCol = {};
-  edges.forEach(function (e) {
+  var latByCol: Record<string, any[]> = {};
+  edges.forEach(function (e: any) {
     if (!e.lateral) return;
     var c = model.nodeMap[e.fromId].col;
     (latByCol[c] = latByCol[c] || []).push(e);
   });
-  Object.keys(latByCol).forEach(function (c) {
-    latByCol[c].sort(function (a, b) {
+  Object.keys(latByCol).forEach(function (c: any) {
+    latByCol[c].sort(function (a: any, b: any) {
       return Math.abs(a.y2 - a.y1) - Math.abs(b.y2 - b.y1);
     });
-    latByCol[c].forEach(function (e, i) {
+    latByCol[c].forEach(function (e: any, i: any) {
       e.bulge = Math.min(56 + (e.t1 + e.t2) / 2 * 0.67 + 18 * i, COL_GAP - 26);
     });
   });
 
   /* 回流帶：繞經圖底下方外圍的等寬迴路。source 欄右側走廊下潛、貼圖底水平走、
      target 欄左側走廊上浮。逐條分 lane 往下疊，垂直段水平錯位，互不重疊。 */
-  var backs = edges.filter(function (e) { return e.backward && !e.backNear; });
-  backs.sort(function (a, b) {
+  var backs = edges.filter(function (e: any) { return e.backward && !e.backNear; });
+  backs.sort(function (a: any, b: any) {
     return (model.nodeMap[b.fromId].col - model.nodeMap[a.fromId].col) || (b.bps - a.bps);
   });
   var backY = totalH - PAD_BOTTOM + 40;
-  backs.forEach(function (e, i) {
+  backs.forEach(function (e: any, i: any) {
     e.backT = Math.max(e.t1, e.t2);
     e.backY = backY + e.backT / 2;
     e.backXD = e.x1 + COL_GAP - 30 - i * 14;
@@ -341,14 +342,14 @@ function layout(model) {
 
   return { cols: cols, colX: colX, width: totalW, height: Math.max(totalH, 220), thick: thick, nsColor: nsColor };
 
-  function stackH(slots) {
+  function stackH(slots: any) {
     if (!slots.length) return 0;
-    return slots.reduce(function (s, x) { return s + Math.max(x.t, ROW_H); }, 0) + (slots.length - 1) * ROW_GAP;
+    return slots.reduce(function (s: any, x: any) { return s + Math.max(x.t, ROW_H); }, 0) + (slots.length - 1) * ROW_GAP;
   }
-  function place(slots, top, avail) {
+  function place(slots: any, top: any, avail: any) {
     var h = stackH(slots);
     var cur = top + Math.max(0, (avail - h) / 2);
-    slots.forEach(function (s) {
+    slots.forEach(function (s: any) {
       var sh = Math.max(s.t, ROW_H);
       s.cy = cur + sh / 2;
       cur += sh + ROW_GAP;
@@ -356,7 +357,7 @@ function layout(model) {
   }
 }
 
-function ribbon(e) {
+function ribbon(e: any) {
   var mx = (e.x1 + e.x2) / 2;
   var a = e.t1 / 2, b = e.t2 / 2;
   return 'M' + e.x1 + ',' + (e.y1 - a) +
@@ -367,14 +368,14 @@ function ribbon(e) {
 
 /* 歸屬線：ribbon() 的中線版本。fill 是 none、靠 stroke 畫，比照回流的 band-loop——
    帶狀路徑沒辦法畫成虛線，而虛線正是「這條沒有量」的視覺記號。 */
-function ownLine(e) {
+function ownLine(e: any) {
   var mx = (e.x1 + e.x2) / 2;
   return 'M' + e.x1 + ',' + e.y1 + ' C' + mx + ',' + e.y1 + ' ' + mx + ',' + e.y2 + ' ' + e.x2 + ',' + e.y2;
 }
 
 /* 同欄互連：兩端都在欄右緣的馬蹄形弧帶，往右凸 B 再折回。
    外緣接兩端「遠離中線」的邊界、內緣接近側，弧頂寬度才會 ≈ 平均帶寬。 */
-function lateralRibbon(e, B) {
+function lateralRibbon(e: any, B: any) {
   var a = e.t1 / 2, b = e.t2 / 2;
   var s = e.y2 >= e.y1 ? 1 : -1;
   var k = (a + b) * 0.67, Bo = B + k, Bi = Math.max(8, B - k);
@@ -388,7 +389,7 @@ function lateralRibbon(e, B) {
 
 /* 回流帶（col 遞減）：source 右緣出來 → 右側走廊下潛 → 貼圖底下方的 lane 水平向左 →
    target 左側走廊上浮 → 接回左緣。等寬 stroke 路徑（stroke-width＝帶厚），圓角轉彎。 */
-function backwardRibbon(e) {
+function backwardRibbon(e: any) {
   var r = Math.min(Math.max(14, e.backT), (e.backY - Math.max(e.y1, e.y2)) / 2);
   var xD = e.backXD, xU = e.backXU, yB = e.backY;
   return 'M' + e.x1 + ',' + e.y1 +
@@ -421,7 +422,7 @@ function render(model: TraceModelOk): string {
     '<stop offset="1" stop-color="#be123c"/></linearGradient>' +
     /* write 通道（storage 資料）：燃橘。read 沿用青帶——read 與無通道的 switch 帶同色。
        只在圖上真的有 write 帶時才輸出這兩個漸層：switch 追查資料的 SVG 逐 byte 不變 */
-    (model.edges.some(function (e) { return e.channel === 'write'; })
+    (model.edges.some(function (e: any) { return e.channel === 'write'; })
       ? '<linearGradient id="gband-w" x1="0" x2="1"><stop offset="0" stop-color="#c2410c" stop-opacity=".85"/>' +
         '<stop offset="1" stop-color="#7c2d12" stop-opacity=".85"/></linearGradient>' +
         '<linearGradient id="gband-w-h" x1="0" x2="1"><stop offset="0" stop-color="#fb923c"/>' +
@@ -435,7 +436,7 @@ function render(model: TraceModelOk): string {
   }
 
   /* 欄位標題 */
-  (geo.cols || []).forEach(function (col, ci) {
+  (geo.cols || []).forEach(function (col: any, ci: any) {
     if (!col || !col.length) return;
     var cap = colCaption(col, model.dir);
     out.push('<text class="col-cap" x="' + col[0].x + '" y="24">' + esc(cap) + '</text>');
@@ -530,7 +531,7 @@ function render(model: TraceModelOk): string {
      直接走槽位，畫出來的東西跟 layout() 保留的空間就不可能不一致。 */
   model.nodes.forEach(function (n: any) {
     if (n.kind !== 'node') return;
-    n.leftSlots.concat(n.rightSlots).forEach(function (sl) {
+    n.leftSlots.concat(n.rightSlots).forEach(function (sl: any) {
       if (sl.res) out.push(residual(n, sl));
     });
   });
@@ -540,41 +541,41 @@ function render(model: TraceModelOk): string {
   return out.join('');
 }
 
-function colCaption(col, dir) {
+function colCaption(col: any, dir: any) {
   var kinds: Record<string, boolean> = {};
-  col.forEach(function (n) { kinds[n.kind] = true; });
+  col.forEach(function (n: any) { kinds[n.kind] = true; });
   /* 錨欄要整欄只有錨卡：no-flow 卡沒有邊、會落在第 0 欄，混進來不能標成「追查起點」 */
   if (kinds.anchor && col.length === 1) return dir === 'destination' ? '追查起點 (in)' : '追查起點 (out)';
   /* 整欄同質才標註，混欄不標——標了反而誤導 */
   if (kinds.node) {
     var role = col[0].role;
-    var same = role !== 'switch' && col.every(function (n) { return n.kind === 'node' && n.role === role; });
+    var same = role !== 'switch' && col.every(function (n: any) { return n.kind === 'node' && n.role === role; });
     return '第 ' + col[0].col + ' 跳' + (same ? ' · ' + (TYPE_LABEL[role] || role) : '');
   }
   /* owner 終點欄：client 的負責人是追查的盡頭 */
-  if (col.every(function (n) { return n.role === 'owner'; })) return '追查終止 · owner';
+  if (col.every(function (n: any) { return n.role === 'owner'; })) return '追查終止 · owner';
   /* 整欄都接了 owner 卡的 port 葉：它們已經是中繼，比照 pod 欄印「第 N 跳」。
      混欄（真終點的葉混在裡面）維持既有的「追查終止」，標了反而誤導。 */
-  if (col.every(function (n) { return n.kind === 'leaf' && n.role === 'leaf' && n.ownerLinked; })) {
+  if (col.every(function (n: any) { return n.kind === 'leaf' && n.role === 'leaf' && n.ownerLinked; })) {
     return '第 ' + col[0].col + ' 跳 · port';
   }
   /* ns 終點欄：namespace 是追查的盡頭 */
-  if (col.every(function (n) { return n.role === 'ns'; })) return '追查終止 · namespace';
+  if (col.every(function (n: any) { return n.role === 'ns'; })) return '追查終止 · namespace';
   /* pod／application 是中繼了（另一側接 ns），整欄比照「第 N 跳」；含 pod 的混葉欄同理 */
-  if (col.every(function (n) { return n.kind === 'leaf' && n.role === 'pod'; })) {
+  if (col.every(function (n: any) { return n.kind === 'leaf' && n.role === 'pod'; })) {
     return '第 ' + col[0].col + ' 跳 · pod';
   }
-  if (col.every(function (n) { return n.kind === 'leaf' && n.role === 'app'; })) {
+  if (col.every(function (n: any) { return n.kind === 'leaf' && n.role === 'app'; })) {
     return '第 ' + col[0].col + ' 跳 · application';
   }
-  if (col.some(function (n) { return n.kind === 'leaf' && (n.role === 'pod' || n.role === 'app'); })) {
+  if (col.some(function (n: any) { return n.kind === 'leaf' && (n.role === 'pod' || n.role === 'app'); })) {
     return '第 ' + col[0].col + ' 跳';
   }
   return '追查終止';
 }
 
 /* ---------- 節點 tooltip（掛在每張卡的 <g> 上，tooltip.js 讀 data-tip） ---------- */
-function typeWord(n) {
+function typeWord(n: any) {
   if (n.kind === 'anchor') return '追查起點';
   if (n.role === 'ns') return 'namespace';
   if (n.role === 'app') return 'application';
@@ -582,7 +583,7 @@ function typeWord(n) {
   if (n.kind === 'leaf') return n.type || 'host';
   return n.role;
 }
-function usageText(u) {
+function usageText(u: any) {
   if (!u) return '';
   var used = u.used_bytes, cap = u.capacity_bytes;
   if (used != null && cap != null) {
@@ -592,7 +593,7 @@ function usageText(u) {
 }
 /* 內容順序照參考面板：型別／名稱、ns、ontap_cluster、流量、usage、status、health、model、
    perf（標 raw：原始讀數，不判定好壞）、alerts、no-flow 說明。沒有的鍵不輸出。 */
-function nodeTip(n, model) {
+function nodeTip(n: any, model: any) {
   var rows = [];
   var title = n.kind === 'anchor' ? '追查起點' : typeWord(n) + ' / ' + n.label;
   if (n.kind === 'anchor') {
@@ -632,35 +633,35 @@ function nodeTip(n, model) {
   if (info.health) rows.push(['health', info.health]);
   if (info.model) rows.push(['model', info.model]);
   if (info.perf) {
-    Object.keys(info.perf).forEach(function (k) {
+    Object.keys(info.perf).forEach(function (k: any) {
       var v = info.perf[k];
       rows.push([k, (k === 'total_bytes_per_sec' ? fmtBytes(v) + '/s' : String(v)) + '（raw）']);
     });
   }
-  (info.alerts || []).forEach(function (a) { rows.push(['alert', a]); });
+  (info.alerts || []).forEach(function (a: any) { rows.push(['alert', a]); });
   /* tooltip 不截斷、列出全部：卡面只放得下前兩筆，要看完整清單就是靠這裡 */
   var cs = n.clients || [];
-  cs.forEach(function (c, i) {
+  cs.forEach(function (c: any, i: any) {
     rows.push([cs.length === 1 ? 'client' : 'client ' + (i + 1),
       [c.ip, c.hostname, c.owner].filter(Boolean).join(' · ')]);
   });
   return { node: 1, title: title, rows: rows };
 }
-function tipAttr(n, model) { return ' data-tip="' + esc(JSON.stringify(nodeTip(n, model))) + '"'; }
+function tipAttr(n: any, model: any) { return ' data-tip="' + esc(JSON.stringify(nodeTip(n, model))) + '"'; }
 
 /* 帶的 tooltip 要列的 client：取封包下游那一端的節點（追來源模式反過來），
    有 clients 就回 hostname／IP 的字串陣列。完整欄位在卡片自己的 tooltip 裡。 */
-function clientsMeta(e, model) {
+function clientsMeta(e: any, model: any) {
   /* 往 owner 卡的邊剛好相反：owner 卡上沒有 clients，要列的是 port 那一端掛了誰 */
   var toOwner = model.nodeMap[e.toId].role === 'owner' || model.nodeMap[e.fromId].role === 'owner';
   var down = model.dir === 'destination' ? e.toId : e.fromId;
   var up = model.dir === 'destination' ? e.fromId : e.toId;
   var far = model.nodeMap[toOwner ? up : down];
   if (!far || !far.clients) return null;
-  return far.clients.map(function (c) { return c.hostname || c.ip; });
+  return far.clients.map(function (c: any) { return c.hostname || c.ip; });
 }
 
-function nodeBox(n, model, nsColor) {
+function nodeBox(n: any, model: any, nsColor: any) {
   var isDevice = DEVICE_TYPES.indexOf(n.role) >= 0;   /* k8s node／pod、netapp 三型別：虛線框 */
   var statusColor = n.status ? STATUS_COLOR[n.status] : null;
   var s = [];
@@ -684,11 +685,11 @@ function nodeBox(n, model, nsColor) {
     s.push('<text class="n-sub" x="' + (n.x + 12) + '" y="' + (n.y + 41) + '">使用 ' + esc(usageText(n.usage)) + '</text>');
   }
 
-  n.leftSlots.forEach(function (sl) {
+  n.leftSlots.forEach(function (sl: any) {
     if (sl.res || !sl.iface) return;             /* 殘差的標籤畫在盒子外面；k8s port 可沒 iface */
     s.push('<text class="p-label" x="' + (n.x + 10) + '" y="' + (sl.cy + 3.5) + '">' + esc(sl.iface) + '</text>');
   });
-  n.rightSlots.forEach(function (sl) {
+  n.rightSlots.forEach(function (sl: any) {
     if (sl.res || !sl.iface) return;
     s.push('<text class="p-label" text-anchor="end" x="' + (n.x + n.w - 10) + '" y="' + (sl.cy + 3.5) + '">' +
       esc(sl.iface) + '</text>');
@@ -697,7 +698,7 @@ function nodeBox(n, model, nsColor) {
   return s.join('');
 }
 
-function leafCard(n, model, nsColor) {
+function leafCard(n: any, model: any, nsColor: any) {
   var s = [];
   var nsc = n.namespace ? (nsColor[n.namespace] || '#94a3b8') : null;
   var statusColor = n.status ? STATUS_COLOR[n.status] : null;
@@ -714,7 +715,7 @@ function leafCard(n, model, nsColor) {
   /* 接了 owner 卡的 port 已經不是終點了（比照 pod 卡從「追查終止」變成 pod） */
   s.push('<text class="leaf-stop" x="' + (n.x + 12) + '" y="' + (n.y + 17) + '">' +
     (n.ownerLinked ? 'port' : '追查終止') + '</text>');
-  var cols = clientCols(n), ly;
+  var cols = clientCols(n), ly: any;
   if (cols.length) {
     /* 有 client 的卡：合成 id（sw-tor-1:xe-0/0/12）不當標題——順著帶子回去就知道是哪台
        switch 的哪個 iface，抄在卡上是重複資訊。真的給了 name 才畫標題。
@@ -732,16 +733,16 @@ function leafCard(n, model, nsColor) {
     /* 表頭用 wire 的欄位名（跟 tooltip 印 ontap_cluster／health 同一套慣例），
        樣式沿用 .leaf-stop（灰小字），分隔線沿用 nodeBox 那條內聯 stroke——不新增類別與顏色。 */
     var cx = n.x + CLIENT_PAD;
-    cols.forEach(function (col) {
+    cols.forEach(function (col: any) {
       s.push('<text class="leaf-stop" x="' + cx + '" y="' + ly + '">' + col.key + '</text>');
       cx += col.w + CLIENT_GAP;
     });
     s.push('<line x1="' + (n.x + CLIENT_PAD) + '" y1="' + (ly + 4) + '" x2="' + (n.x + n.w - CLIENT_PAD) +
       '" y2="' + (ly + 4) + '" stroke="#22303f"/>');
     ly += 14;
-    clientRows(n).forEach(function (cells) {
+    clientRows(n).forEach(function (cells: any) {
       var rx = n.x + CLIENT_PAD;
-      cells.forEach(function (v, i) {
+      cells.forEach(function (v: any, i: any) {
         if (v) s.push('<text class="leaf-sub" x="' + rx + '" y="' + ly + '">' + esc(v) + '</text>');
         rx += cols[i].w + CLIENT_GAP;
       });
@@ -771,7 +772,7 @@ function leafCard(n, model, nsColor) {
 /* pod 中繼卡：外觀沿用天藍虛線＋ns 色條的 pod 家族，但 pod 已不是終點——
    另一側有邊接 app／ns 終點，「追查終止／未再往下追」字樣不再出現。
    沒有 ns 的 pod（合法）就沒有色條與 ns 行，iface 行上移。 */
-function podCard(n, model, nsColor) {
+function podCard(n: any, model: any, nsColor: any) {
   var nsc = n.namespace ? (nsColor[n.namespace] || '#94a3b8') : null;
   var statusColor = n.status ? STATUS_COLOR[n.status] : null;
   var s = [];
@@ -802,7 +803,7 @@ function podCard(n, model, nsColor) {
 /* 群組終點卡（namespace／application）：邏輯彙總、不是設備——用 ns 色實線描邊，
    虛線留給「設備／截斷」的既有語彙。bps 是所有成員邊的加總（model 算好）；
    status 是成員 pod 的最差值，有就換成 status 色描邊。 */
-function groupCard(n, model, nsColor, word) {
+function groupCard(n: any, model: any, nsColor: any, word: any) {
   var nsc = nsColor[n.namespace] || '#94a3b8';
   var statusColor = n.status ? STATUS_COLOR[n.status] : null;
   var s = [];
@@ -817,14 +818,14 @@ function groupCard(n, model, nsColor, word) {
   s.push('</g>');
   return s.join('');
 }
-function nsCard(n, model, nsColor) { return groupCard(n, model, nsColor, 'namespace'); }
-function appCard(n, model, nsColor) { return groupCard(n, model, nsColor, 'application'); }
+function nsCard(n: any, model: any, nsColor: any) { return groupCard(n, model, nsColor, 'namespace'); }
+function appCard(n: any, model: any, nsColor: any) { return groupCard(n, model, nsColor, 'application'); }
 
 /* owner 終點卡：client 的負責人。跟 ns／app 一樣是邏輯彙總（實線描邊，虛線留給設備／截斷），
    但 owner 不是 namespace、沒有 ns 色，用葉卡那支灰——不新增顏色定義。
    bps 只來自「整張卡只有這一個 owner」的 port；名下的 port 上還有別人的機器時 bps 是 0，
    那不是「沒有流量」而是「量停在 port」，所以第三行改印台數，不能印一個 0 出來。 */
-function ownerCard(n, model) {
+function ownerCard(n: any, model: any) {
   var s = [];
   s.push('<g' + tipAttr(n, model) + '>');
   s.push('<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '" rx="8" ' +
@@ -843,7 +844,7 @@ function ownerCard(n, model) {
   return s.join('');
 }
 
-function anchorCard(n, model) {
+function anchorCard(n: any, model: any) {
   var inv = model.investigation;
   var s = [];
   s.push('<g' + tipAttr(n, model) + '>');
@@ -857,7 +858,7 @@ function anchorCard(n, model) {
   return s.join('');
 }
 
-function residual(n, sl) {
+function residual(n: any, sl: any) {
   var isIn = sl.res === 'in';
   var color = isIn ? '#f59e0b' : '#fb7185';
   var h = sl.t;                                  /* 已含 THICK_MIN 下限 */
@@ -885,8 +886,8 @@ function residual(n, sl) {
 
 /* ---------- 圖外資訊：hop 數字摘要 ---------- */
 function summary(model: TraceModelOk): string {
-  var rows = model.nodes.filter(function (n) { return n.kind === 'node'; })
-    .sort(function (a, b) { return a.col - b.col; });
+  var rows = model.nodes.filter(function (n: any) { return n.kind === 'node'; })
+    .sort(function (a: any, b: any) { return a.col - b.col; });
   var h = ['<h3>hop 數字摘要（圖外資訊）</h3><div class="tbl-wrap"><table><thead><tr>',
     '<th>hop</th><th>追查輸入</th><th>出口增加</th><th class="c-amber">其他進</th>',
     '<th class="c-rose">其他出</th></tr></thead><tbody>'];
@@ -901,19 +902,19 @@ function summary(model: TraceModelOk): string {
   h.push('</tbody></table></div>');
   /* namespace 流量小計：ns 終點節點就是單一事實來源（bps＝pod 匯流邊加總、
      pod 數＝邊數），表跟圖不可能對不上 */
-  var nsNodes: any[] = model.nodes.filter(function (n) { return n.role === 'ns'; });
+  var nsNodes: any[] = model.nodes.filter(function (n: any) { return n.role === 'ns'; });
   if (nsNodes.length) {
-    var sorted = nsNodes.slice().sort(function (a, b) { return b.bps - a.bps; });
+    var sorted = nsNodes.slice().sort(function (a: any, b: any) { return b.bps - a.bps; });
     h.push('<h3>namespace 流量小計（終點）</h3><div class="tbl-wrap"><table><thead><tr>' +
       '<th>namespace</th><th>pod 數</th><th>Δ 合計</th></tr></thead><tbody>');
-    sorted.forEach(function (n) {
+    sorted.forEach(function (n: any) {
       h.push('<tr><td>' + esc(n.label) + '</td><td class="num">' + n.podCount + '</td>' +
         '<td class="num">' + R(n.bps, n.unit) + '</td></tr>');
     });
     h.push('</tbody></table></div>');
   }
   h.push('<p class="warn">平衡式：已知 in ＋ 其他輸入 ＝ 已追查 out ＋ 其他輸出。</p>');
-  model.warnings.forEach(function (w) { h.push('<p class="warn">⚠ ' + esc(w) + '</p>'); });
+  model.warnings.forEach(function (w: any) { h.push('<p class="warn">⚠ ' + esc(w) + '</p>'); });
   return h.join('');
 }
 

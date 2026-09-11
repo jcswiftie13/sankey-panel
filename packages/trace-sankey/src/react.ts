@@ -5,7 +5,7 @@ import { createElement, forwardRef, useEffect, useImperativeHandle, useRef } fro
 import type { CSSProperties, ForwardRefExoticComponent, RefAttributes } from 'react';
 import { mount } from './mount.js';
 import type { MountInstance } from './mount.js';
-import type { Channel, TraceModelOk } from './types.js';
+import type { Channel, TraceModelOk } from './model/types.js';
 
 export interface TraceSankeyProps {
   /** 追查 JSON（契約見 README）。換一個「內容相同的新物件」不會重畫、縮放保留。 */
@@ -36,7 +36,7 @@ export type TraceSankeyHandle = Pick<MountInstance, 'update' | 'setMinBps' | 'se
                 callback identity 變了不會觸發重新掛載）
    ref：拿到轉發 MountInstance 的控制介面（update / setMinBps / refresh / zoom.*）。 */
 export var TraceSankey: ForwardRefExoticComponent<TraceSankeyProps & RefAttributes<TraceSankeyHandle>> =
-  forwardRef<TraceSankeyHandle, TraceSankeyProps>(function TraceSankey(props, ref) {
+  forwardRef<TraceSankeyHandle, TraceSankeyProps>(function TraceSankey(props: any, ref: any) {
   var elRef = useRef<HTMLDivElement | null>(null);
   var instRef = useRef<MountInstance | null>(null);
   var latest = useRef<TraceSankeyProps>(props);
@@ -44,12 +44,12 @@ export var TraceSankey: ForwardRefExoticComponent<TraceSankeyProps & RefAttribut
 
   /* 掛載一次、卸載時 destroy（destroy 冪等，StrictMode 的雙重掛載安全） */
   useEffect(function () {
-    var inst = mount(elRef.current, latest.current.doc, {
+    var inst = mount(elRef.current!, latest.current.doc, {
       minBps: latest.current.minBps || 0,
       channels: latest.current.channels || 'both',
-      onModel: function (m) { if (latest.current.onModel) latest.current.onModel(m); },
-      onError: function (e) { if (latest.current.onError) latest.current.onError(e); },
-      onZoom: function (s) { if (latest.current.onZoom) latest.current.onZoom(s); }
+      onModel: function (m: any) { if (latest.current.onModel) latest.current.onModel(m); },
+      onError: function (e: any) { if (latest.current.onError) latest.current.onError(e); },
+      onZoom: function (s: any) { if (latest.current.onZoom) latest.current.onZoom(s); }
     });
     instRef.current = inst;
     return function () { inst.destroy(); instRef.current = null; };
@@ -67,17 +67,17 @@ export var TraceSankey: ForwardRefExoticComponent<TraceSankeyProps & RefAttribut
   useImperativeHandle(ref, function () {
     function inst() { return instRef.current; }
     return {
-      update: function (d?: unknown, o?: any) { return inst() ? inst().update(d, o) : null; },
-      setMinBps: function (n: number) { return inst() ? inst().setMinBps(n) : null; },
-      setChannels: function (c: 'both' | Channel) { return inst() ? inst().setChannels(c) : null; },
-      refresh: function () { if (inst()) inst().refresh(); },
-      get model() { return inst() ? inst().model : null; },
+      update: function (d?: unknown, o?: any) { return inst() ? inst()!.update(d, o) : null; },
+      setMinBps: function (n: number) { return inst() ? inst()!.setMinBps(n) : null; },
+      setChannels: function (c: 'both' | Channel) { return inst() ? inst()!.setChannels(c) : null; },
+      refresh: function () { if (inst()) inst()!.refresh(); },
+      get model() { return inst() ? inst()!.model : null; },
       zoom: {
-        fit: function () { if (inst()) inst().zoom.fit(); },
-        actual: function () { if (inst()) inst().zoom.actual(); },
-        zoomBy: function (f: number) { if (inst()) inst().zoom.zoomBy(f); },
-        refresh: function () { if (inst()) inst().zoom.refresh(); },
-        isPanning: function () { return !!(inst() && inst().zoom.isPanning()); }
+        fit: function () { if (inst()) inst()!.zoom.fit(); },
+        actual: function () { if (inst()) inst()!.zoom.actual(); },
+        zoomBy: function (f: number) { if (inst()) inst()!.zoom.zoomBy(f); },
+        refresh: function () { if (inst()) inst()!.zoom.refresh(); },
+        isPanning: function () { return !!(inst() && inst()!.zoom.isPanning()); }
       }
     };
   }, []);

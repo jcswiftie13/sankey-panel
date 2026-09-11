@@ -1,4 +1,4 @@
-/* 型別：wire JSON 契約與 build() 的輸出。原始碼是 TS，這裡只放介面；契約細節見 README「輸入 JSON 規格」。 */
+/* 型別：wire JSON 契約、build() 的輸出、以及 build() 各步驟共用的內部狀態。契約細節見 README「輸入 JSON 規格」。 */
 
 /* ---------- 輸入：cytoscape-style wire JSON ---------- */
 
@@ -105,47 +105,106 @@ export interface WireGraph {
 export type Channel = 'read' | 'write';
 export type RateUnit = 'bps' | 'bytesPerSec';
 
+export interface NodeInfo {
+  health?: string;
+  model?: string;
+  perf?: Record<string, number>;
+  alerts?: string[];
+}
+export interface NodeUsage { used_bytes?: number; capacity_bytes?: number }
+export interface NodeClient { ip: string | null; hostname: string | null; owner: string | null }
+
+/** 圖上的一個節點。kind 決定畫法：'node'＝hop 盒、'leaf'＝終點卡（role 再分 leaf／pod／ns／app／owner）、
+    'anchor'＝追查起點卡。各 kind 只用到自己那一組欄位；沒有做成 discriminated union 是因為
+    build() 各步驟會在同一個物件上陸續補欄位（步驟 3 的 isRoot、5 的 col／subOrder、6 的殘差）。 */
 export interface TraceNode {
   id: string;
   label: string;
   kind: 'node' | 'leaf' | 'anchor';
   /** hop：= type；葉：'leaf'／'pod'／'ns'／'app'／'owner'；錨：'anchor' */
-  role: string | null;
-  namespace: string | null;
-  status?: 'normal' | 'warning' | 'critical' | null;
-  /** 顯示單位（跟著身上的邊） */
-  unit?: RateUnit;
+  role: string;
+  /** 錨卡沒有這個鍵 */
+  namespace?: string | null;
   col: number;
   inEdges: TraceEdge[];
   outEdges: TraceEdge[];
-  /** 其他欄位（殘差、tier、subOrder、usage、info…）視為內部實作，別依賴 */
-  [key: string]: unknown;
+  /* hop 與葉共有 */
+  tier?: string | null;
+  ontapCluster?: string | null;
+  status?: Status | null;
+  usage?: NodeUsage | null;
+  info?: NodeInfo | null;
+  clients?: NodeClient[] | null;
+  /** 顯示單位（跟著身上的邊）；步驟 6 才有 */
+  unit?: RateUnit;
+  /* hop */
+  otherInBps?: number | null;
+  otherOutBps?: number | null;
+  noFlow?: boolean;
+  isRoot?: boolean;
+  subOrder?: number;
+  tracedIn?: number;
+  tracedOut?: number;
+  otherIn?: number;
+  otherOut?: number;
+  totalIn?: number;
+  totalOut?: number;
+  resEps?: number;
+  /* 葉 */
+  type?: string;
+  named?: boolean;
+  iface?: string;
+  localIface?: string;
+  peerKind?: string;
+  bps?: number;
+  podCount?: number;
+  ownerLinked?: boolean;
+  /** app 卡：全 app 共用的那條 app→ns 邊 */
+  nsEdge?: TraceEdge;
+  /* owner 卡 */
+  owner?: string;
+  clientCount?: number;
+  portCount?: number;
+  meteredPorts?: number;
+  /* 錨卡 */
+  note?: string;
+  dirLabel?: 'in' | 'out';
 }
 
 export interface TraceEdge {
+  /** 步驟 4 才編號（'e' + 序號） */
   id: string;
   fromId: string;
   toId: string;
+  fromIface: string;
+  toIface: string;
   /** 該邊的值（單位見 unit） */
   bps: number;
   unit: RateUnit;
   /** storage 資料的 read／write 帶；switch 追查與推導邊是 null */
   channel: Channel | null;
+  tier: string | null;
+  attribution: string | null;
+  extra: Record<string, number> | null;
+  namespace: string | null;
+  /** pod→app→ns 或葉→owner 的推導邊（同一筆量的重新分組，不是量測） */
+  derived?: boolean;
+  /** 歸屬線：port 上掛著多個 owner，量停在 port，這條邊只表達歸屬，bps 恆 0 */
+  owns?: boolean;
   isAnchor?: boolean;
+  /** 破環時退出排欄的邊（步驟 5d） */
+  dropped?: boolean;
   /** 逆著多數流量方向（畫成回流帶） */
   backward?: boolean;
   /** 同欄互連（畫成右側弧帶） */
   lateral?: boolean;
-  /** 歸屬線：port 上掛著多個 owner，量停在 port，這條邊只表達歸屬，bps 恆 0 */
-  owns?: boolean;
-  [key: string]: unknown;
 }
 
 export interface TraceModelOk {
   ok: true;
-  dir: 'destination' | 'source';
+  dir: Direction;
   investigation: WireInvestigation | null;
-  channels: 'both' | Channel;
+  channels: Channels;
   minBps: number;
   /** 被顯示門檻濾掉的帶數與總量 */
   filtered: { edges: number; bps: number };
@@ -171,6 +230,65 @@ export interface BuildOptions {
   /** 顯示門檻：只留值大於它的帶子；0＝不過濾 */
   minBps?: number;
   /** storage 資料只看其中一個通道；被藏的通道併進其他輸入／其他輸出。無通道的邊不受影響 */
-  channels?: 'both' | Channel;
+  channels?: Channels;
 }
 
+
+/* ---------- 內部：build() 各步驟共用的狀態 ---------- */
+
+export type Direction = 'destination' | 'source';
+export type Channels = 'both' | Channel;
+export type Status = 'normal' | 'warning' | 'critical';
+
+/** weightOf() 拆出來的一個通道：switch 追查是一條無通道的 bps；storage 是 read／write 各一條 */
+export interface Weight { value: number; unit: RateUnit; channel: Channel | null }
+
+/** 1a 加總後的一條邊（同 source／target／iface／channel 合一） */
+export interface AggEdge {
+  src: string; tgt: string; sif: string; tif: string;
+  channel: Channel | null; unit: RateUnit; bps: number;
+  tier: string | null; attribution: string | null; extra: Record<string, number> | null;
+}
+
+/** 步驟 0 的 id 索引 + parent 鏈查詢 */
+export interface RawIndex {
+  get(id: string): WireNodeData | null;
+  ancestorOf(id: string, type: string): WireNodeData | null;
+  appOf(id: string): WireNodeData | null;
+  nsOfPod(id: string): string | null;
+}
+
+/** 從步驟 1a 一路傳到步驟 7 的可變狀態；每個 step 模組吃它、改它。
+    表分兩種：只做 membership 的用 Set／Map；會被迭代、輸出、或鍵序有意義的維持 plain object
+    （nodes 就是輸出的 nodeMap，鍵是原始 id）。 */
+export interface BuildCtx {
+  doc: WireGraph;
+  dir: Direction;
+  inv: WireInvestigation | null;
+  minBps: number;
+  channels: Channels;
+  warnings: string[];
+  raw: RawIndex;
+  /* 1a */
+  flowTouch: Set<string>;
+  podNodeTouch: Set<string>;
+  drawTouch: Set<string>;
+  contOut: Map<string, number>;
+  contIn: Map<string, number>;
+  agg: Record<string, AggEdge>;
+  aggOrder: string[];
+  /* 1b／2 */
+  nodes: Record<string, TraceNode>;
+  order: string[];
+  edges: TraceEdge[];
+  dropIn: Record<string, number>;
+  dropOut: Record<string, number>;
+  filteredCount: number;
+  filteredBps: number;
+  hiddenChannel: number;
+  /* 3 */
+  root: TraceNode | null;
+  anchorEdge: TraceEdge | null;
+  /* 4b */
+  filteredNodes: string[];
+}

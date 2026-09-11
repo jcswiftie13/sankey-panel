@@ -45,22 +45,22 @@ export function createZoom(): ZoomInstance {
     var m = st.svg.getScreenCTM();      /* 分頁 display:none 時是 null */
     return (m && m.a) ? m : null;       /* 容器寬高 0 時 a=0，inverse() 會丟例外 */
   }
-  function toVB(m, cx, cy) {            /* client px -> viewBox 座標 */
+  function toVB(m: any, cx: any, cy: any) {            /* client px -> viewBox 座標 */
     var p = st.svg.createSVGPoint();
     p.x = cx; p.y = cy;
     return p.matrixTransform(m.inverse());
   }
-  function vbScale(m) { return Math.abs(m.a) || 1; }   /* 一個 viewBox 單位幾個 CSS px */
+  function vbScale(m: any) { return Math.abs(m.a) || 1; }   /* 一個 viewBox 單位幾個 CSS px */
   function boxW() { return st.svg.viewBox.baseVal.width || 1; }
   function boxH() { return st.svg.viewBox.baseVal.height || 1; }
 
   /* 看得到的 viewBox 矩形：反解 client rect 兩個角，letterbox 自動算進去 */
-  function visible(m) {
+  function visible(m: any) {
     var r = st.svg.getBoundingClientRect();
     var a = toVB(m, r.left, r.top), b = toVB(m, r.right, r.bottom);
     return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
   }
-  function clampPan(m) {                /* 內容不准整個被拖出視窗 */
+  function clampPan(m: any) {                /* 內容不准整個被拖出視窗 */
     if (!st || !m) return;
     var v = visible(m), cw = st.k * boxW(), ch = st.k * boxH();
     var mx = Math.min(v.w, cw) * EDGE, my = Math.min(v.h, ch) * EDGE;
@@ -83,7 +83,7 @@ export function createZoom(): ZoomInstance {
     raf = window.requestAnimationFrame(function () { raf = 0; apply(); });
   }
 
-  function zoomAt(k2, cx, cy) {         /* 以畫面點 (cx,cy) 為錨點縮放 */
+  function zoomAt(k2: any, cx: any, cy: any) {         /* 以畫面點 (cx,cy) 為錨點縮放 */
     if (!st) return;
     var m = ctm();
     /* 上限 = 螢幕上放大到原尺寸的 MAX_SCREEN 倍；小圖至少也能放大 MIN_MAX_K 倍 */
@@ -122,7 +122,7 @@ export function createZoom(): ZoomInstance {
     if (!m) return;
     if (vbScale(m) > 1) actual();
   }
-  function zoomBy(f) {
+  function zoomBy(f: any) {
     if (!st) return;
     var c = center();
     zoomAt(st.k * f, c[0], c[1]);
@@ -134,7 +134,7 @@ export function createZoom(): ZoomInstance {
   }
 
   /* ---------- 滾輪 ---------- */
-  function onWheel(ev) {
+  function onWheel(ev: any) {
     if (!st) return;
     ev.preventDefault();                /* 不讓頁面跟著捲 */
     var d = ev.deltaY;
@@ -145,7 +145,7 @@ export function createZoom(): ZoomInstance {
   }
 
   /* ---------- 拖曳平移 ---------- */
-  function onDown(ev) {
+  function onDown(ev: any) {
     if (!st) return;
     if (ev.target && ev.target.closest && ev.target.closest('.zoom-ctl')) return;
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
@@ -157,7 +157,7 @@ export function createZoom(): ZoomInstance {
     try { st.wrap.setPointerCapture(ev.pointerId); } catch (e) {}
   }
 
-  function onMove(ev) {
+  function onMove(ev: any) {
     if (!st) return;
     if (pts[ev.pointerId]) { pts[ev.pointerId].x = ev.clientX; pts[ev.pointerId].y = ev.clientY; }
     if (pinch) { movePinch(); return; }
@@ -176,7 +176,7 @@ export function createZoom(): ZoomInstance {
     clampPan(m); schedule();
   }
 
-  function onUp(ev) {
+  function onUp(ev: any) {
     delete pts[ev.pointerId];
     if (pinch && countPts() < 2) pinch = null;
     if (ev.pointerId !== pid) return;
@@ -195,7 +195,7 @@ export function createZoom(): ZoomInstance {
   /* ---------- 雙指 ---------- */
   function countPts() { var n = 0; for (var k in pts) if (pts.hasOwnProperty(k)) n++; return n; }
   function twoPts() { var a = []; for (var k in pts) if (pts.hasOwnProperty(k)) a.push(pts[k]); return a; }
-  function dist(a, b) { return Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)); }
+  function dist(a: any, b: any) { return Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)); }
 
   function startPinch() {
     var a = twoPts();

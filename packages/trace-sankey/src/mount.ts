@@ -9,11 +9,11 @@
      onModel  每次 build 成功時拿到 model（使用端拼 legend／警告用）
      onError  build 失敗時拿到 errors 字串陣列（mount 不畫錯誤 UI，文案是使用端的事）
      onZoom   縮放倍率變化（螢幕實際倍率，量不到時是 null） */
-import { build } from './model.js';
+import { build } from './model/build.js';
 import { render } from './render.js';
 import { createZoom } from './zoom.js';
 import { createTooltip } from './tooltip.js';
-import type { BuildOptions, Channel, TraceModel, TraceModelError, TraceModelOk } from './types.js';
+import type { BuildOptions, Channel, TraceModel, TraceModelError, TraceModelOk } from './model/types.js';
 import type { ZoomInstance } from './zoom.js';
 
 export interface MountOptions extends BuildOptions {
@@ -39,8 +39,8 @@ export interface MountInstance {
 }
 
 /** 容器要先有高度再 mount（fit 用容器實際大小算）；高度由使用端 CSS 決定 */
-export function mount(el: HTMLElement, doc: unknown, opts?: MountOptions): MountInstance {
-  opts = opts || {};
+export function mount(el: HTMLElement, doc: unknown, o?: MountOptions): MountInstance {
+  var opts: MountOptions = o || {};
   var minBps: number = opts.minBps || 0;
   var channels: 'both' | Channel = opts.channels || 'both';
   var zoom = createZoom();
@@ -50,7 +50,7 @@ export function mount(el: HTMLElement, doc: unknown, opts?: MountOptions): Mount
   el.classList.add('trace-sankey', 'chart-wrap');
   el.appendChild(chart);
 
-  var lastKey = null;   /* 同一份資料重畫就沿用既有 SVG，保住縮放狀態 */
+  var lastKey: string | null = null;   /* 同一份資料重畫就沿用既有 SVG，保住縮放狀態 */
   var model: TraceModelOk | null = null;
 
   function update(nextDoc?: unknown, o?: BuildOptions): TraceModel {

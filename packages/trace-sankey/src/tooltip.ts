@@ -4,7 +4,7 @@
    tooltip 元素掛在 document.body 上（position:fixed）：掛進圖的容器會被
    overflow:hidden 裁掉。內容來源是 render 寫在每條 .band 與每張卡的 <g> 上的 data-tip JSON：
    帶子是 {from,to,fi,ti,bps,...}、節點是 {node:1,title,rows:[[k,v],...]}（render 已格式化好）。 */
-import { fmtRate, fmtBytes } from './model.js';
+import { fmtRate, fmtBytes } from './model/format.js';
 import { esc } from './render.js';
 
 function row(k: string, v: string) { return '<div class="t-row"><span>' + esc(k) + '</span><span>' + esc(v) + '</span></div>'; }
@@ -43,7 +43,7 @@ function bandHtml(d: any) {
 
 function nodeHtml(d: any) {
   var h = '<b>' + esc(d.title) + '</b>';
-  (d.rows || []).forEach(function (r) { h += row(r[0], r[1]); });
+  (d.rows || []).forEach(function (r: any) { h += row(r[0], r[1]); });
   return h;
 }
 
@@ -71,18 +71,19 @@ export function createTooltip(): TooltipInstance {
          維持 byte-identical，且殘差色塊的 <title> 沒有替代品、必須保留）。
          卡片的 <g> 沒有 <title>，這段對它是 no-op。 */
       var nativeTitle = el.querySelector(':scope > title');
-      if (nativeTitle) nativeTitle.parentNode.removeChild(nativeTitle);
+      if (nativeTitle) nativeTitle.parentNode!.removeChild(nativeTitle);
       el.addEventListener('mouseenter', function () {
         if (isPanning && isPanning()) return;
-        var d;
-        try { d = JSON.parse(el.getAttribute('data-tip')); } catch (e) { return; }
+        var d: any;
+        try { d = JSON.parse(el.getAttribute('data-tip')!); } catch (e) { return; }
         tip.innerHTML = d.node ? nodeHtml(d) : bandHtml(d);
         tip.hidden = false;
       });
-      el.addEventListener('mousemove', function (ev: MouseEvent) {
+      el.addEventListener('mousemove', function (ev: Event) {
+        var me = ev as MouseEvent;
         var w = tip.offsetWidth || 260, h = tip.offsetHeight || 90;
-        tip.style.left = Math.min(ev.clientX + 14, window.innerWidth - w - 10) + 'px';
-        tip.style.top = Math.max(8, Math.min(ev.clientY + 14, window.innerHeight - h - 10)) + 'px';
+        tip.style.left = Math.min(me.clientX + 14, window.innerWidth - w - 10) + 'px';
+        tip.style.top = Math.max(8, Math.min(me.clientY + 14, window.innerHeight - h - 10)) + 'px';
       });
       el.addEventListener('mouseleave', hide);
     });

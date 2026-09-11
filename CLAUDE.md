@@ -45,7 +45,8 @@ npm workspaces monorepo-lite，兩個部分（外加一個**刻意不在 workspa
   `build()`/`render()` 是純函式（`render(model)` 回傳 SVG 字串、無任何 DOM 量測），Node 也能跑
   （SSR 安全）；`mount()`/`createZoom()`/`createTooltip()` 需要瀏覽器。**沒有 d3、沒有任何第三方**；
   SVG 目前是字串陣列 `out.push('<path .../>')` 拼起來（React 改寫進行中，見 git log）。
-  程式風格目前仍是手寫 ES5（`var`、`function`），Phase 2 起換成 `const`／箭頭函式。
+  程式風格：`src/model/` 已是 `const`／箭頭函式／`for…of`（strict TS）；`render.ts`／`zoom.ts`／`tooltip.ts`／
+  `mount.ts` 仍是手寫 ES5（`var`、`function`、參數 `: any`），它們會在後續 Phase 被 React 元件與 hooks 取代。
   `react`／`react-dom >=18` 是必要 peerDependencies。型別由 tsc 從原始碼產生（`dist/*.d.ts`），
   介面本體在 `src/types.ts`。
 - **`app/`——Vite + React 使用端**。查詢表單 + 圖 + 顯示門檻，加圖例與縮放工具列。
@@ -94,7 +95,21 @@ Makefile：`make dev`（=`serve`）/ `build`（vite build）/ `up`／`up-dev`／
 ```
 packages/trace-sankey/
   package.json            exports："."（主入口）、"./react"、"./samples"、"./style.css"
-  src/model.ts            wire JSON 驗證 → 分類節點 → 加總同鍵的邊（含門檻／通道）→ 排欄/破環 → 殘差
+  src/model/              build() 的七步各一檔，共用一個 BuildCtx（types.ts）；順序在 build.ts 檔頭
+    types.ts              wire 契約、TraceNode／TraceEdge／TraceModel、BuildCtx／AggEdge／RawIndex
+    util.ts               num/str/isObj/isStringMap、SEP（NUL，寫成跳脫序列 \u0000）、sum
+    format.ts             fmtBps/fmtDelta/fmtBytes/fmtRate/fmtAmount/gbps
+    classify.ts           HOP_TYPES…TYPE_LABEL、classOf、statusOf/worstStatus、weightOf/extraOf/usageOf/infoOf/clientsOf
+    validate.ts           validate()、direction()
+    index-raw.ts          步驟 0 indexRaw：id 索引、ancestorOf、appOf、nsOfPod
+    scan.ts               1a scanEdges、1b scanNodes（含 mkHop）
+    edges.ts              2 buildEdges（★ 門檻／通道）＋ mkEdge；葉／ns／app／owner 卡 lazy 建
+    anchor.ts             3 addAnchor
+    prune.ts              4 掛邊編 id、4b ★ 移除孤立節點
+    columns.ts            5a–5g assignColumns
+    residuals.ts          6 computeResiduals
+    normalize.ts          7 normalizeColumns ＋ assemble（回傳物件的鍵序）
+    build.ts              串起來
   src/render.ts           版面計算 + SVG 字串組裝 + 各種卡片 + hop 摘要表（summary；app 目前沒用）
   src/zoom.ts             createZoom() 工廠：縮放平移（只改 <g class="zoom-layer"> 的 transform）
   src/tooltip.ts          createTooltip()：tooltip 元素掛 body、對 .band 與卡片 <g>[data-tip] 綁 hover
@@ -266,7 +281,8 @@ netapp-aggr, netapp-svm, pvc`）→ 盒子；群組（`namespace, application, c
 不進 JSON 契約、不影響 `validate()`，**走同一條過濾路**（濾掉的量記進 `dropIn`／`dropOut`，
 步驟 6 併回殘差，每台仍守恆）。
 
-build 分七步（門檻／通道散在步驟 2、4b、6 三處，用 ★ 標）：
+build 分七步（門檻／通道散在步驟 2、4b、6 三處，用 ★ 標；每步一個檔，見 §3 的 `src/model/`）。
+**物件字面值的鍵序與後續賦值順序就是 `model.json` 的鍵序**（golden 逐 byte 比），拆檔或改型別時別重排：
 
 0. `indexRaw(doc)`（id 索引 + `ancestorOf(id, type)`，**帶 visited set**——parent 鏈可能成環／懸空）；
    `nsOfPod`：application 祖先的 namespace 祖先 → pod 自己的 namespace 祖先 → `labels.namespace`。
