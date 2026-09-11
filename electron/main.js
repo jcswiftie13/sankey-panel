@@ -38,10 +38,11 @@ function allowedUrl(u) {
 /* 注入 CSP：模擬會用 onHeadersReceived 硬加一份 CSP 的 host。
    多份 CSP 在 Chromium 是「每一份都要通過」，所以這裡加的會跟 nginx 送的取交集。 */
 const CSP_POLICY = {
-  /* 少了 style-src 的 'unsafe-inline'：render.js 的 style="fill:…" 與 tooltip.js 的
-     .style.left 都會被擋 → 文字顏色與 tooltip 定位壞掉 */
+  /* 少了 style-src 的 'unsafe-inline'：套件本身不需要它（React 用 CSSOM 設樣式），
+     圖與 tooltip 應該正常；被擋的只會是頁面自己的 inline style（若有） */
   strict: "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'",
-  /* Trusted Types：mount.js 的 chart.innerHTML = render(m) 會直接 throw → 整張圖不見 */
+  /* Trusted Types：套件沒有 innerHTML（SVG 是 React 元件、tooltip 是 portal），圖應該正常——
+     這是迴歸測試：圖不見＝套件又用了 innerHTML */
   'trusted-types': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; require-trusted-types-for 'script'",
 };
 

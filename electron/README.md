@@ -43,7 +43,7 @@ env -u ELECTRON_RUN_AS_NODE npm start
 | `VIEW_API` | `browserview`（預設）/ `webcontentsview` | 用舊 API 還是新 API | **兩者行為應完全一致** |
 | `GUARD` | `on`（預設）/ `off` | 有沒有設 `will-navigate` 白名單 | `off` 時拖 `.json` 進去**應該什麼都不發生**（網頁端自己擋）；真的跳成 `file://` 就是網頁的防線壞了 |
 | `SESSION` | `persist`（預設）/ `temp` | 是不是用非持久 session | 現在**應無差異**（網頁不再寫 localStorage）；留著驗這點與未來的 cookie |
-| `CSP` | `off`（預設）/ `strict` / `trusted-types` | host 用 `onHeadersReceived` 注入 CSP | `strict` → 文字顏色與 tooltip 定位壞掉；`trusted-types` → 整張圖畫不出來 |
+| `CSP` | `off`（預設）/ `strict` / `trusted-types` | host 用 `onHeadersReceived` 注入 CSP | 兩者**圖都應正常**（套件沒有 innerHTML、樣式走 CSSOM）；圖不見就是套件回歸 |
 | `EMBED` | `view`（預設）/ `iframe` | host 用 view 還是 `<iframe>` | `iframe` 時被 `X-Frame-Options: DENY` 擋成空白 |
 
 例：
@@ -51,7 +51,7 @@ env -u ELECTRON_RUN_AS_NODE npm start
 ```sh
 GUARD=off npm start                       # 驗網頁端的拖放防線（拖 .json 進去應該沒反應）
 VIEW_API=webcontentsview npm start        # 驗證換 API 對網頁端零影響
-CSP=trusted-types npm start               # 重現 innerHTML 被 Trusted Types 擋掉
+CSP=trusted-types npm start               # 驗證 Trusted Types 下圖照畫（套件沒有 innerHTML）
 EMBED=iframe npm start                    # 重現 iframe 被擋
 SANKEY_URL=http://127.0.0.1:8080 npm start  # 不同 origin（同源 /api/ 代理仍然生效）
 ```

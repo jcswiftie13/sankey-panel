@@ -19,13 +19,13 @@
 
 ## 快速開始
 
-兩個部分：`packages/trace-sankey`（畫圖的 npm 套件，零依賴純 ESM）與 `app/`
+兩個部分：`packages/trace-sankey`（畫圖的 npm 套件，React + TypeScript，可單獨發布）與 `app/`
 （Vite + React 使用端：查詢表單 + 圖 + 顯示門檻）。
 
 ```bash
 git clone <repo> && cd sankey-panel
 
-npm install                   # 第一次；裝 app 的 react/vite（套件本身零依賴）
+npm install                   # 第一次；裝 react/vite/typescript（套件的 peer 是 react 與 react-dom）
 make dev                      # 起 dev server（= npm run dev --workspace app）
 make check                    # 所有範例（內建 + samples/ + stress/）build 一遍
 make up                       # 產品用：起 nginx + 內容 volume（見「用 nginx 部署」）
@@ -49,7 +49,7 @@ VITE_DEV_API=http://10.0.0.5:8000 make dev
 
 `make dev` 的上方會多一列標著 `dev` 的控制項：一個內建範例下拉（`trace-sankey/samples`
 那十一份），與一顆「選檔…」（讀本機任何 `.json`，`samples/` 與 `stress/` 都載得到）。
-改 `render.js`／CSS 想掃過所有範例、或想看 `stress/05-huge.json` 那種規模時不必起後端。
+改 `layout/`／`svg/`／CSS 想掃過所有範例、或想看 `stress/05-huge.json` 那種規模時不必起後端。
 兩條路都走 `useTraceDoc` 裡跟 API 回應同一個 `validate()`，所以手改的 JSON 打錯字會出
 一樣的錯誤橫幅，而且**不會清掉你正在看的圖**。
 
@@ -213,27 +213,31 @@ contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
 ### 當套件用
 
-```js
-// React：
+```jsx
+// React（唯一的瀏覽器入口；peer：react、react-dom >= 18）：
 import { TraceSankey } from 'trace-sankey/react';
 import 'trace-sankey/style.css';
-<TraceSankey doc={wireJson} minBps={0} channels="both" className="my-chart" />
-// 容器高度由你的 CSS 決定（元件不設高度）
+<TraceSankey ref={ref} doc={wireJson} minBps={0} channels="both" className="my-chart"
+  onModel={m => …} onError={errs => …} onZoom={pct => …} />
+// 容器高度由你的 CSS 決定（元件不設高度）；ref：{ refresh(), model, zoom: { fit, actual, zoomBy, refresh, isPanning } }
+// 改 minBps／channels 縮放保留；換一份內容不同的 doc 才重新 fit（內容相同的新物件視同沒換）
 
-// 不用 React（vanilla）：
-import { mount } from 'trace-sankey';
-const inst = mount(document.getElementById('chart'), wireJson, { minBps: 0, channels: 'both' });
-inst.setMinBps(5e8); inst.setChannels('read'); inst.zoom.fit(); inst.destroy();
+// 不用 React 框架的頁面：一樣用 createRoot 掛，五行
+import { createRoot } from 'react-dom/client';
+createRoot(document.getElementById('chart')).render(<TraceSankey doc={wireJson} />);
 
-// 只要 SVG 字串（Node 也能跑，沒有 DOM 依賴）：
-import { build, render } from 'trace-sankey';
+// 只要 SVG 字串（Node 也能跑，沒有 DOM 依賴；這條子路徑才會載到 react-dom/server）：
+import { build } from 'trace-sankey';
+import { render } from 'trace-sankey/static';
 const model = build(wireJson, { minBps: 0, channels: 'both' });
 if (model.ok) fs.writeFileSync('out.svg', render(model));
 ```
 
+套件的完整說明（props、ref、DOM 契約、CSS 變數、多實例）在 `packages/trace-sankey/README.md`。
+
 對外契約（自己接互動時可依賴）：
 
-- render 產出的 `<g class="zoom-layer">` 是縮放的掛點。
+- `<g class="zoom-layer">` 是縮放的掛點（它的 `transform` 由套件 imperative 設定，不是 React prop）。
 - 每條 `.band` 上的 `data-tip` 屬性是一份 JSON（`from/to/fi/ti/bps` ＋ storage 資料才有的
   `unit/channel/tier/attr/extra`），每張卡片的 `<g>` 也有一份（`{node:1, title, rows:[[k,v],…]}`，
   render 已經把數字格式化好）；tooltip 的資料都從這來，不掛套件 tooltip 的人可以自己讀。
@@ -372,11 +376,12 @@ if ($host = "127.0.0.1") { return 301 http://localhost:$server_port$request_uri;
 有些 host 會用 `session.webRequest.onHeadersReceived` 硬加一份 CSP。
 這份網頁的**實際需求**是：
 
-- **`style-src` 必須含 `'unsafe-inline'`**：`render.js` 產出的 SVG 文字用
-  `style="fill:…"` 屬性上色（ns 顏色、金額標籤的描邊），`tooltip.js` 也直接寫
-  `.style.left/.top` 定位。少了它 → 文字顏色跑掉、tooltip 黏在畫面左上角。
-- **不能開 Trusted Types**：`mount.js` 是 `chart.innerHTML = render(m)`。
-  一旦 CSP 有 `require-trusted-types-for 'script'`，這行直接 throw、**整張圖不見**。
+- **套件本身不需要 `style-src 'unsafe-inline'`**：SVG 由 React 渲染，樣式走 CSSOM
+  （`element.style.x = …`）不是 `style="…"` 屬性字串，CSP 不擋；tooltip 定位同理。
+  實測 `style-src 'self'` 下圖與 tooltip 都正常。**但 `app/index.html` 或你自己的頁面若有
+  inline style，那些會被擋**——所以下面的建議 CSP 仍帶 `'unsafe-inline'`。
+- **Trusted Types 可以開**：套件裡沒有任何 `innerHTML`（SVG 是 React 元件、tooltip 是 portal），
+  `require-trusted-types-for 'script'` 下整張圖照畫、tooltip 照出（實測 puppeteer + production build）。
 
 **nginx 端該做的：自己先送一份 CSP。** Chromium 對多份 CSP 是「每一份都要通過」（取交集），
 所以你送的不會蓋掉 host 那份，但能對「host 沒送」的情況直接生效，也等於把需求寫成契約：
@@ -386,15 +391,13 @@ if ($host = "127.0.0.1") { return 301 http://localhost:$server_port$request_uri;
 add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'" always;
 ```
 
-若 host 真的開了 Trusted Types，唯一的解是**改套件不要用 `innerHTML`**
-（改成 `DOMParser` 逐節點 append，或註冊一個 trusted policy）——那是套件層的改動，目前沒做。
-
-> 重現：`CSP=strict npm start`、`CSP=trusted-types npm start`。
+> 重現：`CSP=strict npm start`（圖應正常）、`CSP=trusted-types npm start`（圖應正常）。
+> 這兩個模式現在都是「應該看不到差異」的迴歸測試；看到圖不見就是套件又用了 innerHTML 或 style 字串。
 
 ### 6. 視窗尺寸由 host 決定（已經處理好，不用重做）
 
 host 會用 `setBounds()` 指定 view 的像素大小，也可能一開始給 0×0。
-`zoom.js` 已經綁了 `window.resize → refresh`，`setBounds` 會讓頁面收到 `resize`；
+`zoom.ts` 已經綁了 `window.resize → refresh`，`setBounds` 會讓頁面收到 `resize`；
 `ctm()` 對 `display:none` 與寬高 0 也有防護。列在這裡是為了讓人知道**這項已經處理過**。
 
 ### 7. 打 API 取資料（已實作）
@@ -1065,15 +1068,18 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 ```
 Makefile                     跑起來與驗證的入口（make help）
 packages/trace-sankey/       npm 套件（TypeScript、純 ESM；tsc 編到 dist/）
-  src/model.ts               驗證、分類節點、加總同鍵的邊、顯示門檻／通道過濾、算殘差
-  src/render.ts              SVG Sankey、等比殘差色塊、各種卡片、欄標題、hop 摘要（summary）
+  README.md                  套件自己的說明（安裝、props、ref、DOM 契約）；隨 npm pack 出貨
+  src/model/                 build()：驗證、分類節點、加總同鍵的邊、顯示門檻／通道過濾、排欄、算殘差（七步各一檔）
+  src/layout/                layout(model)：版面（純函式，回 Geometry）、path 產生器、tooltip 資料、欄標題
+  src/svg/                   React 元件：TraceSvg 根、帶、各種卡片、殘差色塊
   src/zoom.ts                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
-  src/tooltip.ts             createTooltip()：帶子與卡片 hover 的 tooltip
-  src/mount.ts               mount(el, doc, opts)：一行接好整條管線
-  src/react.ts               <TraceSankey> React 元件（trace-sankey/react）
+  src/tooltip/               TraceTooltip（portal + 事件委派）與 tooltip 內容元件
+  src/hooks/                 useStableDoc／useTraceModel／useZoom／useLatest
+  src/TraceSankey.tsx        <TraceSankey>：整條管線接成一個元件
+  src/react.ts               'trace-sankey/react' 入口
   src/static.ts              render()/summary() 字串渲染入口（trace-sankey/static；Node 也能跑）
+  src/summary.ts             hop 摘要表（HTML 字串）
   src/samples.ts             十個內建範例（trace-sankey/samples）；storage 是參考面板的 demo fixture
-  src/types.ts               wire 契約與 model 的介面（dist/*.d.ts 由 tsc 產生）
   styles/trace-sankey.css    圖與 tooltip 的樣式（trace-sankey/style.css）
 app/                         Vite + React 使用端
   src/api.js                 追查 API 的唯一出入口（組 query、fetch、翻譯錯誤）

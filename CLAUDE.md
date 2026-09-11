@@ -42,13 +42,17 @@ npm workspaces monorepo-lite，兩個部分（外加一個**刻意不在 workspa
 - **`packages/trace-sankey/`——核心套件**。TypeScript、純 ESM，**用 tsc 編到 `dist/`**
   （`npm run build -w trace-sankey`；exports 的 `default` 指 `dist/`、`development` 條件指 `src/*.ts`
   ——Vite dev 會挑後者所以改套件存檔即熱更新，Node／`vite build`／外部使用者永遠拿 `dist/`）。
-  `build()`/`render()` 是純函式（`render(model)` 回傳 SVG 字串、無任何 DOM 量測），Node 也能跑
-  （SSR 安全）；`mount()`/`createZoom()`/`createTooltip()` 需要瀏覽器。**沒有 d3、沒有任何第三方**；
-  SVG 目前是字串陣列 `out.push('<path .../>')` 拼起來（React 改寫進行中，見 git log）。
-  程式風格：`src/model/` 已是 `const`／箭頭函式／`for…of`（strict TS）；`render.ts`／`zoom.ts`／`tooltip.ts`／
-  `mount.ts` 仍是手寫 ES5（`var`、`function`、參數 `: any`），它們會在後續 Phase 被 React 元件與 hooks 取代。
-  `react`／`react-dom >=18` 是必要 peerDependencies。型別由 tsc 從原始碼產生（`dist/*.d.ts`），
-  介面本體在 `src/types.ts`。
+  三層：`model/`（`build()`，純演算法）→ `layout/`（`layout(model)` 回 Geometry，純函式、不改 model）→
+  `svg/`（React 元件，純渲染、無狀態）。這三層零 DOM、Node 也能跑（SSR 安全）；`render(model)` 是
+  `renderToStaticMarkup(<TraceSvg headless/>)`，在子路徑 `trace-sankey/static`。瀏覽器層是
+  `<TraceSankey>`（`TraceSankey.tsx` + `hooks/` + `tooltip/`）與 imperative 的 `zoom.ts`。
+  **套件裡沒有任何 `innerHTML`**：SVG 由 React 直接渲染、tooltip 是 portal 元件，Trusted Types 開著也能畫。
+  **沒有 d3、沒有其他第三方**；`react`／`react-dom >=18` 是必要 peerDependencies（`react-dom/client`
+  只有 `/react` 子路徑會載到、`react-dom/server` 只有 `/static`）。strict TypeScript、`const`／箭頭函式；
+  型別由 tsc 從原始碼產生（`dist/*.d.ts`），介面本體在 `src/model/types.ts`。
+  **套件要能單獨發布給別人 import**：目錄自足（自己的 tsconfig 與 build script）、`files` 只含
+  `dist`／`styles`／`README.md`、不 import `app/` 任何東西、不假設 body class；`npm pack` 後在外部
+  Vite 專案裝得起來、同一頁掛兩張要各自正常（漸層 id 用 `useId` 加前綴）。
 - **`app/`——Vite + React 使用端**。查詢表單 + 圖 + 顯示門檻，加圖例與縮放工具列。
   **圖的接線**在 `App.jsx`；資料來源在 `useTraceDoc.js`、API 呼叫在 `api.js`、
   表單在 `TraceQueryBar.jsx`。`npm install`（repo 根目錄）後 `make dev`
@@ -73,8 +77,9 @@ npm workspaces monorepo-lite，兩個部分（外加一個**刻意不在 workspa
   拖放導航，否則整頁跳去 `file://…json`。**但 host 端不是我們能控制的**，所以 App.jsx
   自己也無條件 `preventDefault()`（開檔／拖放功能已移除，那個 effect 只剩這道防線，見 §4）。
   README 的「被 Electron 鑲嵌時」整章列了 host 的哪些設定會影響我們、以及 nginx／網頁
-  該怎麼因應（CSP 的 `style-src` 必須有 `'unsafe-inline'`、Trusted Types 會打死 `mount.js`
-  的 `innerHTML`、iframe 才會被 `X-Frame-Options` 擋、API 化之後一律走同源 `proxy_pass`……）。
+  該怎麼因應（套件對 CSP 的 `style-src 'self'` 與 Trusted Types 都相容——React 用 CSSOM 設樣式、
+  沒有 innerHTML；`'unsafe-inline'` 只有使用端自己的 inline style 需要；iframe 才會被
+  `X-Frame-Options` 擋、API 化之後一律走同源 `proxy_pass`……）。
 - **`electron/`——Electron 測試殼**，同時是 host 端的參考實作。`main.js` 一支（CJS，
   刻意不跟 repo 的 ESM），環境變數 `VIEW_API`／`GUARD`／`SESSION`／`CSP`／`EMBED` 可以
   重現各種 host 設錯的情況，對應 README 那章的每一節。`make electron` 啟動。
@@ -123,16 +128,19 @@ packages/trace-sankey/
     Band.tsx              Band（含 lat-arrow 兄弟、headless 才有 <title>）、BandLabel
     cards.tsx             NodeBox／LeafCard／PodCard／GroupCard／OwnerCard／AnchorCard／Card 分派／Residual
   src/summary.ts          hop 摘要表（HTML 字串；app 目前沒用）
-  src/zoom.ts             createZoom() 工廠：縮放平移（只改 <g class="zoom-layer"> 的 transform）
-  src/tooltip.ts          createTooltip()：tooltip 元素掛 body、對 .band 與卡片 <g>[data-tip] 綁 hover
-  src/mount.ts            mount(el, doc, opts)：build → render → zoom → tooltip 接成一個實例
-  src/react.ts            <TraceSankey> 薄殼（純 createElement，包一層 mount()）
+  src/zoom.ts             createZoom() 工廠：縮放平移（imperative，只改 <g class="zoom-layer"> 的 transform）
+  src/TraceSankey.tsx     <TraceSankey>：useStableDoc → useTraceModel → layout → <TraceSvg>；useZoom；<TraceTooltip>
+  src/hooks/              useLatest、useStableDoc（同內容新物件沿用舊參考）、useTraceModel（build 的 useMemo）、
+                          useZoom（attach／detach／dispose 接進 useLayoutEffect；doc 參考變才 reset）
+  src/tooltip/            TraceTooltip.tsx（portal 到 body、.chart 上三個原生 listener 委派）、tips.tsx（BandTip／NodeTipView）
+  src/react.ts            'trace-sankey/react' 入口：TraceSankey、TraceSvg、useTraceModel、useStableDoc、型別
   src/samples.ts          10 個內建範例（純資料；N()/E() 是字面值簡寫；storage 是參考面板的 fixture）
   src/static.ts           'trace-sankey/static'：render(model) = renderToStaticMarkup(<TraceSvg headless/>)；
                           re-export summary／esc。拉進 react-dom/server，所以刻意不在主入口
+  README.md               套件自己的 README（安裝、props、ref、DOM 契約、CSS 變數）；隨 npm pack 出貨
   src/types.ts            wire 契約與 model 的介面；dist/*.d.ts 由 tsc 產生
   src/index.ts            主入口 re-export
-  tsconfig.json           NodeNext、strict 暫關（Phase 2 開）；相對匯入一律寫 ./x.js（指向 .ts）
+  tsconfig.json           NodeNext、strict、jsx react-jsx；相對匯入一律寫 ./x.js（指向 .ts／.tsx）
   styles/trace-sankey.css 圖表與 tooltip 樣式；CSS 變數 scope 在 .trace-sankey，不進 :root
   dist/                   tsc 輸出（gitignore／dockerignore）
 app/                      Vite + React 使用端
@@ -170,25 +178,29 @@ README.md                 使用說明 + 輸入 JSON 契約 + 驗證錯誤對照
 
 ```
 doc（app：useTraceDoc 打 GET /api/trace 取回，validate 過才進來）
-  → <TraceSankey doc minBps channels>（react.js）
-    → mount(el, doc, {minBps, channels, onModel, onError, onZoom})（mount.js）
-      → build(doc, {minBps, channels})   失敗 → onError(errors)，app 畫錯誤 UI；成功 ↓
-      → onModel(model)           app 拿去拼圖例、隱藏統計 pill
-      → render(model)            SVG 字串 → chart.innerHTML（key 沒變且 svg 還在就跳過）
-      → tooltip.bind(chart)      每條 .band 與每張卡片 <g>[data-tip] 綁 tooltip
-      → zoom.attach(el)          綁縮放平移
+  → <TraceSankey doc minBps channels onModel onError onZoom>（TraceSankey.tsx）
+    → useStableDoc(doc)                  內容相同的新物件沿用舊參考（identity 變才 JSON.stringify 比一次）
+    → useTraceModel(doc, {minBps, channels})   = useMemo(build)；失敗 → effect 裡 onError(errors)，app 畫錯誤 UI
+    → useMemo(() => layout(model))        純函式，版面在 Geometry Map 裡、model 不被改
+    → <div.trace-sankey.chart-wrap><div.chart><TraceSvg model geo idPrefix/></div><TraceTooltip/></div>
+    → useZoom：useLayoutEffect 裡 zoom.attach(wrap, …, reset)；model 不 ok 就 detach
+    → useEffect：onModel(model)           commit 之後才叫，app 拿去拼圖例、隱藏統計 pill
 ```
 
-mount `update()` 的重要順序約束（都是 app.js 時代踩過的坑，搬進套件後仍然成立）：
+幾個約束（多半是 mount.js 時代踩過的坑，換成 hooks 後仍然成立）：
 
-- 重畫判斷 key = `JSON.stringify(doc) + '\n' + minBps + '\n' + channels`，沒變**且 `chart.querySelector('svg')`
-  還在**才沿用既有 SVG（保縮放）。**門檻與通道一定要在鍵裡**，不然改了不會重畫；svg 存在檢查
-  對應「錯誤後復原」的路徑。
-- build 失敗：清空 chart、`zoom.detach()`、`lastKey = null`、呼叫 `onError`。mount **不畫**
-  錯誤 UI——文案是使用端的責任。
-- 容器要**先有高度再 mount／update**（zoom 的 fit 用容器實際大小算）；尺寸變了呼叫
-  `refresh()`。app 用 flex column 讓圖吃滿剩餘高度，所以不再需要舊版量 DOM 的 `sizeChart()`。
-- `destroy()` 必須冪等：React StrictMode 開發模式會故意 mount→unmount→mount 一輪。
+- **門檻與通道一定要在 `useTraceModel` 的 deps 裡**，不然改了不會重畫。
+- **縮放保留規則**：同一份 doc 底下改門檻／通道，React 重畫時 `<g class="zoom-layer">` 的 DOM 節點不換，
+  `zoom.attach()` 認得同一個 layer 就沿用 k/tx/ty（舊版 key 一變就 innerHTML 重畫、縮放歸零——這是刻意的
+  行為變更）；`useStableDoc` 回傳的參考變了才 `reset=true` → `initial()`（fit 但不放大超過 1:1）。
+  `.zoom-layer` 的 `transform` **絕不當 React prop**：React 只 diff 它知道的 props，imperative 設的值才不會被洗掉。
+- build 失敗：`.chart` 不渲染 svg → `zoom.detach()`、tooltip hide、`onError`。元件**不畫**錯誤 UI——文案是使用端的責任。
+  復原時新 svg → attach 找不到舊 layer → `initial()`。
+- 容器要**先有高度**（zoom 的 fit 用容器實際大小算）；尺寸變了呼叫 ref 的 `refresh()`。
+  attach 走 `useLayoutEffect`：要等 `<svg>` 進 DOM 才量得到 `getScreenCTM()`，但要在繪製前，否則第一幀閃一下。
+- `onModel`／`onError`／`onZoom` 存在 `useLatest` ref：callback identity 變了不重跑 effect、不重新 attach。
+- React StrictMode 開發模式會故意 mount→unmount→mount 一輪：`useZoom` 的 dispose 清 ref、下次懶建新實例；
+  tooltip 是 portal，body 上只會有一個。
 
 app 端約束（`App.jsx`）：門檻重畫 debounce 200ms、提示文字不 debounce；`cleanMin()` 把負數／
 小數／亂打的字一律當 0。**資料來源整個關在 `useTraceDoc.js`**（`run(params)` →
@@ -269,7 +281,7 @@ JSX 分支是死的，多牽一條引用就會安靜地把 30KB 範例烤進去�
 }
 ```
 
-型別三類（`model.js` 的 `HOP_TYPES`／`GROUP_TYPES`／`classOf`）：hop（`switch, node, pod, netapp-node,
+型別三類（`model/classify.ts` 的 `HOP_TYPES`／`GROUP_TYPES`／`classOf`）：hop（`switch, node, pod, netapp-node,
 netapp-aggr, netapp-svm, pvc`）→ 盒子；群組（`namespace, application, cluster, storage-cluster, controller`）
 → 不畫、只在 `parent` 鏈上；其他任何 type → 灰色葉卡（葉不能再有往下走的 flow 邊，驗證錯誤）。
 **葉 pod** ＝ `type:"pod"` 且沒有往下走的邊 → pod 卡＋推導邊到 application／namespace；有往下走的邊＝proxy pod。
@@ -284,7 +296,7 @@ netapp-aggr, netapp-svm, pvc`）→ 盒子；群組（`namespace, application, c
 `tor`=top-of-rack、`core`/`agg`/`edge`=核心/匯聚/接入層、`fw`=防火牆。iface 命名照 Juniper 慣例
 （`et-*`=100/40G、`xe-*`=10G、`ae0`=LAG）與 Linux（`bond0`、`eno1`）。
 
-## 6. model.js：`build(doc, opts)` 演算法
+## 6. model/：`build(doc, opts)` 演算法
 
 匯出：`build` / `validate` / `direction` / `fmtBps` / `fmtDelta` / `fmtBytes` / `fmtRate` / `fmtAmount` / `gbps` /
 `HOP_TYPES` / `GROUP_TYPES` / `FLOW_TYPES` / `TYPE_LABEL`。
@@ -336,9 +348,11 @@ build 分七步（門檻／通道散在步驟 2、4b、6 三處，用 ★ 標；
 回傳 `{ok, dir, investigation|null, channels, minBps, filtered, filteredNodes, nodes, nodeMap, edges,
 anchorEdge|null, root|null, warnings, maxCol}`。
 
-## 7. render.js：版面與繪製
+## 7. layout/ 與 svg/：版面與繪製
 
-匯出：`render` / `summary` / `esc`。核心是 `layout(model)`：
+`layout(model): Geometry`（`layout/layout.ts`，純函式）算版面；`svg/TraceSvg.tsx` 吃 `(model, geo)` 畫。
+節點與邊的版面在 `geo.nodes.get(id)`／`geo.edges.get(id)`（`NodeGeom`／`EdgeGeom`，欄位名沿用舊的 `x1/y1/t1…`）：
+
 
 - **全圖共用一把比例尺**：`maxVal = max(所有邊, 所有殘差)`，`thick(v) = max(THICK_MIN=3, v * THICK_MAX/maxVal)`，
   `THICK_MAX = 86`。殘差跟帶同一把尺，比例才讀得出來。read 與 write 帶也共用（跟參考一致）。
@@ -377,11 +391,11 @@ anchorEdge|null, root|null, warnings, maxCol}`。
 - 帶的 `data-tip` 多一個 `clients` 鍵（`clientsMeta()`：取封包下游那端節點的
   `hostname || ip` 陣列），給「兩台以上時卡片標題不是 client 身分」補身分；
   照既有慣例只在有值時出現，所以沒有 clients 的圖 `data-tip` 逐 byte 不變。
-  **`tooltip.js` 的帶是明確列鍵的**，加新鍵要同步在那裡加一列。
+  **`tooltip/tips.tsx` 的 `BandTip` 是明確列鍵的**，加新鍵要同步在那裡加一列。
 - **歸屬線**（`e.owns`）：`ownLine()` 是 `ribbon()` 的中線版本，畫成 `fill:none` 的灰虛線
   （`band band-own`，比照 `band-loop` 的描邊帶），**不印帶上數字**、tooltip 也不印速率——
   `bps` 是 0，那不是「零流量」而是「沒有量」。線寬 `OWN_T` 同時是 hover 判定寬度，別再調細。
-  槽位厚度走 `e.__t`（`owns` 用 `OWN_T`、其餘 `thick(e.bps)`），不是直接 `thick(e.bps)`。
+  槽位厚度走 `EdgeGeom.t`（`owns` 用 `OWN_T`、其餘 `thick(e.bps)`），不是直接 `thick(e.bps)`。
 - **槽位重排**（`reorderSlots`）：pod／ns／app 那組之外，`ownerLinked` 的葉與 owner 卡也要依對端 y 重排——
   port 葉的出邊順序是 `clients` 的出現順序、owner 卡的入邊順序是建邊順序，都跟 y 無關，
   一張 port 掛五個 owner 時歸屬線會整束交叉（實測過）。
@@ -399,25 +413,37 @@ anchorEdge|null, root|null, warnings, maxCol}`。
 **套件的 public 契約**（README 也要記）：`<g class="zoom-layer">` 是 zoom 的 hook；`.band` 與卡片 `<g>` 上的
 `data-tip` JSON 是 tooltip 的資料通道；`channels` 選項。改這些等於改對外 API。
 
-## 8. zoom / mount / react / CSS 關鍵決策（改壞會回退歷史 bug）
+## 8. zoom / tooltip / TraceSankey / CSS 關鍵決策（改壞會回退歷史 bug）
 
-- **hover 高亮純靠 CSS**（`.band:hover` 換 fill；`.band-w:hover` 換 `gband-w-h`；`band-loop` 因 `fill:none`
-  改加深 stroke）。**JS 只管 tooltip**。不要改回 JS 換色——mouseleave 沒觸發（觸控、游標衝出視窗、拖曳吃事件）
-  帶子就永久卡在高亮色（commit `4a752b9` 修過）。
-- zoom **只改 `<g class="zoom-layer">` 的 transform**；listener 只綁一次在容器，每次 `attach()` 只抽換內部狀態 `st`。
-  同一 layer 重 attach 沿用縮放；換了圖才 `initial()`＝fit 但**絕不放大超過 1:1**。
-  放大上限用「螢幕實際倍率」不是相對 fit。`ctm()` 有兩個 null 防護。
-  `createZoom()` 一個實例管一個容器，`dispose()` 必須把 wrap 上五個 pointer/wheel listener 與 window resize 全解掉。
-- **tooltip 元素掛在 `document.body`**（`position:fixed`）；`bind()` 綁 `.band, g[data-tip]`，帶子讀
-  `bandHtml`、卡片讀 `nodeHtml`；`mount.destroy()` 要把它移掉。
+- **hover 高亮純靠 CSS**（`.band:hover{fill:var(--gband-h,url(#gband-h))}`；`.band-w:hover` 換 `--gband-w-h`；
+  `band-loop` 因 `fill:none` 改加深 stroke）。**JS 只管 tooltip**。不要改回 JS 換色——mouseleave 沒觸發
+  （觸控、游標衝出視窗、拖曳吃事件）帶子就永久卡在高亮色（commit `4a752b9` 修過）。
+- **漸層 id 有前綴**：`<TraceSankey>` 用 `useId()`（只留 `[A-Za-z0-9_-]`）給 `<TraceSvg idPrefix>`，`Defs` 的 id 與
+  帶子的 `fill=url(#…)` 都帶它，hover 用的三個漸層以 CSS 變數掛在 `<svg style>` 上——同一頁掛兩張圖才不會
+  互搶（漸層 id 是文件層級的）。headless 字串渲染前綴是空字串、不掛變數，golden 輸出與舊版同名。
+- zoom **維持 imperative、只改 `<g class="zoom-layer">` 的 transform**（5.4 萬個元素每格滾輪跑 reconciliation
+  不可接受）；listener 只綁一次在容器，每次 `attach()` 只抽換內部狀態 `st`。同一 layer 重 attach 沿用縮放；
+  `reset=true`（doc 參考變）才 `initial()`＝fit 但**絕不放大超過 1:1**。放大上限用「螢幕實際倍率」不是相對 fit。
+  `ctm()` 有兩個 null 防護。`createZoom()` 一個實例管一個容器，`dispose()` 必須把 wrap 上五個 pointer/wheel
+  listener 與 window resize 全解掉。`is-panning` 仍由 zoom 用 `classList` 加在 wrap 上：React 只在 `className`
+  prop 變時重寫該屬性，拖曳中不衝突。
+- **tooltip 是 portal 到 `document.body` 的元件**（`position:fixed`；容器 `overflow:hidden` 會裁掉）。事件是
+  `.chart` 上**三個原生 listener 委派**（`mouseover`／`mousemove`／`mouseout` ＋ `closest('.band, g[data-tip]')`），
+  不是每個元素各綁 React handler（49k 個元素會是 15 萬個 handler）。滑鼠座標不進 state，`mousemove` 直接改
+  ref 上的 style。內容是 `<BandTip>`／`<NodeTipView>`，**沒有 innerHTML**。帶子的原生 `<title>` 只在
+  headless 才輸出，瀏覽器路徑不再需要事後剝掉；殘差色塊的 `<title>` 兩種模式都留（它沒有 data-tip）。
 - **專注模式刻意不用 Fullscreen API**（tooltip 在容器外會消失），用 `body.chart-focus` class 純 CSS 實作。
 - **顏色是三份定義沒有連動**：`styles/trace-sankey.css` 的 CSS 變數（`--cyan #22d3ee`、`--amber #f59e0b`、
-  `--rose #fb7185`、`--gray #94a3b8`、`--orange #c2410c`）、render.js 字串裡的硬編碼十六進位（漸層 defs、
-  `STATUS_COLOR`、write 帶 `#c2410c → #7c2d12`）、`app/src/app.css` 的頁面色票（圖例 `.lg-write`／`.lg-status`）。
+  `--rose #fb7185`、`--gray #94a3b8`、`--orange #c2410c`）、`svg/Defs.tsx`／`svg/Band.tsx`／`layout/constants.ts`
+  裡的硬編碼十六進位（漸層、`STATUS_COLOR`、write 帶 `#c2410c → #7c2d12`）、`app/src/app.css` 的頁面色票
+  （圖例 `.lg-write`／`.lg-status`）。
   改配色要三處一起改。語意：青＝已追查／read、燃橘＝write、琥珀＝其他輸入／warning 框、玫瑰＝其他輸出／回流／critical 框。
 - `.trace-sankey .chart svg{display:block;width:100%;height:100%}` 是 fit 計算的隱性前提；
   `.chart svg text{pointer-events:none}`——帶上數字不能擋 hover。別動。
-- react.js：callback props 存 ref；`useImperativeHandle` 回傳的是轉呼叫殼；`channels` prop 跟 `minBps` 一樣進 update 的 deps。
+- `TraceSankey.tsx`：callback props 存 `useLatest` ref；ref handle 只有 `refresh`／`model`／`zoom.*`（`update`／`setMinBps`／
+  `setChannels`／`mount()` 已移除，props 驅動）；`<TraceSvg>` 用 `memo`，滑鼠移動不會 re-render 它。
+- **CSP**：套件在 `style-src 'self'`（沒有 `'unsafe-inline'`）與 `require-trusted-types-for 'script'` 下都正常
+  （實測 puppeteer + production build）——React 用 CSSOM 設 style、沒有 innerHTML。使用端自己的 inline style 才需要 `'unsafe-inline'`。
 - 快捷鍵（app 端）：`+`/`-` 縮放、`0` fit、`1` 1:1、`f` 專注、`Esc` 離開；在輸入框內不攔。
 
 ## 9. 開發慣例與驗證
@@ -463,8 +489,8 @@ anchorEdge|null, root|null, warnings, maxCol}`。
 10. `summary()`（hop 摘要表）照常匯出並被 golden 對拍，但目前 app 沒有使用——刻意保留的 API，不是死碼。
 11. **參考 fixture 裡沒有 no-flow 節點**（參考只對指定 root 產生）；要測 no-flow 卡得手做一個只列在 `nodes`、
     沒有任何 flow 邊的 hop。
-12. 卡片 `<g>` 的 `data-tip` 是本次新加的：**golden 對拍時要用 `perl -pe 's/<g data-tip="[^"]*">/<g>/g'`
-    正規化掉才比得出真正的版面差異**（帶子的 `data-tip` 不要正規化，它必須逐 byte 相同）。
+12. 卡片 `<g>` 與帶子的 `data-tip`：golden 的 `cmp` 把它們以 parse 後的 JSON 比（鍵序無關、值要全同），
+    不再需要 perl 正規化。
 13. client 很多的 port 卡會很高（每台 14px）也會很寬（三欄齊全 364px），目前都**沒有上限**。
     真的遇到幾十台再加一個 `CLIENT_MAX` 常數截，**不要順手改成「一個 client 一張卡」**——
     後端量得到的只有整個 port 的 Δ bps，N 張卡各帶全額會讓 `tracedOut` 變 `N×V`、
