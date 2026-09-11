@@ -110,13 +110,26 @@ packages/trace-sankey/
     residuals.ts          6 computeResiduals
     normalize.ts          7 normalizeColumns ＋ assemble（回傳物件的鍵序）
     build.ts              串起來
-  src/render.ts           版面計算 + SVG 字串組裝 + 各種卡片 + hop 摘要表（summary；app 目前沒用）
+  src/layout/             版面（純函式，不改 model）
+    constants.ts          NODE_W…THICK_MAX、NS_COLORS、CLIENT_COLS、DEVICE_TYPES、STATUS_COLOR
+    geometry.ts           Slot／NodeGeom／EdgeGeom／Geometry 型別
+    layout.ts             layout(model): Geometry——欄位 x／y、槽位、邊端點、弧帶凸出、回流 lane
+    text.ts               esc、clip、clientCols/clientW/clientRows、leafH、headerH、resIn/resOut、usageText、typeWord
+    paths.ts              ribbon／ownLine／lateralRibbon／backwardRibbon（吃 EdgeGeom）
+    tips.ts               bandMeta（帶的 data-tip）、bandTitle、nodeTip（卡的 data-tip）、clientsMeta、colCaption
+  src/svg/                React 元件（純渲染、無狀態、SSR 安全）
+    TraceSvg.tsx          <svg> 根：Defs（zoom-layer 外）→ g.zoom-layer → 欄標題 → Band → BandLabel → Card → Residual
+    Defs.tsx              漸層（gband-w／-h 只在有 write 帶時輸出）
+    Band.tsx              Band（含 lat-arrow 兄弟、headless 才有 <title>）、BandLabel
+    cards.tsx             NodeBox／LeafCard／PodCard／GroupCard／OwnerCard／AnchorCard／Card 分派／Residual
+  src/summary.ts          hop 摘要表（HTML 字串；app 目前沒用）
   src/zoom.ts             createZoom() 工廠：縮放平移（只改 <g class="zoom-layer"> 的 transform）
   src/tooltip.ts          createTooltip()：tooltip 元素掛 body、對 .band 與卡片 <g>[data-tip] 綁 hover
   src/mount.ts            mount(el, doc, opts)：build → render → zoom → tooltip 接成一個實例
   src/react.ts            <TraceSankey> 薄殼（純 createElement，包一層 mount()）
   src/samples.ts          10 個內建範例（純資料；N()/E() 是字面值簡寫；storage 是參考面板的 fixture）
-  src/static.ts           'trace-sankey/static'：render()/summary()/esc 字串渲染入口（Node／golden 用）
+  src/static.ts           'trace-sankey/static'：render(model) = renderToStaticMarkup(<TraceSvg headless/>)；
+                          re-export summary／esc。拉進 react-dom/server，所以刻意不在主入口
   src/types.ts            wire 契約與 model 的介面；dist/*.d.ts 由 tsc 產生
   src/index.ts            主入口 re-export
   tsconfig.json           NodeNext、strict 暫關（Phase 2 開）；相對匯入一律寫 ./x.js（指向 .ts）

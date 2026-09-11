@@ -10,7 +10,7 @@
      onError  build 失敗時拿到 errors 字串陣列（mount 不畫錯誤 UI，文案是使用端的事）
      onZoom   縮放倍率變化（螢幕實際倍率，量不到時是 null） */
 import { build } from './model/build.js';
-import { render } from './render.js';
+import { render } from './static.js';   /* 過渡期：下一步 React 元件直接渲染，這支整個消失 */
 import { createZoom } from './zoom.js';
 import { createTooltip } from './tooltip.js';
 import type { BuildOptions, Channel, TraceModel, TraceModelError, TraceModelOk } from './model/types.js';

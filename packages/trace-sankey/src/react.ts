@@ -7,6 +7,9 @@ import { mount } from './mount.js';
 import type { MountInstance } from './mount.js';
 import type { Channel, TraceModelOk } from './model/types.js';
 
+export { TraceSvg } from './svg/TraceSvg.js';
+export type { TraceSvgProps } from './svg/TraceSvg.js';
+
 export interface TraceSankeyProps {
   /** 追查 JSON（契約見 README）。換一個「內容相同的新物件」不會重畫、縮放保留。 */
   doc: unknown;
