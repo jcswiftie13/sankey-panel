@@ -1,8 +1,7 @@
-/* trace-sankey 主入口。
-   build/validate/summary/layout 是純函式（Node 也能跑，SSR 安全）；
-   mount/createZoom 需要瀏覽器 DOM。SVG 字串渲染走子路徑 'trace-sankey/static'
-   （它拉進 react-dom/server，刻意不放這裡），範例資料走 'trace-sankey/samples'，
-   React 元件走 'trace-sankey/react'。 */
+/* trace-sankey 主入口（不載 React）。
+   build/validate/summary/layout 是純函式（Node 也能跑，SSR 安全）；createZoom 需要瀏覽器 DOM。
+   SVG 字串渲染走子路徑 'trace-sankey/static'（它拉進 react-dom/server，刻意不放這裡），
+   範例資料走 'trace-sankey/samples'，React 元件走 'trace-sankey/react'。 */
 export { build } from './model/build.js';
 export { validate, direction } from './model/validate.js';
 export { fmtBps, fmtDelta, fmtBytes, fmtRate, fmtAmount, gbps } from './model/format.js';
@@ -12,13 +11,9 @@ export { esc } from './layout/text.js';
 export { layout } from './layout/layout.js';
 export type { Geometry, NodeGeom, EdgeGeom, Slot } from './layout/geometry.js';
 export { createZoom, zoomStep } from './zoom.js';
-export { createTooltip } from './tooltip.js';
-export { mount } from './mount.js';
 export type {
   WireInvestigation, WireUsage, WireClient, WireNodeData, WireIoMetrics, WireEdgeData, WireGraph,
   Channel, RateUnit, Direction, Channels, Status, NodeInfo, NodeUsage, NodeClient,
   TraceNode, TraceEdge, TraceModelOk, TraceModelError, TraceModel, BuildOptions
 } from './model/types.js';
-export type { ZoomInstance } from './zoom.js';
-export type { TooltipInstance } from './tooltip.js';
-export type { MountOptions, MountInstance } from './mount.js';
+export type { ZoomInstance, ZoomOptions } from './zoom.js';

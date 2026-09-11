@@ -8,9 +8,9 @@ import { backwardRibbon, lateralRibbon, ownLine, ribbon } from '../layout/paths.
 import { bandMeta, bandTitle } from '../layout/tips.js';
 import { fmtRate } from '../model/format.js';
 
-export interface BandProps { e: TraceEdge; g: EdgeGeom; model: TraceModelOk; headless: boolean }
+export interface BandProps { e: TraceEdge; g: EdgeGeom; model: TraceModelOk; headless: boolean; p: string }
 
-export const Band = ({ e, g, model, headless }: BandProps) => {
+export const Band = ({ e, g, model, headless, p }: BandProps) => {
   const meta = bandMeta(e, model);
   const tip = JSON.stringify(meta);
   const isW = e.channel === 'write';
@@ -19,7 +19,7 @@ export const Band = ({ e, g, model, headless }: BandProps) => {
     const backTitle = headless ? <title>{tt + '（回流）'}</title> : null;
     return g.backNear ? (
       /* 相鄰欄回流：整條活在兩欄之間的走廊，反向的一般帶 */
-      <path className="band band-back" d={ribbon(g)} fill="url(#gband-back)"
+      <path className="band band-back" d={ribbon(g)} fill={'url(#' + p + 'gband-back)'}
         stroke="#fb7185" strokeOpacity=".35" strokeWidth="1" data-tip={tip}>{backTitle}</path>
     ) : (
       /* band-loop：fill 是 none，hover 只能加深 stroke，CSS 得認得出來 */
@@ -45,7 +45,7 @@ export const Band = ({ e, g, model, headless }: BandProps) => {
   return (
     <>
       <path className={'band' + (e.lateral ? ' band-lat' : '') + (isW ? ' band-w' : '')}
-        d={e.lateral ? lateralRibbon(g, g.bulge!) : ribbon(g)} fill={'url(#' + (isW ? 'gband-w' : 'gband') + ')'}
+        d={e.lateral ? lateralRibbon(g, g.bulge!) : ribbon(g)} fill={'url(#' + p + (isW ? 'gband-w' : 'gband') + ')'}
         stroke={isW ? '#c2410c' : '#22d3ee'} strokeOpacity=".35" strokeWidth="1" data-tip={tip}>
         {headless ? <title>{tt}</title> : null}
       </path>

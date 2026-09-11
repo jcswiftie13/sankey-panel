@@ -3,6 +3,7 @@
    <g class="zoom-layer"> 是 zoom 的 hook：它的 transform 由 zoom.ts 直接改，這裡絕不把 transform 當 prop——
    React 只 diff 它知道的 props，不會洗掉 imperative 設的值。 */
 import { memo } from 'react';
+import type { CSSProperties } from 'react';
 import type { Geometry } from '../layout/geometry.js';
 import type { TraceModelOk } from '../model/types.js';
 import { PAD_SIDE, PAD_TOP } from '../layout/constants.js';
@@ -16,16 +17,25 @@ export interface TraceSvgProps {
   geo: Geometry;
   /** Node 端字串渲染：帶子輸出原生 <title> 當 hover 備援。瀏覽器路徑有 JS tooltip，不輸出。 */
   headless?: boolean;
+  /** 漸層 id 前綴（多實例安全）；空字串＝跟以前同名。非空時把 hover 用的漸層以 CSS 變數掛在 <svg> 上 */
+  idPrefix?: string;
 }
 
-export const TraceSvg = memo(function TraceSvg({ model, geo, headless = false }: TraceSvgProps) {
+export const TraceSvg = memo(function TraceSvg({ model, geo, headless = false, idPrefix = '' }: TraceSvgProps) {
   const E = (id: string) => geo.edges.get(id)!;
   const N = (id: string) => geo.nodes.get(id)!;
+  const p = idPrefix;
+  /* CSS 的 .band:hover 只能寫死一個 url(#…)，多實例時靠變數各拿自己的；沒有前綴就不掛（輸出不變） */
+  const hoverVars = p ? {
+    '--gband-h': 'url(#' + p + 'gband-h)',
+    '--gband-back-h': 'url(#' + p + 'gband-back-h)',
+    '--gband-w-h': 'url(#' + p + 'gband-w-h)'
+  } as CSSProperties : undefined;
   return (
     /* 尺寸交給 CSS（.chart svg）：SVG 填滿容器，meet-fit 就是「符合視窗」。 */
     <svg viewBox={'0 0 ' + geo.width + ' ' + geo.height} preserveAspectRatio="xMidYMid meet"
-      xmlns="http://www.w3.org/2000/svg" role="img" aria-label="追查 Sankey">
-      <Defs model={model} />
+      xmlns="http://www.w3.org/2000/svg" role="img" aria-label="追查 Sankey" style={hoverVars}>
+      <Defs model={model} p={p} />
       <g className="zoom-layer">
         {!model.nodes.length && (
           <text className="col-cap" x={PAD_SIDE} y={PAD_TOP}>顯示門檻／通道過濾之後沒有任何節點</text>
@@ -35,7 +45,7 @@ export const TraceSvg = memo(function TraceSvg({ model, geo, headless = false }:
           <text key={ci} className="col-cap" x={N(col[0].id).x} y="24">{colCaption(col, model.dir)}</text>
         ) : null)}
         {/* 帶：先畫，壓在盒子下面 */}
-        {model.edges.map((e) => <Band key={e.id} e={e} g={E(e.id)} model={model} headless={headless} />)}
+        {model.edges.map((e) => <Band key={e.id} e={e} g={E(e.id)} model={model} headless={headless} p={p} />)}
         {model.edges.map((e) => e.owns ? null : <BandLabel key={e.id} e={e} g={E(e.id)} />)}
         {/* 盒子 */}
         {model.nodes.map((n) => <Card key={n.id} n={n} g={N(n.id)} model={model} nsColor={geo.nsColor} />)}

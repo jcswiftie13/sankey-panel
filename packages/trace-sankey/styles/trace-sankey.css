@@ -1,4 +1,4 @@
-/* trace-sankey 套件樣式：mount() 容器（.trace-sankey.chart-wrap）與 tooltip。
+/* trace-sankey 套件樣式：<TraceSankey> 容器（.trace-sankey.chart-wrap）與 tooltip。
    色票變數不放 :root——套件不污染使用端的全域；scope 在自己的兩個根元素上，
    CSS 變數向下繼承，SVG 內的 text class 照常吃得到。
    注意：render.js 產出的 SVG 硬編碼了同一批十六進位色（漸層 defs），
@@ -42,11 +42,13 @@
    pointer-events:none 是必要的：不然它會擋掉底下 band 的 hover，tooltip 跟高亮都會斷。 */
 .trace-sankey .lat-arrow{fill:var(--cyan);pointer-events:none}
 .trace-sankey .lat-arrow.arrow-w{fill:var(--orange)}
-/* hover 高亮交給 CSS：狀態由瀏覽器管，mouseleave 沒觸發（觸控、游標衝出視窗）也不會卡住 */
-.trace-sankey .band:hover{fill:url(#gband-h)}
+/* hover 高亮交給 CSS：狀態由瀏覽器管，mouseleave 沒觸發（觸控、游標衝出視窗）也不會卡住。
+   漸層 id 每張圖不同（<TraceSankey> 用 useId 加前綴），實際的 url(#…) 由 <svg> 上的 CSS 變數給；
+   沒有變數（headless 輸出、或自己接 <TraceSvg> 沒給 idPrefix）就退回無前綴的那組 */
+.trace-sankey .band:hover{fill:var(--gband-h,url(#gband-h))}
 .trace-sankey g[data-tip]{cursor:default}
-.trace-sankey .band.band-back:hover{fill:url(#gband-back-h)}
-.trace-sankey .band.band-w:hover{fill:url(#gband-w-h)}
+.trace-sankey .band.band-back:hover{fill:var(--gband-back-h,url(#gband-back-h))}
+.trace-sankey .band.band-w:hover{fill:var(--gband-w-h,url(#gband-w-h))}
 .trace-sankey .band.band-loop:hover{fill:none;stroke-opacity:.85}
 /* 歸屬線也是 fill:none 的描邊帶：hover 只能加深 stroke。虛線很細，hover 判定放寬到整條線 */
 .trace-sankey .band-own{pointer-events:stroke;stroke-linecap:butt}
@@ -65,7 +67,7 @@
 .trace-sankey .leaf-sub{fill:var(--dim2);font-size:10px}
 .trace-sankey .col-cap{fill:var(--dim2);font-size:10px;letter-spacing:.1em}
 
-/* ---------- tooltip（mount 自建、掛在 body 上） ---------- */
+/* ---------- tooltip（portal 掛在 body 上） ---------- */
 .trace-sankey-tooltip{position:fixed;z-index:50;pointer-events:none;background:#0a1219f2;border:1px solid var(--line2);
   border-radius:8px;padding:8px 11px;font-size:12px;color:var(--fg);max-width:290px;box-shadow:0 10px 30px #0008}
 .trace-sankey-tooltip[hidden]{display:none}
