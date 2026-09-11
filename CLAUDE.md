@@ -114,7 +114,7 @@ electron/                 Electron 測試殼：main.js（CJS）＋ fallback.html
 samples/*.json            同一批範例的檔案版（拖放測試與 golden 用；與 src/samples.js 重複維護，見 §11）
                           storage.json 原封不動取自參考 repo public/demo/storage-graph.json @ 9e568c7（Apache-2.0）
 stress/                   縮放平移壓力測試資料 + gen.py（輸出 wire 格式）。make check 也會 build 它們
-tools/golden.mjs          對拍工具：dump 所有範例的 render()/summary() 輸出，重構前後 diff -r；check 子命令
+tools/golden.mjs          對拍工具：dump 所有範例的 build()/render()/summary() 輸出，cmp 對拍（svg 語意等價、其餘逐 byte）；check 子命令
 docs/migration-wire-format.md  舊 investigation+hops 格式 → elements 格式的手動遷移指南
 docs/superpowers/specs/   設計文件（本次改格式的定案與盤點基準）
 Dockerfile                三個 stage：build（node）→ content（busybox+dist，3MB）→ standalone（nginx 全包）
@@ -388,10 +388,18 @@ anchorEdge|null, root|null, warnings, maxCol}`。
 ## 9. 開發慣例與驗證
 
 - Commit message 慣例：先寫「為什麼舊做法是錯的」再寫改法（繁體中文）。
-- 重構的驗證黃金標準：**既有 samples 的輸出 byte-identical**。工具是 `tools/golden.mjs`：
-  改前 `node tools/golden.mjs dump /tmp/a`、改後 dump `/tmp/b`、`diff -r`——它會把所有範例
-  （內建 + samples/ + stress/）的 `render()`/`summary()` 輸出各跑 minBps 0 與 5e8 兩組，有通道的範例另跑
-  `channels:'read'` 一組。`make check`（= `golden.mjs check`）當迴歸哨兵：每份範例每個變體都要 build ok。
+- 重構的驗證黃金標準是 `tools/golden.mjs`，**兩層嚴格度**：
+  改前 `node tools/golden.mjs dump /tmp/a`、改後 dump `/tmp/b`、`node tools/golden.mjs cmp /tmp/a /tmp/b`。
+  它會把所有範例（內建 + samples/ + stress/）的 `build()`（`.model.json`，序列化時 `nodeMap` 丟掉、
+  邊／節點參照換成 id）、`render()`（`.svg`）、`summary()`（`.summary.html`）、`warnings.json`
+  各跑 minBps 0 與 5e8 兩組，有通道的範例另跑 `channels:'read'` 一組。
+  **`.model.json`／summary／warnings 逐 byte 相同**（model 拆檔、語法現代化都不准動到任何鍵序或警告文字）；
+  **`.svg` 走語意等價**（`cmp` 會先正規化：屬性排序、自閉合統一、實體解碼、白名單數值屬性四捨五入到 3 位、
+  `data-tip` 以 parse 後 JSON 比、`style`／`class` 排序；**文字內容一個字都不放過**）。
+  `norm <dir> <out>` 可以把正規化版本寫出來自己 `diff -r`；`selftest` 是正規化器自己的案例。
+  `make check`（= `golden.mjs check`）當迴歸哨兵：每份範例每個變體都要 build ok、render 不炸、
+  **期間不准有任何 `console.error`**（React 的 key 重複／非法 prop 只會印不會 throw）。
+  基準目錄放 `/tmp/golden-*`，不 commit（全部約 16MB）。
   互動行為用瀏覽器實測（StrictMode 下 body 只留一個 tooltip、同值 update 不洗縮放）。
 - 「守恆」的定義：同一台左右兩側**色塊厚度總和**相等（read 帶與 write 帶一起加總）。但每列有最小高度 `ROW_H 24`
   與間距 `ROW_GAP 9`，**兩疊的視覺總高度不會剛好一樣——這是預期行為，不是 bug**（最常被誤報的點）。

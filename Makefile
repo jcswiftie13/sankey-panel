@@ -50,7 +50,7 @@ electron:  ## 起 Electron 測試殼載 nginx 的畫面（先 make up；開關�
 check:  ## 所有範例（內建 + samples/ + stress/）都 build 一次，任何一份失敗就非零退出
 	@node tools/golden.mjs check
 
-golden:  ## dump 目前 render/summary 輸出（重構前後 diff -r 對拍用；DIR=輸出目錄）
+golden:  ## dump 目前 build/render/summary 輸出（重構前後對拍用；DIR=輸出目錄；比對用 node tools/golden.mjs cmp A B）
 	@node tools/golden.mjs dump $(or $(DIR),/tmp/golden)
 
 clean:  ## 刪掉產生的輸出
