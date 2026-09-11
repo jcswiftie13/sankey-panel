@@ -1,11 +1,12 @@
 # kubectl apply -k deploy
 #
 # 這支刻意放在 deploy/ 而不是 deploy/k8s/：kustomize 基於安全預設不准讀
-# kustomization.yaml 所在目錄「以外」的檔案（`../conf.d/…` 會被擋，除非每次都加
-# --load-restrictor LoadRestrictionsNone）。放在 deploy/ 就能直接讀底下的 conf.d/default.conf，
+# kustomization.yaml 所在目錄「以外」的檔案（`../templates/…` 會被擋，除非每次都加
+# --load-restrictor LoadRestrictionsNone）。放在 deploy/ 就能直接讀底下的
+# templates/default.conf.template，
 # 不必為了繞限制而加旗標，也不必把 conf 複製第二份。
 #
-# nginx 設定用 configMapGenerator 直接讀 conf.d/default.conf，
+# nginx 設定用 configMapGenerator 直接讀 templates/default.conf.template，
 # 刻意不把 conf 內容複製一份進 YAML——這個 repo 已經有 samples/*.json 與
 # src/samples.js 重複維護的坑（CLAUDE.md §11.1），不要再製造第二個。
 # 附帶好處：generator 會在 ConfigMap 名字後面加內容 hash，改了設定
@@ -17,10 +18,13 @@ resources:
   - k8s/deployment.yaml
   - k8s/service.yaml
 
+# ConfigMap 裡放的是 template（帶 ${TRACE_API_AUTH} 參照），不是渲染完的 conf：
+# 真正的 token 走 Secret → 容器環境變數 → 官方 entrypoint 的 envsubst，
+# 絕不進這個 ConfigMap。所以這裡刻意沒有 secretGenerator——那會把明文寫進 repo。
 configMapGenerator:
   - name: trace-sankey-nginx
     files:
-      - conf.d/default.conf
+      - templates/default.conf.template
 
 # 換一版網頁只要改這裡的 tag（或用 kustomize edit set image）。
 images:

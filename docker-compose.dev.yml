@@ -1,4 +1,4 @@
-# 開發用：不建任何映像，官方 nginx 直接讀主機上的 app/dist 與 deploy/conf.d/。
+# 開發用：不建任何映像，官方 nginx 直接讀主機上的 app/dist 與 deploy/templates/。
 # 先 make build 產出 app/dist，再 make up-dev；之後改 dist 或 conf 都立刻生效
 # （改 conf 要 nginx -s reload）。想驗證產品版的 nginx 行為時用這個最快。
 #
@@ -12,11 +12,18 @@ name: sankey-panel-dev
 services:
   web:
     image: nginx:1.27-alpine
+    # 與主檔逐字相同的三段（環境變數 / templates / tmpfs），理由見 docker-compose.yml。
+    # 兩份 compose 刻意不 merge，所以這裡是重複貼、不是可以抽掉的共用。
+    environment:
+      NGINX_ENVSUBST_FILTER: "^TRACE_"
+      TRACE_API_AUTH: ${TRACE_API_AUTH:-}
     volumes:
       - ./app/dist:/usr/share/nginx/html:ro
       # 掛目錄不掛單檔：單檔 bind mount 綁 inode，編輯器存檔換掉 inode
-      # 之後容器內那支檔案會消失（見 deploy/conf.d/default.conf 檔頭）。
-      - ./deploy/conf.d:/etc/nginx/conf.d:ro
+      # 之後容器內那支檔案會消失（見 deploy/templates/default.conf.template 檔頭）。
+      - ./deploy/templates:/etc/nginx/templates:ro
+    tmpfs:
+      - /etc/nginx/conf.d
     ports:
       - "${PORT:-8080}:80"
     restart: unless-stopped

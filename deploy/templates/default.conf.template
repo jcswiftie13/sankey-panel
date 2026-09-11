@@ -1,0 +1,102 @@
+# 追查 Sankey 的靜態託管設定。
+#
+# 這是 template 不是最終 conf：官方 nginx 映像的 /docker-entrypoint.d/20-envsubst-on-templates.sh
+# 會在容器啟動時把 /etc/nginx/templates/*.template 跑過 envsubst，輸出到
+# /etc/nginx/conf.d/ 同名（去掉 .template）的檔案。所以這一份最後會變成
+# /etc/nginx/conf.d/default.conf，蓋掉官方映像自帶的那支；該目錄是被 include 在主設定的
+# http {} 內——所以這裡只能有 server {}，不可以再包一層 http/events，否則 nginx 起不來。
+#
+# ⚠️ 環境變數 NGINX_ENVSUBST_FILTER=^TRACE_ 是強制的，compose / k8s / Dockerfile 三處都設了。
+# 那支腳本用 `name ~ /$filter/` 挑要替換的環境變數名稱，filter 是空字串時 `name ~ //`
+# 對每一個環境變數都成立，於是下面的 $host、$uri、$request_uri、$scheme、
+# $proxy_add_x_forwarded_for、$trace_api 會全部被換成空字串。最惡劣的是
+# `try_files $uri $uri/ /index.html` 會變成 `try_files / /index.html`——仍然是合法語法，
+# nginx 照常啟動，然後每個路徑都回 index.html，沒有任何錯誤訊息。
+# 設了 ^TRACE_ 之後只有 TRACE_ 開頭的環境變數會被替換，其餘 $xxx 原樣保留
+# （比對的是環境變數「名稱」不是這份檔案的內容，所以小寫的 $trace_api 不受影響）。
+#
+# ⚠️ token 絕不寫在這份檔案裡：它進 git，也會被 deploy/kustomization.yaml 讀進 ConfigMap。
+# 值一律從環境變數 TRACE_API_AUTH 來（見下面 location /api/ 的註解）。
+#
+# 為什麼放在 templates/ 子目錄、讓 compose 掛「整個目錄」而不是掛這一支檔案：
+# Docker 的單檔 bind mount 綁的是 inode，而 sed -i、vim、VS Code 存檔都是
+# 「寫新檔再改名蓋過去」——inode 一換，容器裡看到的就是已被刪除的舊 inode，
+# 檔案直接消失。掛目錄就沒這個問題，也剛好和 k8s 把 ConfigMap 掛成整個 templates 的語意一致。
+# 反過來 /etc/nginx/conf.d/ 現在是 envsubst 的「輸出」目的地，必須可寫，
+# 不能再掛成唯讀（compose 用 tmpfs、k8s 用 emptyDir，順便讓渲染出來的明文 token 不落地）。
+#
+# 改了這份 template 之後只 `nginx -s reload` 是沒用的（reload 不會重跑 envsubst）：
+#   docker compose exec web /docker-entrypoint.d/20-envsubst-on-templates.sh \
+#     && docker compose exec web nginx -s reload
+# 或直接 docker compose restart web。
+server {
+    listen       80;
+    server_name  _;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    # nginx 的 add_header 不會繼承：只要 location 自己寫了 add_header，
+    # server 層的就整組失效。所以下面每個有 add_header 的 location
+    # 都得把安全標頭重寫一次，別以為 server 層那兩行會自動蓋下去。
+    # 目前共四處：server 層、= /index.html、/assets/、/api/——改標頭要四處一起改。
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    # 追查 API 的反向代理。前端只打同源相對路徑 /api/…，所以免 CORS，
+    # 也不必把後端網址烤進 bundle（Vite 是 build 時做字串替換，烤進去就沒辦法
+    # 同一顆 content 映像跨環境共用）——後端在哪只是這一段設定的事。
+    #
+    # 為什麼是「變數 + resolver」而不是直接寫 proxy_pass http://api:8000：
+    # nginx 啟動時就會解析 proxy_pass 裡的固定 hostname，API 還沒起來會直接
+    # 「host not found in upstream」啟動失敗，連靜態頁都端不出來。寫成變數會
+    # 把 DNS 延到每次請求才查，API 晚起來最多是 502，nginx 本身照常服務。
+    resolver 127.0.0.11 valid=30s;   # Docker 內建 DNS；k8s 改成 kube-dns 的 ClusterIP
+    location /api/ {
+        set $trace_api http://api:8000;   # 換環境改這一行（k8s 由 ConfigMap 蓋掉）
+        proxy_pass $trace_api$request_uri;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # 後端要的 service token。值是 API key 本身（不帶 Bearer 之類的 scheme 前綴）。
+        # 由環境變數 TRACE_API_AUTH 在容器啟動時 envsubst 進來，不進 git、不進 ConfigMap。
+        # 這是 nginx 與後端之間的事，瀏覽器完全看不到——前端仍然只打同源相對路徑。
+        # ⚠️ 這不是使用者身分驗證：連得到這台 nginx 的人一樣查得到全部資料，
+        #    nginx 會替他補上 token。使用者層的存取控制仍然留給部署層做。
+        # 變數是空字串 → proxy_set_header 的值為空，nginx 整個不送這個 header，
+        #   行為與加這行之前完全一樣（順便也清掉 client 自己帶的 X-API-Key，是刻意的）。
+        # 變數「沒定義」→ envsubst 不認得它，下面那個 dollar-brace 參照會原樣留在輸出裡，
+        #   後端收到字面字串然後回 401。所以每個部署路徑都要把它定義成至少空字串。
+        proxy_set_header X-API-Key        "${TRACE_API_AUTH}";
+        proxy_read_timeout 120s;          # 逐跳追查可能跑很久，別用預設 60s
+        # add_header 不繼承：server 層那兩行在這裡整組失效，必須重寫（見檔頭註解）
+        add_header X-Frame-Options       "DENY"    always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # SPA fallback：找不到實體檔就回 index.html。
+    # app 目前是單頁無路由，這條是防呆＋替未來的前端路由鋪路。
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # index.html 絕不快取，否則使用者會拿到舊的 bundle 檔名、載到不存在的 assets。
+    location = /index.html {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # Vite 產出的 assets 檔名帶 content hash，改檔就換名，可以永久快取。
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+}
