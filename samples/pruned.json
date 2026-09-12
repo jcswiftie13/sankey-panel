@@ -1,11 +1,5 @@
 {
   "kind": "destination",
-  "investigation": {
-    "node_id": "sw-tor-14",
-    "iface": "et-0/0/52",
-    "delta_bps": 40000000000,
-    "direction": "in"
-  },
   "elements": {
     "nodes": [
       {
@@ -13,6 +7,11 @@
           "id": "sw-tor-14",
           "type": "switch",
           "name": "ToR 14",
+          "investigation": {
+            "iface": "et-0/0/52",
+            "delta_bps": 40000000000,
+            "direction": "in"
+          },
           "other_out_bps": 9000000000
         }
       },

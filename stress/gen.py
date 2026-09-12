@@ -82,13 +82,10 @@ def main():
     a = ap.parse_args()
 
     nodes, edges = build(a.depth, a.fan, a.chain, a.gbps * G)
-    doc = {
-        'kind': 'destination',
-        'investigation': {'node_id': nodes[0]['data']['id'], 'iface': 'et-0/0/0',
-                          'delta_bps': int(a.gbps * G), 'direction': 'in',
-                          'note': '壓力測試資料，不是真的追查結果'},
-        'elements': {'nodes': nodes, 'edges': edges},
-    }
+    # 追查起點寫在起點節點的 data 裡（頂層 investigation 已 deprecated）
+    nodes[0]['data']['investigation'] = {'iface': 'et-0/0/0', 'delta_bps': int(a.gbps * G), 'direction': 'in',
+                                         'note': '壓力測試資料，不是真的追查結果'}
+    doc = {'kind': 'destination', 'elements': {'nodes': nodes, 'edges': edges}}
     with open(a.out, 'w', encoding='utf-8') as f:
         json.dump(doc, f, ensure_ascii=False)
     sw = sum(1 for n in nodes if n['data']['type'] == 'switch')

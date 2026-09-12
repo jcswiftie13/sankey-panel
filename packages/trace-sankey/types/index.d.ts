@@ -2,14 +2,19 @@
 
 /* ---------- 輸入：cytoscape-style wire JSON ---------- */
 
-export interface WireInvestigation {
-  /** 必須是 hop 型節點（switch／node／pod／netapp-*／pvc）的 id */
-  node_id: string;
+/** 追查起點，寫在起點節點的 data.investigation。節點本身就是起點所以沒有 node_id；
+    放在 elements 裡面，同一份文件丟 cytoscape 也拿得到。全圖最多一個節點帶它。 */
+export interface WireNodeInvestigation {
   iface: string;
   /** 必須 > 0，bps */
   delta_bps: number;
   direction?: 'in' | 'out';
   note?: string;
+}
+/** 頂層形式（deprecated）：多一個 node_id 指向起點節點 */
+export interface WireInvestigation extends WireNodeInvestigation {
+  /** 必須是 hop 型節點（switch／node／pod／netapp-*／pvc）的 id */
+  node_id: string;
 }
 
 export interface WireUsage {
@@ -41,6 +46,8 @@ export interface WireNodeData {
   parent?: string;
   /** 純字串對應表。認得的鍵：namespace、tier（同欄鎖）、ontap_cluster */
   labels?: Record<string, string>;
+  /** 我們的擴充：追查起點。只有 hop 型節點能帶，全圖最多一個 */
+  investigation?: WireNodeInvestigation;
   /** normal／warning／critical；其他值視同沒有（中性框） */
   status?: string;
   usage?: WireUsage;
@@ -88,11 +95,14 @@ export interface WireEdgeData {
 }
 
 export interface WireGraph {
+  /** 信封欄位（參考 repo 後端回應帶的）：選填，給了就驗型別、build 原樣帶出，不影響畫圖 */
   apiVersion?: string;
+  /** 只列 K8s cluster 名稱（不含 ONTAP cluster）；同上 */
   clusters?: string[];
-  /** 省略時看 investigation.direction（out → source）；預設 destination */
+  /** 省略時看起點的 direction（out → source）；預設 destination */
   kind?: 'destination' | 'source';
-  /** 選填；沒給就沒有錨卡、不查 root */
+  /** @deprecated 起點請寫在起點節點的 data.investigation（見 WireNodeInvestigation）。頂層形式仍接受，
+      build 會發警告；兩處都給是驗證錯誤。沒給就沒有錨卡、不查 root */
   investigation?: WireInvestigation;
   elements: {
     nodes: Array<{ data: WireNodeData }>;
@@ -138,13 +148,21 @@ export interface TraceEdge {
   lateral?: boolean;
   /** 歸屬線：port 上掛著多個 owner，量停在 port，這條邊只表達歸屬，bps 恆 0 */
   owns?: boolean;
+  /** 推導邊（pod→app→ns、port→owner）：同一筆量測重新分組，不是後端量的一條 flow */
+  derived?: boolean;
+  /** 推導邊的欄對：'pod-application' | 'application-namespace' | 'pod-namespace'；後端邊是 labels.tier 原值 */
+  tier?: string | null;
   [key: string]: unknown;
 }
 
 export interface TraceModelOk {
   ok: true;
   dir: 'destination' | 'source';
+  /** 正規化後的起點（不論輸入寫在節點 data 還是 deprecated 的頂層），沒有就是 null */
   investigation: WireInvestigation | null;
+  /** 信封欄位原樣帶出；輸入沒給就是 null */
+  apiVersion: string | null;
+  clusters: string[] | null;
   channels: 'both' | Channel;
   minBps: number;
   /** 被顯示門檻濾掉的帶數與總量 */

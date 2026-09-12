@@ -1,18 +1,17 @@
 {
   "kind": "destination",
-  "investigation": {
-    "node_id": "sw-edge-a",
-    "iface": "xe-0/0/1",
-    "delta_bps": 10000000000,
-    "direction": "in"
-  },
   "elements": {
     "nodes": [
       {
         "data": {
           "id": "sw-edge-a",
           "type": "switch",
-          "name": "Edge A"
+          "name": "Edge A",
+          "investigation": {
+            "iface": "xe-0/0/1",
+            "delta_bps": 10000000000,
+            "direction": "in"
+          }
         }
       },
       {

@@ -59,16 +59,53 @@ async function dump(api, outDir) {
   console.log('dumped ' + n + ' files to ' + outDir);
 }
 
-/* 迴歸哨兵：每份範例在每個變體下都要 build 成功且 render 不炸 */
+/* 遞迴凍結：build() 只能讀不能寫 doc（參考 spec 同樣要求 derivation 不得 mutate）。
+   凍結後任何寫入在 strict mode 下直接拋錯，比 diff 前後 JSON 更早抓到。 */
+function deepFreeze(o) {
+  if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+    Object.freeze(o);
+    for (const k of Object.keys(o)) deepFreeze(o[k]);
+  }
+  return o;
+}
+
+/* 頂層 investigation 已 deprecated 但仍接受：把節點形式的起點程式化搬回頂層，render 輸出
+   必須逐 byte 相同。不留舊形式的範例，兩條路徑共用同一批資料才不會漂移。 */
+function legacyTopLevel(doc) {
+  const root = doc.elements.nodes.find((nd) => nd.data.investigation);
+  if (!root) return null;
+  const inv = { node_id: root.data.id, ...root.data.investigation };
+  const nodes = doc.elements.nodes.map((nd) => {
+    if (nd !== root) return nd;
+    const { investigation, ...rest } = nd.data;
+    return { ...nd, data: rest };
+  });
+  return { ...doc, investigation: inv, elements: { ...doc.elements, nodes } };
+}
+
+/* 迴歸哨兵：每份範例在每個變體下都要 build 成功且 render 不炸、且不改動輸入 */
 function check(api) {
   let fail = 0, total = 0;
   for (const { name, doc } of inputs(api.samples)) {
+    deepFreeze(doc);
+    const legacy = legacyTopLevel(doc);
     for (const v of variants(api, doc)) {
       total++;
-      const model = api.build(doc, v.opts);
+      let model;
+      try { model = api.build(doc, v.opts); }
+      catch (e) { fail++; console.error('FAIL ' + name + v.tag + ': build threw（可能改動了輸入 doc）' + e.message); continue; }
       if (!model.ok) { fail++; console.error('FAIL ' + name + v.tag + ': ' + model.errors.join(' / ')); continue; }
-      try { api.render(model); api.summary(model); }
-      catch (e) { fail++; console.error('FAIL ' + name + v.tag + ': render threw ' + e.message); }
+      let svg;
+      try { svg = api.render(model); api.summary(model); }
+      catch (e) { fail++; console.error('FAIL ' + name + v.tag + ': render threw ' + e.message); continue; }
+      if (legacy) {
+        const lm = api.build(legacy, v.opts);
+        if (!lm.ok) { fail++; console.error('FAIL ' + name + v.tag + ' (頂層 investigation): ' + lm.errors.join(' / ')); continue; }
+        if (api.render(lm) !== svg) { fail++; console.error('FAIL ' + name + v.tag + ': 頂層 investigation 的輸出與節點形式不同'); continue; }
+        if (!lm.warnings.some((w) => w.indexOf('deprecated') >= 0)) {
+          fail++; console.error('FAIL ' + name + v.tag + ': 頂層 investigation 沒有 deprecated 警告');
+        }
+      }
     }
   }
   if (fail) { console.error(fail + ' / ' + total + ' 失敗。'); process.exit(1); }
