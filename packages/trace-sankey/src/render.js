@@ -11,6 +11,8 @@ var THICK_MAX = 86, THICK_MIN = 3;
 /* 歸屬線的線寬：不帶量，不能照 thick() 佔一般帶的視覺重量；
    但 fill:none 的帶 hover 判定就是 stroke-width，太細會點不到 */
 var OWN_T = 2.4;
+/* layout:'node' 的 k8s node 外框：pod 卡縮排 WRAP_PAD、外框上緣留一列標題 */
+var WRAP_PAD = 10, WRAP_HEADER_H = 40;
 var RES_LEN = 34, RES_GAP = 8;   /* 高度改用 thick()，不再有固定的 RES_H／RES_PAD */
 
 /* namespace 色盤：依「首次出現順序」配色、超過就循環。不用 hash——色盤只有 5 色，
@@ -93,7 +95,7 @@ function headerH(n) { return HEADER_H + (hasUsage(n) ? 12 : 0); }
 /* 非 switch 的設備型別（k8s node／pod、netapp 三型別）畫虛線框；pvc／app／ns 實線，與參考面板一致 */
 var DEVICE_TYPES = ['node', 'pod', 'netapp-node', 'netapp-aggr', 'netapp-svm'];
 /* 三色都上框（參考面板：有 status 就以 status 框，normal 也是一個判定）；沒有 status 維持中性框 */
-var STATUS_COLOR = { critical: '#fb7185', warning: '#f59e0b', normal: '#34d399' };
+var STATUS_COLOR = { critical: '#fb7185', warning: '#f59e0b', normal: '#4ade80' };
 
 /* 殘差門檻用 model 算好的 resEps：小於 counter 浮點雜訊的殘差不畫，也不佔版面。
    注意這是「相對這台自己流量」的判斷，粗細卻是全圖 maxVal 的比例——
@@ -179,12 +181,23 @@ function layout(model) {
   /* 欄位 x */
   var cols = [];
   nodes.forEach(function (n) { (cols[n.col] = cols[n.col] || []).push(n); });
-  var x = PAD_SIDE, colX = [];
+  /* layout:'node'：k8s node 外框住在 pod 欄（有葉 pod 的那一欄）。全部 pod 都被濾掉、只剩 root 的
+     空外框時，pod 欄不存在——另開一欄放它們，否則「root 一律畫」畫不出來。 */
+  var wrappers = (model.wrappers || []).slice().sort(function (a, b) { return a.label.localeCompare(b.label); });
+  var podCol = -1;
+  nodes.forEach(function (n) { if (n.kind === 'leaf' && n.role === 'pod' && podCol < 0) podCol = n.col; });
+  if (podCol < 0 && wrappers.length) { podCol = cols.length; cols[podCol] = []; }
+  var x = PAD_SIDE, colX = [], colW = [];
   for (var c = 0; c < cols.length; c++) {
     var list = cols[c] || [];
     var w = list.reduce(function (m, n) { return Math.max(m, n.w); }, NODE_W);
-    colX[c] = x;
-    list.forEach(function (n) { n.x = x; });
+    if (c === podCol && wrappers.length) {
+      /* 外框寬＝欄內最寬的卡＋兩側縮排；被包住的 pod 往右縮 WRAP_PAD，沒排班的 pod 貼欄左緣 */
+      var iw = list.reduce(function (m, n) { return n.k8sNode ? Math.max(m, n.w) : m; }, 0);
+      w = Math.max(w, iw + WRAP_PAD * 2, NODE_W);
+    }
+    colX[c] = x; colW[c] = w;
+    list.forEach(function (n) { n.x = n.k8sNode ? x + WRAP_PAD : x; });
     x += w + COL_GAP;
   }
   var totalW = x - COL_GAP + PAD_SIDE;
@@ -238,7 +251,28 @@ function layout(model) {
         ((a.subOrder || 0) - (b.subOrder || 0)) || (a.__ord - b.__ord);
     });
     var y = 0;
-    col.forEach(function (n) { n.y = y; y += n.h + VGAP; });
+    if (ci === podCol && wrappers.length) {
+      /* layout:'node'：pod 欄先依 k8s node 分區——外框照 node 名字排（node 是照名字查的庫存項目，
+         不是照流量），外框內的 pod 維持上面排好的順序（ns 相鄰、上游重心），沒排班的 pod 排在
+         所有外框之下。欄內陣列同步重排，之後的 __cy 與欄標題都以視覺順序為準。 */
+      var byW = {}, loose = [];
+      col.forEach(function (n) {
+        if (n.k8sNode) (byW['k:' + n.k8sNode] = byW['k:' + n.k8sNode] || []).push(n);
+        else loose.push(n);
+      });
+      col.length = 0;
+      wrappers.forEach(function (w) {
+        var pods = byW['k:' + w.id] || [];
+        w.x = colX[ci]; w.w = colW[ci]; w.y = y;
+        var yy = y + WRAP_HEADER_H;
+        pods.forEach(function (n) { n.y = yy; yy += n.h + VGAP; col.push(n); });
+        w.h = pods.length ? yy - VGAP + WRAP_PAD - y : WRAP_HEADER_H + WRAP_PAD;
+        y += w.h + VGAP;
+      });
+      loose.forEach(function (n) { n.y = y; y += n.h + VGAP; col.push(n); });
+    } else {
+      col.forEach(function (n) { n.y = y; y += n.h + VGAP; });
+    }
     var blockH = Math.max(0, y - VGAP);
     var prefAvg = col.reduce(function (s, n) { return s + n.__pref; }, 0) / (col.length || 1);
     var shift = col.length && ci > 0 ? (prefAvg - blockH / 2) : 0;
@@ -246,13 +280,17 @@ function layout(model) {
       n.y += shift;
       n.__cy = n.y + n.h / 2;
     });
+    if (ci === podCol) wrappers.forEach(function (w) { w.y += shift; });
   }
 
-  /* 正規化 y（空模型：沒有 investigation 的圖被門檻濾光時，minY/maxY 給 0 免得算出 NaN viewBox） */
-  var minY = nodes.length ? Infinity : 0, maxY = nodes.length ? -Infinity : 0;
+  /* 正規化 y（空模型：沒有 investigation 的圖被門檻濾光時，minY/maxY 給 0 免得算出 NaN viewBox）。
+     外框也要算進圖高，否則 fit 進不了畫面。 */
+  var minY = nodes.length || wrappers.length ? Infinity : 0, maxY = nodes.length || wrappers.length ? -Infinity : 0;
   nodes.forEach(function (n) { minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y + n.h); });
+  wrappers.forEach(function (w) { minY = Math.min(minY, w.y); maxY = Math.max(maxY, w.y + w.h); });
   var dy = PAD_TOP - minY;
   nodes.forEach(function (n) { n.y += dy; n.__cy = n.y + n.h / 2; });
+  wrappers.forEach(function (w) { w.y += dy; });
   var totalH = (maxY + dy) + PAD_BOTTOM;
 
   /* pod 依 ns 分組後，欄內順序可能偏離 hop 上 port 的宣告順序，帶子會互穿。
@@ -338,7 +376,8 @@ function layout(model) {
   });
   if (backs.length) totalH = backY - 16 + PAD_BOTTOM;
 
-  return { cols: cols, colX: colX, width: totalW, height: Math.max(totalH, 220), thick: thick, nsColor: nsColor };
+  return { cols: cols, colX: colX, width: totalW, height: Math.max(totalH, 220), thick: thick, nsColor: nsColor,
+    wrappers: wrappers, podCol: podCol };
 
   function stackH(slots) {
     if (!slots.length) return 0;
@@ -429,15 +468,22 @@ function render(model) {
     '</defs>');
   /* 縮放層：TraceZoom 只動這個 <g> 的 transform。<defs> 留在外面。 */
   out.push('<g class="zoom-layer">');
-  if (!model.nodes.length) {
+  /* 只剩 root 的空 k8s node 外框時不算空：外框就是要畫的東西 */
+  if (!model.nodes.length && !geo.wrappers.length) {
     out.push('<text class="col-cap" x="' + PAD_SIDE + '" y="' + PAD_TOP + '">顯示門檻／通道過濾之後沒有任何節點</text>');
   }
 
   /* 欄位標題 */
   (geo.cols || []).forEach(function (col, ci) {
-    if (!col || !col.length) return;
+    if (!col || !col.length) {
+      /* 只有空外框（root k8s node，pod 全被濾掉）的 pod 欄：沒有節點可問，標題自己印 */
+      if (ci === geo.podCol && geo.wrappers.length) {
+        out.push('<text class="col-cap" x="' + geo.colX[ci] + '" y="24">' + esc('第 ' + ci + ' 跳 · node / pod') + '</text>');
+      }
+      return;
+    }
     var cap = colCaption(col, model.dir);
-    out.push('<text class="col-cap" x="' + col[0].x + '" y="24">' + esc(cap) + '</text>');
+    out.push('<text class="col-cap" x="' + geo.colX[ci] + '" y="24">' + esc(cap) + '</text>');
   });
 
   /* 帶：先畫，壓在盒子下面 */
@@ -520,6 +566,9 @@ function render(model) {
       'style="paint-order:stroke;stroke:#0b1017;stroke-width:3.5px">' + esc(R(e.bps, e.unit)) + '</text>');
   });
 
+  /* k8s node 外框（layout:'node'）：畫在帶之上、卡片之下，pod 卡壓在框裡 */
+  geo.wrappers.forEach(function (w) { out.push(wrapperBox(w, model)); });
+
   /* 盒子 */
   model.nodes.forEach(function (n) {
     if (n.kind === 'node') out.push(nodeBox(n, model, geo.nsColor));
@@ -567,6 +616,8 @@ function colCaption(col, dir) {
   }
   /* ns 終點欄：namespace 是追查的盡頭 */
   if (col.every(function (n) { return n.role === 'ns'; })) return '追查終止 · namespace';
+  /* layout:'node'：pod 欄被 k8s node 外框分區，標題比照參考面板的「Node / Pod」 */
+  if (col.some(function (n) { return n.k8sNode; })) return '第 ' + col[0].col + ' 跳 · node / pod';
   /* pod／application 是中繼了（另一側接 ns），整欄比照「第 N 跳」；含 pod 的混葉欄同理 */
   if (col.every(function (n) { return n.kind === 'leaf' && n.role === 'pod'; })) {
     return '第 ' + col[0].col + ' 跳 · pod';
@@ -583,6 +634,7 @@ function colCaption(col, dir) {
 /* ---------- 節點 tooltip（掛在每張卡的 <g> 上，tooltip.js 讀 data-tip） ---------- */
 function typeWord(n) {
   if (n.kind === 'anchor') return '追查起點';
+  if (n.kind === 'wrapper') return 'node';
   if (n.role === 'ns') return 'namespace';
   if (n.role === 'app') return 'application';
   if (n.role === 'owner') return 'owner';
@@ -601,6 +653,14 @@ function usageText(u) {
 function channelsOf(n) {
   var has = {};
   n.inEdges.concat(n.outEdges).forEach(function (e) { if (e.channel) has[e.channel] = true; });
+  return ['read', 'write'].filter(function (c) { return has[c]; });
+}
+function wrapperChannels(w, model) {
+  var has = {};
+  w.podIds.forEach(function (id) {
+    var p = model.nodeMap[id];
+    p.inEdges.concat(p.outEdges).forEach(function (e) { if (e.channel) has[e.channel] = true; });
+  });
   return ['read', 'write'].filter(function (c) { return has[c]; });
 }
 function sum(list) { return list.reduce(function (s, e) { return s + e.bps; }, 0); }
@@ -622,12 +682,25 @@ function nodeTip(n, model) {
   if (n.ontapCluster) rows.push(['ontap_cluster', n.ontapCluster]);
   /* storage 資料的 read／write 是兩條帶，tooltip 的量也分向印（參考面板 Both 模式四行）；
      把兩個方向加成一個數字是沒人量過的值。switch 資料沒有通道，維持一行。 */
-  var chs = channelsOf(n);
+  var chs = n.kind === 'wrapper' ? wrapperChannels(n, model) : channelsOf(n);
   function flowRows(label, list) {
     if (!chs.length) { rows.push([label, A(sum(list), n.unit)]); return; }
     chs.forEach(function (ch) { rows.push([label + '（' + ch + '）', A(sumCh(list, ch), n.unit)]); });
   }
-  if (n.kind === 'node') {
+  if (n.kind === 'wrapper') {
+    /* k8s node 外框：量是成員 pod 入邊的加總（推導值），status 是 node 自己與成員 pod 的最差 */
+    rows.push(['pod', n.podIds.length + ' 個']);
+    if (n.noFlow) rows.push(['流量', '沒有任何可畫的 flow 邊（no-flow）']);
+    else {
+      var pods = n.podIds.map(function (id) { return model.nodeMap[id]; });
+      var inb = [], outb = [];
+      pods.forEach(function (p) { inb = inb.concat(p.inEdges); outb = outb.concat(p.outEdges); });
+      n.unit = (inb[0] || outb[0] || {}).unit || 'bps';
+      flowRows('in', inb);
+      flowRows('out', outb);
+      rows.push(['來源', '成員 pod 加總（推導值）']);
+    }
+  } else if (n.kind === 'node') {
     if (n.noFlow) rows.push(['流量', '沒有任何可畫的 flow 邊（no-flow）']);
     else {
       flowRows('已追查 in', n.inEdges);
@@ -659,7 +732,10 @@ function nodeTip(n, model) {
     }
   }
   if (n.usage) rows.push(['usage', usageText(n.usage)]);
-  if (n.status) rows.push(['status', n.status + (n.role === 'ns' || n.role === 'app' ? '（成員 pod 中最差）' : '')]);
+  if (n.status) {
+    rows.push(['status', n.status + (n.role === 'ns' || n.role === 'app' ? '（成員 pod 中最差）'
+      : n.kind === 'wrapper' ? '（node 與成員 pod 中最差）' : '')]);
+  }
   var info = n.info || {};
   if (info.health) rows.push(['health', info.health]);
   if (info.model) rows.push(['model', info.model]);
@@ -825,8 +901,28 @@ function podCard(n, model, nsColor) {
     ly += 14;
   }
   var ifc = n.iface || n.localIface || '';
+  /* root 一律畫：被選成 root 卻沒有任何可畫的邊的 pod 是 no-flow 卡，量那行印 no flow 而不是 0 */
   s.push('<text class="leaf-sub" x="' + (n.x + 12) + '" y="' + ly + '">' +
-    (ifc ? esc(ifc) + ' · ' : '') + esc(A(n.bps, n.unit)) + '</text>');
+    (n.noFlow ? 'no flow' : (ifc ? esc(ifc) + ' · ' : '') + esc(A(n.bps, n.unit))) + '</text>');
+  s.push('</g>');
+  return s.join('');
+}
+
+/* k8s node 外框（layout:'node'）：包住這台 node 上的 pod 卡。外框本體不收事件（pod 卡與帶在它上面），
+   只有標題列那一塊是 hover／點擊目標。實線天藍（k8s node 既有語彙）、有 status 就換 status 色。 */
+function wrapperBox(w, model) {
+  var statusColor = w.status ? STATUS_COLOR[w.status] : null;
+  var s = [];
+  s.push('<rect x="' + w.x + '" y="' + w.y + '" width="' + w.w + '" height="' + w.h + '" rx="12" ' +
+    'fill="#0e151d" fill-opacity=".35" stroke="' + (statusColor || '#7dd3fc') + '" stroke-opacity="' +
+    (statusColor ? '1' : '.55') + '" stroke-width="' + (statusColor ? '1.8' : '1.2') + '" pointer-events="none"/>');
+  s.push('<g' + tipAttr(w, model) + '>');
+  s.push('<rect x="' + w.x + '" y="' + w.y + '" width="' + w.w + '" height="' + WRAP_HEADER_H + '" fill="transparent"/>');
+  s.push('<line x1="' + w.x + '" y1="' + (w.y + WRAP_HEADER_H - 6) + '" x2="' + (w.x + w.w) +
+    '" y2="' + (w.y + WRAP_HEADER_H - 6) + '" stroke="#22303f"/>');
+  s.push('<text class="n-title" x="' + (w.x + 12) + '" y="' + (w.y + 17) + '">' + esc(w.label) + '</text>');
+  s.push('<text class="n-sub" x="' + (w.x + 12) + '" y="' + (w.y + 29) + '">node · ' +
+    (w.noFlow ? 'no flow' : w.podIds.length + ' 個 pod') + '</text>');
   s.push('</g>');
   return s.join('');
 }
@@ -949,4 +1045,108 @@ function summary(model) {
   return h.join('');
 }
 
-export { render, summary, esc };
+/* ---------- 圖外資訊：參考面板的三張表（Node flow summary／Application subtotal／Namespace subtotal） ----------
+   summary() 是我們的 hop 平衡表，參考沒有那種表；這裡另給參考那三張的欄位，回傳結構化資料＋HTML，
+   使用端要擺哪一張自己挑。所有數字都從 model 拿（跟圖同一份），有通道的資料 in／out 分 read／write 欄。
+   缺的值印「—」，絕不印 0／0 B／unknown（缺值不是零）。 */
+function flowTables(model) {
+  var has = {};
+  model.edges.forEach(function (e) { if (e.channel) has[e.channel] = true; });
+  var chs = ['read', 'write'].filter(function (c) { return has[c]; });
+  var cols = chs.length ? chs : [null];
+  function amounts(list, unit) {
+    return cols.map(function (ch) { return A(ch ? sumCh(list, ch) : sum(list), unit); });
+  }
+  function tierOf(n) {
+    if (n.kind === 'wrapper') return 'node';
+    if (n.kind === 'node') return n.role;
+    if (n.role === 'pod' || n.role === 'ns' || n.role === 'app' || n.role === 'owner') {
+      return { pod: 'pod', ns: 'namespace', app: 'application', owner: 'owner' }[n.role];
+    }
+    return n.type || 'host';
+  }
+  var rows = [];
+  model.nodes.slice().sort(function (a, b) { return (a.col - b.col) || ((a.y || 0) - (b.y || 0)); }).forEach(function (n) {
+    if (n.kind === 'anchor') return;
+    var info = n.info || {}, notes = [];
+    if (n.role === 'ns' || n.role === 'app') notes.push('derived');
+    if (n.noFlow) notes.push('no-flow');
+    rows.push({
+      tier: tierOf(n), label: n.label, id: n.id, col: n.col,
+      inflow: amounts(n.inEdges, n.unit), outflow: amounts(n.outEdges, n.unit),
+      usage: n.usage ? usageText(n.usage) : null,
+      status: n.status || null, health: info.health || null,
+      notes: notes
+    });
+  });
+  (model.wrappers || []).forEach(function (w) {
+    var inb = [], outb = [], unit = 'bps';
+    w.podIds.forEach(function (id) {
+      var p = model.nodeMap[id];
+      inb = inb.concat(p.inEdges); outb = outb.concat(p.outEdges);
+      if (p.unit) unit = p.unit;
+    });
+    rows.push({
+      tier: 'node', label: w.label, id: w.id, col: null,
+      inflow: amounts(inb, unit), outflow: amounts(outb, unit),
+      usage: w.usage ? usageText(w.usage) : null,
+      status: w.status || null, health: (w.info || {}).health || null,
+      notes: ['derived'].concat(w.noFlow ? ['no-flow'] : [])
+    });
+  });
+  var apps = model.nodes.filter(function (n) { return n.role === 'app'; }).map(function (n) {
+    return { application: n.label, namespace: n.namespace || null, pods: n.podCount || 0, total: n.bps, totalText: R(n.bps, n.unit) };
+  }).sort(function (a, b) { return (b.total - a.total) || a.application.localeCompare(b.application); });
+  /* namespace 小計只算「帶 ns 的葉 pod 的入邊」：pod 唯一的出邊是推導邊，算出邊會重複 */
+  var nsAgg = {}, nsOrder = [];
+  model.nodes.forEach(function (n) {
+    if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) return;
+    var a = nsAgg['k:' + n.namespace];
+    if (!a) { a = nsAgg['k:' + n.namespace] = { namespace: n.namespace, pods: 0, total: 0, unit: n.unit }; nsOrder.push(a); }
+    a.pods++; a.total += sum(n.inEdges);
+  });
+  var nss = nsOrder.map(function (a) {
+    return { namespace: a.namespace, pods: a.pods, total: a.total, totalText: R(a.total, a.unit) };
+  }).sort(function (a, b) { return (b.total - a.total) || a.namespace.localeCompare(b.namespace); });
+
+  var colHead = cols.map(function (ch) { return ch ? '（' + ch + '）' : ''; });
+  function dot(st) {
+    if (!st) return '—';
+    return '<span class="st-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' +
+      STATUS_COLOR[st] + ';margin-right:6px"></span>' + esc(st);
+  }
+  var h = ['<h3>Node flow summary</h3><div class="tbl-wrap"><table><thead><tr><th>tier</th><th>node</th>'];
+  colHead.forEach(function (c) { h.push('<th>in' + c + '</th>'); });
+  colHead.forEach(function (c) { h.push('<th>out' + c + '</th>'); });
+  h.push('<th>usage</th><th>status</th><th>health</th><th>notes</th></tr></thead><tbody>');
+  rows.forEach(function (r) {
+    h.push('<tr><td>' + esc(r.tier) + '</td><td>' + esc(r.label) +
+      (r.id !== r.label ? ' <span class="c-dim">' + esc(r.id) + '</span>' : '') + '</td>');
+    r.inflow.forEach(function (v) { h.push('<td class="num">' + esc(v) + '</td>'); });
+    r.outflow.forEach(function (v) { h.push('<td class="num">' + esc(v) + '</td>'); });
+    h.push('<td class="num">' + (r.usage ? esc(r.usage) : '—') + '</td><td>' + dot(r.status) + '</td>' +
+      '<td>' + (r.health ? esc(r.health) : '—') + '</td><td class="c-dim">' + esc(r.notes.join(' · ')) + '</td></tr>');
+  });
+  h.push('</tbody></table></div>');
+  if (apps.length) {
+    h.push('<h3>Application flow subtotal</h3><div class="tbl-wrap"><table><thead><tr>' +
+      '<th>application</th><th>namespace</th><th>pods</th><th>total</th></tr></thead><tbody>');
+    apps.forEach(function (a) {
+      h.push('<tr><td>' + esc(a.application) + '</td><td>' + (a.namespace ? esc(a.namespace) : '—') + '</td>' +
+        '<td class="num">' + a.pods + '</td><td class="num">' + esc(a.totalText) + '</td></tr>');
+    });
+    h.push('</tbody></table></div>');
+  }
+  if (nss.length) {
+    h.push('<h3>Namespace flow subtotal</h3><div class="tbl-wrap"><table><thead><tr>' +
+      '<th>namespace</th><th>pods</th><th>total</th></tr></thead><tbody>');
+    nss.forEach(function (a) {
+      h.push('<tr><td>' + esc(a.namespace) + '</td><td class="num">' + a.pods + '</td>' +
+        '<td class="num">' + esc(a.totalText) + '</td></tr>');
+    });
+    h.push('</tbody></table></div>');
+  }
+  return { channels: chs, nodes: rows, applications: apps, namespaces: nss, html: h.join('') };
+}
+
+export { render, summary, flowTables, esc };

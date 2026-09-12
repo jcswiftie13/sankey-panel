@@ -17,7 +17,7 @@ const MIN_BPS = [0, 5e8];
 async function loadEsm() {
   const src = (f) => import(join(ROOT, 'packages/trace-sankey/src', f));
   const [model, render, samples] = await Promise.all([src('model.js'), src('render.js'), src('samples.js')]);
-  return { build: model.build, render: render.render, summary: render.summary, samples: samples.list };
+  return { build: model.build, render: render.render, summary: render.summary, flowTables: render.flowTables, samples: samples.list };
 }
 
 function inputs(samples) {
@@ -36,6 +36,9 @@ function variants(api, doc) {
   for (const min of MIN_BPS) out.push({ tag: '.min' + min, opts: { minBps: min } });
   const m = api.build(doc, { minBps: 0 });
   if (m.ok && m.edges.some((e) => e.channel)) out.push({ tag: '.read', opts: { channels: 'read' } });
+  /* 有 pod-node 邊的範例另跑 layout:'node'（k8s node 外框）；flat 的檔案集合不變 */
+  const hasPodNode = doc.elements.edges.some((e) => e.data && e.data.labels && e.data.labels.tier === 'pod-node');
+  if (m.ok && hasPodNode) out.push({ tag: '.node', opts: { layout: 'node' } });
   return out;
 }
 
@@ -52,6 +55,7 @@ async function dump(api, outDir) {
       }
       writeFileSync(join(outDir, tag + '.svg'), api.render(model));
       writeFileSync(join(outDir, tag + '.summary.html'), api.summary(model));
+      writeFileSync(join(outDir, tag + '.tables.html'), api.flowTables(model).html);
       writeFileSync(join(outDir, tag + '.warnings.json'), JSON.stringify(model.warnings, null, 2) + '\n');
       n += 3;
     }
@@ -96,7 +100,7 @@ function check(api) {
       catch (e) { fail++; console.error('FAIL ' + name + v.tag + ': build threw（可能改動了輸入 doc）' + e.message); continue; }
       if (!model.ok) { fail++; console.error('FAIL ' + name + v.tag + ': ' + model.errors.join(' / ')); continue; }
       let svg;
-      try { svg = api.render(model); api.summary(model); }
+      try { svg = api.render(model); api.summary(model); api.flowTables(model); }
       catch (e) { fail++; console.error('FAIL ' + name + v.tag + ': render threw ' + e.message); continue; }
       if (legacy) {
         const lm = api.build(legacy, v.opts);
