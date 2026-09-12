@@ -440,7 +440,10 @@ function render(model) {
   });
 
   /* 帶：先畫，壓在盒子下面 */
-  model.edges.forEach(function (e) {
+  model.edges.forEach(function (e, ei) {
+    /* data-e＝在 model.edges 裡的索引、卡片的 data-n＝節點 id：mount 端的路徑高亮與點擊回呼靠這兩個
+       屬性把 DOM 對回 model（與 zoom-layer、data-tip 一樣是套件的 public 契約）。 */
+    var de = 'data-e="' + ei + '" ';
     var meta = {
       from: model.nodeMap[e.fromId].label, to: model.nodeMap[e.toId].label,
       fi: e.fromIface, ti: e.toIface, bps: e.bps, anchor: !!e.isAnchor,
@@ -467,13 +470,13 @@ function render(model) {
         /* 相鄰欄回流：整條活在兩欄之間的走廊，反向的一般帶 */
         out.push('<path class="band band-back" d="' + ribbon(e) + '" fill="url(#gband-back)" ' +
           'stroke="#fb7185" stroke-opacity=".35" stroke-width="1" ' +
-          'data-tip="' + esc(JSON.stringify(meta)) + '">' + backTitle + '</path>');
+          de + 'data-tip="' + esc(JSON.stringify(meta)) + '">' + backTitle + '</path>');
       } else {
         /* band-loop：fill 是 none，hover 只能加深 stroke，CSS 得認得出來 */
         out.push('<path class="band band-back band-loop" d="' + backwardRibbon(e) + '" fill="none" ' +
           'stroke="#fb7185" stroke-opacity=".55" stroke-width="' + e.backT + '" ' +
           'stroke-linejoin="round" stroke-linecap="butt" ' +
-          'data-tip="' + esc(JSON.stringify(meta)) + '">' + backTitle + '</path>');
+          de + 'data-tip="' + esc(JSON.stringify(meta)) + '">' + backTitle + '</path>');
       }
       return;
     }
@@ -482,14 +485,14 @@ function render(model) {
     if (e.owns) {
       out.push('<path class="band band-own" d="' + ownLine(e) + '" fill="none" ' +
         'stroke="#94a3b8" stroke-opacity=".55" stroke-width="' + OWN_T + '" stroke-dasharray="5 4" ' +
-        'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
+        de + 'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' +
         esc(meta.from + ' → ' + meta.to + '：歸屬（量停在 port）') + '</title></path>');
       return;
     }
     out.push('<path class="band' + (e.lateral ? ' band-lat' : '') + (isW ? ' band-w' : '') + '" d="' +
       (e.lateral ? lateralRibbon(e, e.bulge) : ribbon(e)) + '" fill="url(#' + (isW ? 'gband-w' : 'gband') + ')" ' +
       'stroke="' + (isW ? '#c2410c' : '#22d3ee') + '" stroke-opacity=".35" stroke-width="1" ' +
-      'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' + esc(tt) + '</title></path>');
+      de + 'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' + esc(tt) + '</title></path>');
     /* 馬蹄弧一定終止在 target 右緣、且是朝 -x 進來的，所以固定一個朝左的三角形
        就永遠指對方向，不用算路徑切線。兄弟節點而非包在 band 裡：包起來會打斷
        .band:hover 與 querySelectorAll('.band') 的 tooltip 綁定。 */
@@ -644,7 +647,7 @@ function nodeTip(n, model) {
   });
   return { node: 1, title: title, rows: rows };
 }
-function tipAttr(n, model) { return ' data-tip="' + esc(JSON.stringify(nodeTip(n, model))) + '"'; }
+function tipAttr(n, model) { return ' data-n="' + esc(n.id) + '" data-tip="' + esc(JSON.stringify(nodeTip(n, model))) + '"'; }
 
 /* 帶的 tooltip 要列的 client：取封包下游那一端的節點（追來源模式反過來），
    有 clients 就回 hostname／IP 的字串陣列。完整欄位在卡片自己的 tooltip 裡。 */
