@@ -1,4 +1,5 @@
-# 從舊格式遷移到 elements wire JSON
+| investigation.node_id 必填。／investigation.delta_bps 必須是正數（bps）。 | 還在用 deprecated 的頂層寫法且 `switchId`／`deltaBps` 沒改名；直接改成第 9 節的節點寫法 |
+| 頂層 investigation 與 nodes[i].data.investigation 兩處都給了… | 搬進節點後忘了刪頂層 |# 從舊格式遷移到 elements wire JSON
 
 這份文件講怎麼把舊的 `investigation + hops[].outputs/inputs` 追查 JSON **手動**改成新的
 `elements.nodes / elements.edges` 格式。新版**只擋不轉**：載入舊檔會直接報「缺少 elements」。
@@ -247,7 +248,7 @@ peerIface: "et-0/0/48" }`（本機 `sw-core-1`）變成
 - [ ] 每條 edge 的 `source`／`target` 都在 `nodes` 裡（規則 2：葉也要建）
 - [ ] 每條 edge 有 `id`（唯一）與 `type: "network-flow"`
 - [ ] 追來源檔案的邊已反接、iface 已對調（規則 1）
-- [ ] `investigation.node_id` 指到的是 hop 型節點（`switch`／`node`／`pod`／`netapp-*`／`pvc`）
+- [ ] 追查起點寫在起點節點的 `data.investigation`（沒有 `node_id`），那個節點是 hop 型（`switch`／`node`／`pod`／`netapp-*`／`pvc`）；頂層 `investigation` 已 deprecated（見第 9 節）
 - [ ] `role` 的自由字串已改成 `"switch"`（規則 5）；要鎖同欄的改用 `labels.tier`
 - [ ] pod 葉的 ns 放在 pod 節點的 `labels.namespace`（或 `parent` 鏈）
 - [ ] `other_in_bps`／`other_out_bps` 非負
@@ -268,3 +269,27 @@ peerIface: "et-0/0/48" }`（本機 `sw-core-1`）變成
 | investigation.node_id「X」在 nodes 裡找不到。 | 起點那台的 id 打錯或沒建 |
 
 全部訊息的意思見 [README「驗證錯誤對照」](../README.md#驗證錯誤對照)。
+
+## 9. 追查起點從頂層搬進起點節點的 `data`
+
+頂層的 `investigation` 是這份契約裡**唯一放在 `elements` 外面的資訊**：同一份文件丟給 cytoscape
+（只吃 `elements`）就看不到起點。現在起點寫在起點節點自己的 `data.investigation`，
+節點本身就是起點，所以 `node_id` 不再需要：
+
+```jsonc
+// 舊（deprecated，仍接受，build 會發一則警告）
+{ "kind": "destination",
+  "investigation": { "node_id": "sw-edge-a", "iface": "xe-0/0/1", "delta_bps": 10000000000, "direction": "in" },
+  "elements": { "nodes": [ { "data": { "id": "sw-edge-a", "type": "switch", "name": "Edge A" } }, … ] } }
+
+// 新
+{ "kind": "destination",
+  "elements": { "nodes": [
+    { "data": { "id": "sw-edge-a", "type": "switch", "name": "Edge A",
+                "investigation": { "iface": "xe-0/0/1", "delta_bps": 10000000000, "direction": "in" } } }, … ] } }
+```
+
+- 兩種寫法畫出來**逐 byte 相同**（`make check` 會把每份範例程式化搬回頂層形式再比對）。
+- 兩處都寫是驗證錯誤「請只留節點那一份」——遷移失誤要明確，不挑一個。
+- 全圖最多一個節點帶 `investigation`，且必須是 hop 型；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不能當起點。
+- `kind` 仍在頂層（選填、由 `direction` 推得）；cytoscape 忽略它沒有資訊損失。
