@@ -70,6 +70,7 @@ body{
 .lg-status{background:transparent;border:1.8px solid var(--rose);border-radius:3px;height:7px!important}
 .legend .c-warn{color:var(--amber);font-weight:600}
 .legend .c-crit{color:var(--rose);font-weight:600}
+.legend .c-ok{color:#34d399;font-weight:600}
 
 /* ---------- 圖區 ---------- */
 /* min-height:0 是 flex 的必要惡：沒有它子項不肯縮小，圖會把頁面撐出捲軸 */

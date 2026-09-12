@@ -215,7 +215,7 @@ export default function App() {
             <span><i className="lg-own" />歸屬（這個 port 上不只這一位的機器，量停在 port、不攤分）</span>
           )}
           {hasStatus && (
-            <span><i className="lg-status" />外框色＝status（<b className="c-warn">warning</b>／<b className="c-crit">critical</b>）</span>
+            <span><i className="lg-status" />外框色＝status（<b className="c-ok">normal</b>／<b className="c-warn">warning</b>／<b className="c-crit">critical</b>）</span>
           )}
         </div>
       )}

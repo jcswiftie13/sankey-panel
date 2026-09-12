@@ -92,7 +92,8 @@ function hasUsage(n) { return !!(n.usage && n.usage.used_bytes != null && n.usag
 function headerH(n) { return HEADER_H + (hasUsage(n) ? 12 : 0); }
 /* 非 switch 的設備型別（k8s node／pod、netapp 三型別）畫虛線框；pvc／app／ns 實線，與參考面板一致 */
 var DEVICE_TYPES = ['node', 'pod', 'netapp-node', 'netapp-aggr', 'netapp-svm'];
-var STATUS_COLOR = { critical: '#fb7185', warning: '#f59e0b' };
+/* 三色都上框（參考面板：有 status 就以 status 框，normal 也是一個判定）；沒有 status 維持中性框 */
+var STATUS_COLOR = { critical: '#fb7185', warning: '#f59e0b', normal: '#34d399' };
 
 /* 殘差門檻用 model 算好的 resEps：小於 counter 浮點雜訊的殘差不畫，也不佔版面。
    注意這是「相對這台自己流量」的判斷，粗細卻是全圖 maxVal 的比例——
@@ -458,7 +459,8 @@ function render(model) {
       channel: e.channel || undefined,
       tier: e.tier || undefined,
       attr: e.attribution || undefined,
-      extra: e.extra || undefined
+      extra: e.extra || undefined,
+      derived: e.derived ? 1 : undefined     /* 推導邊（pod→app→ns）：tooltip 要標「成員 pod 加總」 */
     };
     var isW = e.channel === 'write';
     /* iface 在 k8s hop 上可空：title 只在有值時帶，避免「A → B：+8 Gbps」多出孤懸空格 */
@@ -489,7 +491,10 @@ function render(model) {
         esc(meta.from + ' → ' + meta.to + '：歸屬（量停在 port）') + '</title></path>');
       return;
     }
-    out.push('<path class="band' + (e.lateral ? ' band-lat' : '') + (isW ? ' band-w' : '') + '" d="' +
+    /* 值為 0 的帶：有量測、量是 0，跟「沒有量測」（absent，根本不建邊）不同。畫最小厚度但要看得出
+       是 0——虛線＋半透明（參考面板同樣區分），不然它跟一條很小的流量分不出來。 */
+    var isZero = e.bps === 0;
+    out.push('<path class="band' + (e.lateral ? ' band-lat' : '') + (isW ? ' band-w' : '') + (isZero ? ' band-zero' : '') + '" d="' +
       (e.lateral ? lateralRibbon(e, e.bulge) : ribbon(e)) + '" fill="url(#' + (isW ? 'gband-w' : 'gband') + ')" ' +
       'stroke="' + (isW ? '#c2410c' : '#22d3ee') + '" stroke-opacity=".35" stroke-width="1" ' +
       de + 'data-tip="' + esc(JSON.stringify(meta)) + '"><title>' + esc(tt) + '</title></path>');
@@ -507,6 +512,7 @@ function render(model) {
   /* 帶上的數字。橫向弧帶的數字放弧頂，回流帶放底部水平段中點，放中點會壓在欄上 */
   model.edges.forEach(function (e) {
     if (e.owns) return;                        /* 歸屬線沒有量，印數字就是憑空生一個值 */
+    if (e.bps === 0) return;                   /* 零值帶只有最小厚度，數字疊不下；tooltip 仍印 0 */
     var mx = (e.backward && !e.backNear) ? (e.backXD + e.backXU) / 2
       : e.lateral ? e.x1 + 0.72 * e.bulge : (e.x1 + e.x2) / 2;
     var my = (e.backward && !e.backNear) ? e.backY - e.backT / 2 - 10 : (e.y1 + e.y2) / 2;
@@ -591,6 +597,14 @@ function usageText(u) {
   }
   return used != null ? '已用 ' + fmtBytes(used) : '容量 ' + fmtBytes(cap);
 }
+/* 節點身上有哪些通道（照 read、write 順序）：沒有通道的邊（switch 資料、推導邊）不算 */
+function channelsOf(n) {
+  var has = {};
+  n.inEdges.concat(n.outEdges).forEach(function (e) { if (e.channel) has[e.channel] = true; });
+  return ['read', 'write'].filter(function (c) { return has[c]; });
+}
+function sum(list) { return list.reduce(function (s, e) { return s + e.bps; }, 0); }
+function sumCh(list, ch) { return sum(list.filter(function (e) { return e.channel === ch; })); }
 /* 內容順序照參考面板：型別／名稱、ns、ontap_cluster、流量、usage、status、health、model、
    perf（標 raw：原始讀數，不判定好壞）、alerts、no-flow 說明。沒有的鍵不輸出。 */
 function nodeTip(n, model) {
@@ -606,11 +620,18 @@ function nodeTip(n, model) {
   if (n.role !== 'ns' && n.role !== 'app' && n.role !== 'owner' && n.id !== n.label) rows.push(['id', n.id]);
   if (n.namespace && n.role !== 'ns') rows.push(['namespace', 'ns/' + n.namespace]);
   if (n.ontapCluster) rows.push(['ontap_cluster', n.ontapCluster]);
+  /* storage 資料的 read／write 是兩條帶，tooltip 的量也分向印（參考面板 Both 模式四行）；
+     把兩個方向加成一個數字是沒人量過的值。switch 資料沒有通道，維持一行。 */
+  var chs = channelsOf(n);
+  function flowRows(label, list) {
+    if (!chs.length) { rows.push([label, A(sum(list), n.unit)]); return; }
+    chs.forEach(function (ch) { rows.push([label + '（' + ch + '）', A(sumCh(list, ch), n.unit)]); });
+  }
   if (n.kind === 'node') {
     if (n.noFlow) rows.push(['流量', '沒有任何可畫的 flow 邊（no-flow）']);
     else {
-      rows.push(['已追查 in', A(n.tracedIn, n.unit)]);
-      rows.push(['已追查 out', A(n.tracedOut, n.unit)]);
+      flowRows('已追查 in', n.inEdges);
+      flowRows('已追查 out', n.outEdges);
       if (resIn(n)) rows.push(['其他輸入', A(n.otherIn, n.unit)]);
       if (resOut(n)) rows.push(['其他輸出', A(n.otherOut, n.unit)]);
     }
@@ -623,7 +644,17 @@ function nodeTip(n, model) {
       rows.push(['client', n.clientCount + ' 台']);
       rows.push(['port', n.portCount + ' 個']);
     } else {
-      rows.push([n.role === 'ns' || n.role === 'app' ? '合計' : '流量', R(n.bps, n.unit)]);
+      /* app／ns 卡的量是成員 pod 的推導值（同一筆數字重新分組，不是量測）：標出來，
+         參考面板同樣標「derived from member pods」 */
+      var isGroup = n.role === 'ns' || n.role === 'app';
+      var side = model.dir === 'destination' ? n.inEdges : n.outEdges;
+      if (chs.length) {
+        chs.forEach(function (ch) {
+          rows.push([(isGroup ? '合計（成員 pod 加總，' : '流量（') + ch + '）', R(sumCh(side, ch), n.unit)]);
+        });
+      } else {
+        rows.push([isGroup ? '合計（成員 pod 加總）' : '流量', R(n.bps, n.unit)]);
+      }
       if (n.podCount != null) rows.push(['pod', n.podCount + ' 個']);
     }
   }

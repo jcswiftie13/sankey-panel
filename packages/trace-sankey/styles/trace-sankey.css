@@ -15,6 +15,7 @@
   --cyan-d: #0e7490;
   --amber: #f59e0b;
   --rose: #fb7185;
+  --green: #34d399;     /* status normal 的外框色（warning 琥珀、critical 玫瑰） */
   --gray: #94a3b8;
   --orange: #c2410c;     /* storage 資料的 write 通道帶（read 沿用青） */
   --radius: 10px;
@@ -49,6 +50,8 @@
 .trace-sankey .band.band-w:hover{fill:url(#gband-w-h)}
 .trace-sankey .band.band-loop:hover{fill:none;stroke-opacity:.85}
 /* 歸屬線也是 fill:none 的描邊帶：hover 只能加深 stroke。虛線很細，hover 判定放寬到整條線 */
+/* 零值帶：有量測、值是 0。最小厚度＋虛線＋半透明，跟很小的流量分得出來 */
+.trace-sankey .band-zero{stroke-dasharray:4 3;fill-opacity:.4}
 .trace-sankey .band-own{pointer-events:stroke;stroke-linecap:butt}
 .trace-sankey .band.band-own:hover{fill:none;stroke-opacity:1}
 
