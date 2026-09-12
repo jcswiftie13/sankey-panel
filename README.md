@@ -792,9 +792,8 @@ hop 型（見下）；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不�
 
 | 畫面元素 | 來源 |
 | --- | --- |
-| 盒子標題 | `name`，缺就 `id` |
-| 盒子副標 | `id` · `ns/<namespace>`（pod：推導的 ns；其他：`labels.namespace`）· `<type>`（switch 不印）· `labels.ontap_cluster` |
-| 盒子第三行 | `usage`（兩欄齊全才有） |
+| 每張卡的版式（統一） | 第 1 行型別標（hop 是 `type` 原字、葉是輸入的 `type`、pod／application／namespace／owner／node 固定字、錨卡「追查起點」）→ 第 2 行名字（`name`，缺就 `id`）→ 之後一行一個屬性。**卡面不印 id**（參考後端的 id 是路徑式長字串），tooltip 最後一列有 |
+| 盒子屬性行 | `ns/<namespace>`（ns 色；pod：推導的 ns，其他：`labels.namespace`）、`labels.ontap_cluster`、`usage`（兩欄齊全才有）——各自有才印，標題區高度跟著行數 |
 | 盒子外框 | `status` 色 > 追查起點青框 > 設備天藍虛線 > 預設灰 |
 | 槽位旁的小字 | 邊的 `labels.source_iface`（右緣）／`target_iface`（左緣） |
 | 帶寬與帶上數字 | `metrics.delta_bps` 或 `read/write_bytes_per_sec`（加總後） |
@@ -804,11 +803,11 @@ hop 型（見下）；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不�
 | 葉卡（帶 `clients`） | 標題只在有 `name` 時畫；`labels.namespace` 色條、`clients` 的 `hostname` / `ip` / `owner` 三欄表格（有表頭、每台一列、全部列出、空欄不畫）、數量合計（**不重複印 iface**）；右上角 `client`／`N 個 client` |
 | owner 卡 | 從葉卡的 `clients[].owner` 推導（查不到 owner 的不開卡）：標題＝owner 字串、已量到的合計（只算「整張卡只有這一個 owner」的 port，不足時標「（部分 port）」／全無時印「量停在 port」）、`N 台 client · M 個 port` |
 | 歸屬線 | port 上不只一位的機器（含查不到 owner 的）時，葉卡 → 各具名 owner 卡的灰虛線，**不帶量、不印數字** |
-| pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條（推導的 ns）、iface、數量 |
-| application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：標題＝群組的 `name`、合計、pod 數、成員最差 `status` 框 |
+| pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條與 `ns/<ns>` 行（推導的 ns）、`iface · 量` 行 |
+| application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：名字＝群組的 `name`；屬性行 `ns/<ns>`（application 才有）、`N 個 pod`、`合計 <量>`；成員最差 `status` 框 |
 | 錨卡 | `investigation`：`iface`、方向、`delta_bps`、`note`（tooltip） |
-| 帶的 tooltip | from／to、出口／入口 iface、速率（含 channel；**歸屬線沒有這一列**）、ns、`client`（下游那端的葉有 `clients` 時；往 owner 卡的邊改列 port 那端）、`歸屬`（歸屬線）、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
-| 卡片的 tooltip | 型別／名稱、id、ns、ontap_cluster、已追查 in／out 與殘差（或合計＋pod 數；owner 卡是已量到的合計＋台數＋port 數）、usage、status、health、model、perf(raw)、alerts、no-flow、`clients`（每筆一列、不截斷） |
+| 帶的 tooltip | from／to、出口／入口 iface（**那一端有值才印**：switch 的 port 才有 iface，storage 邊、推導邊、歸屬線沒有）、速率（含 channel；**歸屬線沒有這一列**）、ns、`client`（下游那端的葉有 `clients` 時；往 owner 卡的邊改列 port 那端）、`歸屬`（歸屬線）、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
+| 卡片的 tooltip | 每一種卡同一套：型別／名稱、ns、ontap_cluster、**`in（read）／in（write）／out（read）／out（write）` 四行**（沒通道的資料是 `in`／`out` 兩行；in／out 一律是封包方向的入邊／出邊，namespace 終點的 out 是 0）、卡種附加列（hop：其他輸入／其他輸出；application／namespace／k8s node 外框：`來源：成員 pod 加總（推導值）`＋pod 數；owner：來源＋台數＋port 數，量停在 port 時 in 印「—」）、usage、status、health、model、perf(raw)、alerts、no-flow、`clients`（每筆一列、不截斷）、**id（最後一列，只在 id ≠ 名字時）** |
 | 欄標題 | 整欄同一非 switch 型別 → `第 N 跳 · <型別名>`；整欄 pod／application／namespace／owner 各有文案（整欄都接了 owner 的 port 葉標 `第 N 跳 · port`） |
 
 ### 範例

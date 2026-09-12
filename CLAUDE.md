@@ -337,7 +337,7 @@ filtered, filteredNodes, nodes, nodeMap, edges, anchorEdge|null, root|null, warn
 - **全圖共用一把比例尺**：`maxVal = max(所有邊, 所有殘差)`，`thick(v) = max(THICK_MIN=3, v * THICK_MAX/maxVal)`，
   `THICK_MAX = 86`。殘差跟帶同一把尺，比例才讀得出來。read 與 write 帶也共用（跟參考一致）。
 - **殘差門檻** `resIn/resOut`：只有 `> n.resEps` 才畫。同一門檻圖與 summary 表共用。
-- `headerH(n) = HEADER_H + (usage 兩欄齊全 ? 12 : 0)`：有 usage 副標的盒子標題區高一行；槽位 top／avail 跟著算。
+- `headerH(n) = HEADER_H + LINE_H × 屬性行數`（ns／ontap_cluster／usage）：盒子標題區跟著屬性行數長；槽位 top／avail 跟著算。
 - **backNear** 判定：`backward && from.col - to.col === 1`。只跨一欄的回流走「走廊短帶」；
   跨兩欄以上才繞圖底外圍 lane（`backwardRibbon`）。
 - **port 槽位順序**（`leftSlots`/`rightSlots`）：一般邊 → lateral → backNear → 跨多欄回流；**殘差是真槽位，push 在最外側**。
@@ -387,7 +387,10 @@ filtered, filteredNodes, nodes, nodeMap, edges, anchorEdge|null, root|null, warn
   順序照參考面板：型別／名稱、id、ns、ontap_cluster、流量、usage、status、health、model、perf(raw)、alerts、no-flow）。
   `nodeBox` 外框色優先序 **status（critical `#fb7185`／warning `#f59e0b`／normal `#4ade80`；綠刻意避開 ns 色盤的
   `#34d399`）> isRoot 青 > 設備天藍 > 預設**，
-  `DEVICE_TYPES`（node/pod/netapp 三型別）虛線；副標 `id · ns/x · <type> · <ontap_cluster>`（switch 不印 type）。
+  `DEVICE_TYPES`（node/pod/netapp 三型別）虛線。**每張卡同一套版式**：第 1 行型別標（`.leaf-stop`，hop 印 `role` 原字）、
+  第 2 行名字、之後一行一個屬性（`LINE_H 13`）；**卡面不印 id**，tooltip 最後一列才有。hop 盒 `headerH(n) = HEADER_H(40) + 13 × 屬性行數`
+  （ns／ontap_cluster／usage 各一行）；葉／群組卡高度 `cardH(屬性行數)`；k8s node 外框標題區 `WRAP_HEADER_H 52`（型別／名字／pod 數）。
+  tooltip 的流量行每一種卡都是 `in／out` × 通道四行（`nodeTip` 共用 `flowRow`），卡種差異只在附加列。
 - `colCaption`：錨欄要 `kinds.anchor && col.length===1`（no-flow 卡會落在第 0 欄）；整欄同一非 switch role →
   `第 N 跳 · TYPE_LABEL[role]`；整欄 app → `第 N 跳 · application`。
 

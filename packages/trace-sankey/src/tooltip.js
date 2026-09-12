@@ -11,9 +11,10 @@ function row(k, v) { return '<div class="t-row"><span>' + esc(k) + '</span><span
 
 function bandHtml(d) {
   var isBytes = d.unit === 'bytesPerSec';
+  /* iface 只在那一端真的有才印：switch 的 port 才有 iface，storage 邊、推導邊、歸屬線沒有這回事 */
   var h = '<b>' + esc(d.from) + ' → ' + esc(d.to) + '</b>' +
-    row('出口 iface', d.fi || '—') +
-    row('入口 iface', d.ti || '—') +
+    (d.fi ? row('出口 iface', d.fi) : '') +
+    (d.ti ? row('入口 iface', d.ti) : '') +
     /* delta_bps 是「速率的差」；bytes/s 是絕對速率，標籤跟著換。
        歸屬線的 bps 是 0，那不是「零流量」而是「沒有量」——印出來就是憑空生一個值 */
     (d.owns ? '' :
