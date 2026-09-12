@@ -33,7 +33,10 @@ export var TraceSankey = forwardRef(function TraceSankey(props, ref) {
       onModel: function (m) { if (latest.current.onModel) latest.current.onModel(m); },
       onError: function (e) { if (latest.current.onError) latest.current.onError(e); },
       onZoom: function (s) { if (latest.current.onZoom) latest.current.onZoom(s); },
-      onNodeClick: function (id, n) { if (latest.current.onNodeClick) latest.current.onNodeClick(id, n); }
+      /* 有沒有點擊回呼在掛載時決定（mount 靠它決定要不要把卡標成可點）；之後換 callback 仍呼叫到最新的 */
+      onNodeClick: latest.current.onNodeClick
+        ? function (id, n) { if (latest.current.onNodeClick) latest.current.onNodeClick(id, n); }
+        : undefined
     });
     instRef.current = inst;
     return function () { inst.destroy(); instRef.current = null; };
