@@ -1,8 +1,8 @@
 /* trace-sankey 套件樣式：<TraceSankey> 容器（.trace-sankey.chart-wrap）與 tooltip。
    色票變數不放 :root——套件不污染使用端的全域；scope 在自己的兩個根元素上，
    CSS 變數向下繼承，SVG 內的 text class 照常吃得到。
-   注意：render.js 產出的 SVG 硬編碼了同一批十六進位色（漸層 defs），
-   改配色要兩邊一起改。 */
+   注意：svg/Defs.tsx／svg/Band.tsx／layout/constants.ts 產出的 SVG 硬編碼了同一批十六進位色
+   （漸層 defs、STATUS_COLOR），改配色要兩邊一起改。 */
 .trace-sankey,
 .trace-sankey-tooltip {
   --panel: #131d29;
@@ -77,15 +77,15 @@
 .trace-sankey-tooltip b{display:block;margin-bottom:3px}
 .trace-sankey-tooltip .t-row{color:var(--dim);display:flex;gap:10px;justify-content:space-between}
 
-/* ---------- 路徑高亮（mount 的 pathHighlight 選項）---------- */
+/* ---------- 路徑高亮（<TraceSankey pathHighlight>，hooks/useHighlight.ts）---------- */
 /* 狀態只在 class 上：容器 .hl-on＝有東西被亮著，路徑上的帶與卡片帶 .lit，其餘變淡。
    帶用 opacity 而不是換 fill：write 帶、回流帶、歸屬線各自的 fill／stroke 都不用管 */
 .trace-sankey.hl-on .band:not(.lit){opacity:.14}
 .trace-sankey.hl-on .lat-arrow{opacity:.14}
 .trace-sankey.hl-on g[data-n]:not(.lit){opacity:.35}
 
-/* 點擊回呼（mount 的 onNodeClick 選項）：可定位的卡由 mount 在 DOM 上加 .clickable */
+/* 點擊回呼（<TraceSankey onNodeClick>）：可定位的卡由 cards.tsx 當 className 輸出 .clickable */
 .trace-sankey g[data-n].clickable{cursor:pointer}
 
-/* 專注模式（mount 的 focus()）：容器去框吃滿。使用端要藏自己的工具列／圖例，自己對 body.chart-focus 加規則 */
+/* 專注模式（<TraceSankey focus>，hooks/useFocus.ts）：容器去框吃滿。使用端要藏自己的工具列／圖例，自己對 body.chart-focus 加規則 */
 body.chart-focus .trace-sankey.chart-wrap{border:0;border-radius:0}
