@@ -1,12 +1,14 @@
 /* wire JSON 的契約驗證：空陣列＝合法。錯誤文案是使用端橫幅直接印的，改字要對 README 的對照表。 */
 import type { Direction, WireGraph, WireNodeData } from './types.js';
 import { classOf, FLOW_TYPES } from './classify.js';
+import { resolveInvestigation } from './investigation.js';
 import { isObj, isStringMap, num, str } from './util.js';
 
 export const direction = (doc: WireGraph): Direction => {
   if (doc.kind === 'source') return 'source';
   if (doc.kind === 'destination') return 'destination';
-  if (doc.investigation && doc.investigation.direction === 'out') return 'source';
+  const inv = isObj(doc) ? resolveInvestigation(doc).inv : null;
+  if (inv && inv.direction === 'out') return 'source';
   return 'destination';
 };
 
@@ -16,18 +18,15 @@ export const validate = (doc: unknown): string[] => {
   if (doc.kind != null && doc.kind !== 'destination' && doc.kind !== 'source') {
     errs.push('kind 只能是 "destination" 或 "source"。');
   }
-  const inv = doc.investigation;
-  if (inv != null) {
-    if (!isObj(inv)) errs.push('investigation 必須是物件。');
-    else {
-      if (!str(inv.node_id)) errs.push('investigation.node_id 必填。');
-      if (!str(inv.iface)) errs.push('investigation.iface 必填。');
-      if (!num(inv.delta_bps) || inv.delta_bps <= 0) errs.push('investigation.delta_bps 必須是正數（bps）。');
-      if (inv.direction != null && inv.direction !== 'in' && inv.direction !== 'out') {
-        errs.push('investigation.direction 只能是 "in" 或 "out"。');
-      }
-    }
+  /* 信封欄位（參考 repo 的後端回應帶 apiVersion 與 clusters）：列進契約但不強制。給了就驗型別、
+     build 原樣帶出；參考前端也不讀這兩欄（Clusters 圖例從 type:"cluster" 節點派生）。 */
+  if (doc.apiVersion != null && typeof doc.apiVersion !== 'string') errs.push('apiVersion 必須是字串。');
+  if (doc.clusters != null && !(Array.isArray(doc.clusters) && doc.clusters.every((c: unknown) => typeof c === 'string'))) {
+    errs.push('clusters 必須是字串陣列。');
   }
+  const ri = resolveInvestigation(doc);
+  errs.push(...ri.errors);
+  const inv = ri.inv;
   const el = doc.elements;
   if (!isObj(el)) { errs.push('缺少 elements（必須是物件，含 nodes 與 edges 陣列）。'); return errs; }
   if (!Array.isArray(el.nodes)) errs.push('elements.nodes 必須是陣列。');
@@ -101,7 +100,8 @@ export const validate = (doc: unknown): string[] => {
     }
   });
 
-  if (isObj(inv) && str(inv.node_id)) {
+  /* 節點形式的起點就是那個節點，存在與型別已在 resolveInvestigation 驗過；這裡只剩頂層形式要查 id */
+  if (inv && ri.source === 'top') {
     const root = byId['k:' + inv.node_id];
     if (!root) errs.push('investigation.node_id「' + inv.node_id + '」在 nodes 裡找不到。');
     else if (classOf(root.type) !== 'hop') {

@@ -2,14 +2,21 @@
 
 /* ---------- 輸入：cytoscape-style wire JSON ---------- */
 
-export interface WireInvestigation {
-  /** 必須是 hop 型節點（switch／node／pod／netapp-*／pvc）的 id */
-  node_id: string;
+/** 追查起點，寫在起點節點的 data.investigation 上（節點自己就是起點，所以沒有 node_id）。
+    全圖最多一個、節點必須是 hop 型（switch／node／pod／netapp-*／pvc）。 */
+export interface WireNodeInvestigation {
   iface: string;
   /** 必須 > 0，bps */
   delta_bps: number;
   direction?: 'in' | 'out';
   note?: string;
+}
+
+/** 頂層形式（deprecated）：多一個 node_id。build 仍接受並發警告；與節點形式兩處都給是驗證錯誤。
+    也是 resolveInvestigation() 正規化後的形狀，model.investigation 一律長這樣。 */
+export interface WireInvestigation extends WireNodeInvestigation {
+  /** 必須是 hop 型節點（switch／node／pod／netapp-*／pvc）的 id */
+  node_id: string;
 }
 
 export interface WireUsage {
@@ -39,6 +46,8 @@ export interface WireNodeData {
   name?: string;
   /** 群組鏈：pod 的 application／namespace 由此推導 */
   parent?: string;
+  /** 追查起點寫在起點節點上（全圖最多一個、必須 hop 型） */
+  investigation?: WireNodeInvestigation;
   /** 純字串對應表。認得的鍵：namespace、tier（同欄鎖）、ontap_cluster */
   labels?: Record<string, string>;
   /** normal／warning／critical；其他值視同沒有（中性框） */
@@ -88,11 +97,13 @@ export interface WireEdgeData {
 }
 
 export interface WireGraph {
+  /** 信封欄位（參考 repo 的後端回應帶這兩欄）：給了驗型別、build 原樣帶出，不影響畫圖 */
   apiVersion?: string;
   clusters?: string[];
   /** 省略時看 investigation.direction（out → source）；預設 destination */
   kind?: 'destination' | 'source';
-  /** 選填；沒給就沒有錨卡、不查 root */
+  /** @deprecated 起點請寫在起點節點的 data.investigation（見 WireNodeData）。仍接受，build 會發警告；
+      與節點形式兩處都給是驗證錯誤。沒有起點就沒有錨卡、不查 root */
   investigation?: WireInvestigation;
   elements: {
     nodes: Array<{ data: WireNodeData }>;
@@ -203,8 +214,12 @@ export interface TraceEdge {
 export interface TraceModelOk {
   ok: true;
   dir: Direction;
+  /** 正規化後的起點（不論輸入寫在節點還是頂層），沒有就 null */
   investigation: WireInvestigation | null;
   channels: Channels;
+  /** 信封欄位原樣帶出（沒給就 null） */
+  apiVersion: string | null;
+  clusters: string[] | null;
   minBps: number;
   /** 被顯示門檻濾掉的帶數與總量 */
   filtered: { edges: number; bps: number };
@@ -265,6 +280,8 @@ export interface BuildCtx {
   doc: WireGraph;
   dir: Direction;
   inv: WireInvestigation | null;
+  /** 起點寫在哪：'top' 會發 deprecated 警告 */
+  invSource: 'top' | 'node' | null;
   minBps: number;
   channels: Channels;
   warnings: string[];

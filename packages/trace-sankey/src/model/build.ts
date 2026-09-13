@@ -11,9 +11,9 @@
      5  columns     排欄：tier 超級節點、多數決破環、SCC 破殘環、最長路徑、backward／lateral／subOrder
      6  residuals   ★ 濾掉的量併進殘差；每台守恆；葉加總；app／ns 的 pod 數與 status
      7  normalize   欄位正規化、組回傳物件 */
-import type { BuildCtx, BuildOptions, TraceModel, WireGraph, WireInvestigation } from './types.js';
-import { isObj } from './util.js';
+import type { BuildCtx, BuildOptions, TraceModel, WireGraph } from './types.js';
 import { direction, validate } from './validate.js';
+import { resolveInvestigation } from './investigation.js';
 import { indexRaw } from './index-raw.js';
 import { scanEdges, scanNodes } from './scan.js';
 import { buildEdges } from './edges.js';
@@ -26,7 +26,7 @@ import { assemble, normalizeColumns } from './normalize.js';
 const makeCtx = (doc: WireGraph, opts?: BuildOptions): BuildCtx => ({
   doc,
   dir: direction(doc),
-  inv: isObj(doc.investigation) ? (doc.investigation as WireInvestigation) : null,
+  ...(() => { const ri = resolveInvestigation(doc); return { inv: ri.inv, invSource: ri.source }; })(),
   /* 顯示門檻（bps）：只留增量大於它的帶子。0 ＝ 不過濾，行為與沒有這個功能時完全一樣。
      濾掉的量記在 dropIn／dropOut，步驟 6 併進殘差，每台照樣守恆。
      channels 走同一條路：只看 read 時 write 帶的量也併進殘差。 */
@@ -48,6 +48,10 @@ export const build = (doc: unknown, opts?: BuildOptions): TraceModel => {
   const errs = validate(doc);
   if (errs.length) return { ok: false, errors: errs };
   const ctx = makeCtx(doc as WireGraph, opts);
+  if (ctx.invSource === 'top' && ctx.inv) {
+    ctx.warnings.push('頂層 investigation 已 deprecated：請搬進起點節點「' + ctx.inv.node_id +
+      '」的 data.investigation（不含 node_id），同一份文件丟 cytoscape 才看得到起點。');
+  }
   scanEdges(ctx);
   const e1 = scanNodes(ctx);
   if (e1) return { ok: false, errors: [e1] };
