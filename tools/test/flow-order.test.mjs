@@ -89,17 +89,55 @@ test('flow 模式：dci-tier 的 DCI 夾在它的生產者與消費者之間', (
   assert.equal(at('DCI'), dci);
 });
 
-/* layout:'node' 的外框在 flow 模式照成員 pod 的流量加總排（barycenter 照名字） */
+/* layout:'node' 的外框在 flow 模式照成員 pod 的流量加總排（barycenter 照名字）。
+   **不能拿內建範例測**：storage 的 worker-0 剛好既是名字最前、又是流量最大，兩種排序結果相同，
+   斷言會在「外框永遠照名字排」的壞實作下照樣通過（實測過）。這裡刻意做一份名字序與流量序
+   相反的資料：aaa-node 掛小 pod、zzz-node 掛大 pod。 */
+const N = (data) => ({ data });
+const E = (data) => ({ data });
+const wrapperDoc = {
+  kind: 'destination',
+  elements: {
+    nodes: [
+      N({ id: 'sw1', type: 'switch', name: 'SW 1',
+        investigation: { iface: 'xe-0/0/1', delta_bps: 3e9, direction: 'out' } }),
+      N({ id: 'aaa-node', type: 'node', name: 'aaa-node' }),
+      N({ id: 'zzz-node', type: 'node', name: 'zzz-node' }),
+      N({ id: 'ns1', type: 'namespace', name: 'ns1' }),
+      N({ id: 'p-small', type: 'pod', name: 'p-small', parent: 'ns1' }),
+      N({ id: 'p-big', type: 'pod', name: 'p-big', parent: 'ns1' })
+    ],
+    edges: [
+      E({ id: 'e1', type: 'network-flow', source: 'sw1', target: 'p-small',
+        labels: { source_iface: 'xe-0/0/1' }, metrics: { delta_bps: 1e9 } }),
+      E({ id: 'e2', type: 'network-flow', source: 'sw1', target: 'p-big',
+        labels: { source_iface: 'xe-0/0/2' }, metrics: { delta_bps: 2e9 } }),
+      E({ id: 'e3', type: 'network-flow', source: 'p-small', target: 'aaa-node',
+        labels: { tier: 'pod-node' }, metrics: { delta_bps: 1e9 } }),
+      E({ id: 'e4', type: 'network-flow', source: 'p-big', target: 'zzz-node',
+        labels: { tier: 'pod-node' }, metrics: { delta_bps: 2e9 } })
+    ]
+  }
+};
+
 test('flow 模式：k8s node 外框照成員流量排，barycenter 照名字', () => {
-  const m = api.build(byKey.storage.json, { minBps: 0, layout: 'node' });
-  assert.ok(m.wrappers.length > 1, 'storage 範例的外框少於兩個，這條測不到');
+  const m = api.build(wrapperDoc, { minBps: 0, layout: 'node' });
+  assert.ok(m.ok, m.ok ? '' : m.errors.join(' / '));
+  assert.equal(m.wrappers.length, 2, '外框數不對：' + m.wrappers.map((w) => w.label).join(','));
   const wf = (w) => w.podIds.reduce((t, id) => t + flowOf(m.nodeMap[id]), 0);
+  const labels = (order) => api.layout(m, { order }).wrappers.map((g) => g.wrapper.label);
+  /* 名字序與流量序在這份資料上是相反的——兩條斷言因此不可能同時被同一個壞實作滿足 */
+  assert.deepEqual(labels('barycenter'), ['aaa-node', 'zzz-node'], 'barycenter 的外框不是照名字排');
+  assert.deepEqual(labels('flow'), ['zzz-node', 'aaa-node'], 'flow 的外框不是照成員流量排');
   const flow = api.layout(m, { order: 'flow' }).wrappers.map((g) => g.wrapper);
   for (let i = 1; i < flow.length; i++) {
     assert.ok(wf(flow[i]) <= wf(flow[i - 1]) + 1e-9, '外框沒有照成員流量遞減');
   }
-  const bary = api.layout(m, { order: 'barycenter' }).wrappers.map((g) => g.wrapper.label);
-  assert.deepEqual(bary, bary.slice().sort((a, b) => a.localeCompare(b)), 'barycenter 的外框不是照名字排');
+  /* 內建範例也要照流量遞減（只是它名字序剛好相同，測不出區別，所以只當附帶檢查） */
+  const sm = api.build(byKey.storage.json, { minBps: 0, layout: 'node' });
+  const sf = (w) => w.podIds.reduce((t, id) => t + flowOf(sm.nodeMap[id]), 0);
+  const sw = api.layout(sm, { order: 'flow' }).wrappers.map((g) => g.wrapper);
+  for (let i = 1; i < sw.length; i++) assert.ok(sf(sw[i]) <= sf(sw[i - 1]) + 1e-9);
 });
 
 /* 兩個模式必須真的不同（否則上面幾條可能只是在測一個沒生效的選項），
