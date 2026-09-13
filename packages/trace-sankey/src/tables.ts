@@ -10,6 +10,7 @@
 import type { Channel, RateUnit, Status, TraceEdge, TraceModelOk, TraceNode, TraceWrapper } from './model/types.js';
 import type { Geometry } from './layout/geometry.js';
 import { fmtAmount as A, fmtRate as R } from './model/format.js';
+import { namespaceAggs, nsTotalText } from './aggregates.js';
 import { channelsIn } from './model/classify.js';
 import { sum } from './model/util.js';
 import { STATUS_COLOR } from './layout/constants.js';
@@ -28,7 +29,14 @@ export interface FlowRow {
   notes: string[];
 }
 export interface AppRow { application: string; namespace: string | null; pods: number; total: number; totalText: string }
-export interface NsRow { namespace: string; pods: number; total: number; totalText: string }
+export interface NsRow {
+  namespace: string;
+  /** 計量 pod 數（有邊匯進 ns 終點卡的） */
+  pods: number;
+  /** 全部 pod 數（含圖上完全沒有邊的 no-flow 卡）。兩個數字的差別見 aggregates.ts */
+  podsTotal: number;
+  total: number; totalText: string;
+}
 export interface FlowTables {
   channels: Channel[];
   nodes: FlowRow[];
@@ -79,20 +87,19 @@ export const flowTables = (model: TraceModelOk, geo: Geometry = layout(model)): 
       notes: ['derived'].concat(w.noFlow ? ['no-flow'] : [])
     });
   }
+  /* application 小計讀 app 卡自己的 podCount／bps（build 已算好）。這裡不需要「全部 pod 數」：
+     完全沒有邊的 no-flow pod 與任何 app 卡都不相連，它的 application 祖先在 model 裡沒有留下，
+     連 app 卡本身都可能不存在——硬要給一個數字就是憑空編。namespace 不同：pod 自己帶 ns。 */
   const apps: AppRow[] = model.nodes.filter((n) => n.role === 'app').map((n) => ({
     application: n.label, namespace: n.namespace || null, pods: n.podCount || 0, total: n.bps!, totalText: R(n.bps!, n.unit!)
   })).sort((a, b) => (b.total - a.total) || a.application.localeCompare(b.application));
-  /* namespace 小計只算「帶 ns 的葉 pod 的入邊」：pod 唯一的出邊是推導邊，算出邊會重複 */
-  const nsAgg = new Map<string, { namespace: string; pods: number; total: number; unit: RateUnit }>();
-  for (const n of model.nodes) {
-    if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) continue;
-    let a = nsAgg.get(n.namespace);
-    if (!a) nsAgg.set(n.namespace, (a = { namespace: n.namespace, pods: 0, total: 0, unit: n.unit! }));
-    a.pods++; a.total += sum(n.inEdges);
-  }
-  const nss: NsRow[] = [...nsAgg.values()].map((a) => ({
-    namespace: a.namespace, pods: a.pods, total: a.total, totalText: R(a.total, a.unit)
-  })).sort((a, b) => (b.total - a.total) || a.namespace.localeCompare(b.namespace));
+  /* namespace 小計走 aggregates.ts 的共用彙總，與 summary() 的那張表同一份來源。
+     以前這裡自己掃葉 pod 重新加總、summary 讀 ns 卡，兩邊在 roots ＋ no-flow pod 的組合下
+     已經對不上（詳情與兩個 pod 數的語意差別見 aggregates.ts 的檔頭）。 */
+  const nss: NsRow[] = namespaceAggs(model).map((a) => ({
+    namespace: a.namespace, pods: a.pods, podsTotal: a.podsTotal,
+    total: a.total, totalText: nsTotalText(a)
+  }));
 
   const colHead = cols.map((ch) => (ch ? '（' + ch + '）' : ''));
   const dot = (st: Status | null): string => {
@@ -124,9 +131,10 @@ export const flowTables = (model: TraceModelOk, geo: Geometry = layout(model)): 
   }
   if (nss.length) {
     h.push('<h3>Namespace flow subtotal</h3><div class="tbl-wrap"><table><thead><tr>' +
-      '<th>namespace</th><th>pods</th><th>total</th></tr></thead><tbody>');
+      '<th>namespace</th><th>pods（metered / all）</th><th>total</th></tr></thead><tbody>');
     for (const a of nss) {
-      h.push('<tr><td>' + esc(a.namespace) + '</td><td class="num">' + a.pods + '</td>' +
+      h.push('<tr><td>' + esc(a.namespace) + '</td><td class="num">' +
+        a.pods + ' / ' + a.podsTotal + '</td>' +
         '<td class="num">' + esc(a.totalText) + '</td></tr>');
     }
     h.push('</tbody></table></div>');

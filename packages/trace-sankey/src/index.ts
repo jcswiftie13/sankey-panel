@@ -8,6 +8,8 @@ export { fmtBps, fmtDelta, fmtBytes, fmtRate, fmtAmount, gbps } from './model/fo
 export { HOP_TYPES, GROUP_TYPES, FLOW_TYPES, TYPE_LABEL, channelsIn } from './model/classify.js';
 export { summary } from './summary.js';
 export { flowTables } from './tables.js';
+export { namespaceAggs, nsTotalText } from './aggregates.js';
+export type { NsAgg } from './aggregates.js';
 export type { FlowTables, FlowRow, AppRow, NsRow } from './tables.js';
 export { esc } from './layout/text.js';
 export { layout } from './layout/layout.js';

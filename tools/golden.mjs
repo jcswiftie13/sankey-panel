@@ -11,7 +11,8 @@
 
    門檻（minBps）除 0 之外另跑一組 5e8，鎖住過濾路徑的行為；圖上有 read／write 通道的範例
    另跑一組 channels:'read'（只有 storage 資料會多出這組檔案，switch 資料的檔案集合不變）；
-   有 pod-node 邊的範例另跑一組 layout:'node'（k8s node 外框）；每份範例另跑一組
+   有 pod-node 邊的範例另跑一組 layout:'node'（k8s node 外框）；有 pod 的範例另跑一組
+   roots（把所有 pod 當 root，逼出 root 的 no-flow pod）；每份範例另跑一組
    order:'barycenter'（.bary，只寫 .svg 與 .tables.html——排序不進 model）。
    環境變數 ORDER=barycenter 則是把**所有**變體都用那個排序跑、檔名不變，用來對拍「舊版面沒動」。
 
@@ -63,7 +64,26 @@ export function variants(api, doc) {
   /* 有 pod-node 邊的範例另跑 layout:'node'（k8s node 外框）；flat 的檔案集合不變 */
   const hasPodNode = doc.elements.edges.some((e) => e.data && e.data.labels && e.data.labels.tier === 'pod-node');
   if (m.ok && hasPodNode) out.push({ tag: '.node', opts: { layout: 'node' } });
-  if (ORDER) return out;              /* 強制模式：檔案集合要跟基準一致，不加額外變體 */
+  /* roots（參考面板的 root 選擇）是 storage 資料的主要路徑，卻一直沒進對拍語料——
+     summary() 與 flowTables() 的 namespace 小計對不上就是躲在這個缺口裡。
+     把所有 pod 都當 root，逼出「root 的 no-flow pod」那條分支（那些 pod 一條邊都沒有）。 */
+  const pods = doc.elements.nodes.filter((n) => n.data && n.data.type === 'pod');
+  const podRoots = pods.map((p) => {
+    const ns = (p.data.labels || {}).namespace;
+    return ns ? ns + '/' + (p.data.name || p.data.id) : null;
+  }).filter(Boolean);
+  if (m.ok && podRoots.length) {
+    const roots = { pod: podRoots };
+    /* roots 是正交的維度：照既有的門檻值各跑一次。門檻那一組才會讓 root pod 失去所有邊，
+       逼出「圖上只剩 no-flow pod、連 ns 卡都沒有」那條分支。 */
+    for (const min of MIN_BPS) out.push({ tag: '.roots.min' + min, opts: { minBps: min, roots } });
+    /* write 通道另跑一組：既有的 channels:'read' 變體不會讓 root pod 失去邊，
+       抓不到「計量 pod 數 ≠ 全部 pod 數」。順帶補上 write 那條從來沒被 dump 過的路徑。 */
+    if (m.edges.some((e) => e.channel === 'write')) {
+      out.push({ tag: '.roots.write', opts: { minBps: 0, channels: 'write', roots } });
+    }
+  }
+  if (ORDER) return out;              /* 強制模式：只排除純版面變體（.bary），其餘照跑 */
   /* 欄內排序是 layout 的選項、不進 model：另跑一組 barycenter 把那條路徑永久留在對拍語料裡
      （未來重構 layout() 才不會只有預設模式被蓋到）。model／summary／warnings 與 .min0
      完全相同（排序不進 model），所以 geoOnly 只寫會變的那兩種輸出。 */

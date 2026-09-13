@@ -1,7 +1,8 @@
 /* 圖外資訊：hop 數字摘要表（HTML 字串）。app 目前沒用，但照常匯出並被 golden 對拍——刻意保留的 API。 */
-import type { TraceModelOk, TraceNode } from './model/types.js';
+import type { TraceModelOk } from './model/types.js';
 import { fmtAmount as A, fmtRate as R } from './model/format.js';
 import { esc, resIn, resOut } from './layout/text.js';
+import { namespaceAggs, nsTotalText } from './aggregates.js';
 
 export const summary = (model: TraceModelOk): string => {
   const rows = model.nodes.filter((n) => n.kind === 'node').sort((a, b) => a.col - b.col);
@@ -18,16 +19,17 @@ export const summary = (model: TraceModelOk): string => {
       '<td class="num c-rose">' + (resOut(n) ? A(n.otherOut!, unit) : '—') + '</td></tr>');
   }
   h.push('</tbody></table></div>');
-  /* namespace 流量小計：ns 終點節點就是單一事實來源（bps＝pod 匯流邊加總、
-     pod 數＝邊數），表跟圖不可能對不上 */
-  const nsNodes: TraceNode[] = model.nodes.filter((n) => n.role === 'ns');
-  if (nsNodes.length) {
-    const sorted = nsNodes.slice().sort((a, b) => b.bps! - a.bps!);
+  /* namespace 流量小計：走 aggregates.ts 的共用彙總，與 flowTables 的那張表同一份來源。
+     兩個 pod 數分開印：「計量」是有邊匯進 ns 卡的、「全部」含圖上完全沒有邊的 no-flow 卡。
+     以前這裡只印一個數字、flowTables 另外自己掃 pod 算一個，兩張表在 roots 模式下對不上。 */
+  const nsRows = namespaceAggs(model);
+  if (nsRows.length) {
     h.push('<h3>namespace 流量小計（終點）</h3><div class="tbl-wrap"><table><thead><tr>' +
-      '<th>namespace</th><th>pod 數</th><th>Δ 合計</th></tr></thead><tbody>');
-    for (const n of sorted) {
-      h.push('<tr><td>' + esc(n.label) + '</td><td class="num">' + n.podCount + '</td>' +
-        '<td class="num">' + R(n.bps!, n.unit!) + '</td></tr>');
+      '<th>namespace</th><th>pod 數（計量／全部）</th><th>Δ 合計</th></tr></thead><tbody>');
+    for (const a of nsRows) {
+      h.push('<tr><td>' + esc(a.namespace) + '</td><td class="num">' +
+        a.pods + ' / ' + a.podsTotal + '</td>' +
+        '<td class="num">' + nsTotalText(a) + '</td></tr>');
     }
     h.push('</tbody></table></div>');
   }
