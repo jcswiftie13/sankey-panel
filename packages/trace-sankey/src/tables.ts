@@ -10,6 +10,7 @@
 import type { Channel, RateUnit, Status, TraceEdge, TraceModelOk, TraceNode, TraceWrapper } from './model/types.js';
 import type { Geometry } from './layout/geometry.js';
 import { fmtAmount as A, fmtRate as R } from './model/format.js';
+import { channelsIn } from './model/classify.js';
 import { sum } from './model/util.js';
 import { STATUS_COLOR } from './layout/constants.js';
 import { esc, usageText } from './layout/text.js';
@@ -45,9 +46,7 @@ const tierOf = (n: TraceNode | TraceWrapper): string => {
 };
 
 export const flowTables = (model: TraceModelOk, geo: Geometry = layout(model)): FlowTables => {
-  const has = new Set<Channel>();
-  for (const e of model.edges) if (e.channel) has.add(e.channel);
-  const chs = (['read', 'write'] as Channel[]).filter((c) => has.has(c));
+  const chs = channelsIn(model.edges);
   const cols: (Channel | null)[] = chs.length ? chs : [null];
   const amounts = (list: TraceEdge[], unit: RateUnit): string[] =>
     cols.map((ch) => A(ch ? sumCh(list, ch) : sum(list), unit));

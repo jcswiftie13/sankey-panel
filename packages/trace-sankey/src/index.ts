@@ -5,7 +5,7 @@
 export { build } from './model/build.js';
 export { validate, direction } from './model/validate.js';
 export { fmtBps, fmtDelta, fmtBytes, fmtRate, fmtAmount, gbps } from './model/format.js';
-export { HOP_TYPES, GROUP_TYPES, FLOW_TYPES, TYPE_LABEL } from './model/classify.js';
+export { HOP_TYPES, GROUP_TYPES, FLOW_TYPES, TYPE_LABEL, channelsIn } from './model/classify.js';
 export { summary } from './summary.js';
 export { flowTables } from './tables.js';
 export type { FlowTables, FlowRow, AppRow, NsRow } from './tables.js';

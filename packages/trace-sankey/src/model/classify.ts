@@ -1,5 +1,5 @@
 /* 型別分類與 wire 欄位的寬鬆讀取：認得的就收、認不得的靜默忽略，契約才能往前相容。 */
-import type { NodeClient, NodeInfo, NodeUsage, Status, Weight, WireNodeData } from './types.js';
+import type { Channel, NodeClient, NodeInfo, NodeUsage, Status, Weight, WireNodeData } from './types.js';
 import { isObj, num, str } from './util.js';
 
 /* hop 盒：畫成有槽位、算殘差的盒子。role = type 原樣保留（render 靠它決定虛線／副標）。 */
@@ -12,6 +12,18 @@ export const FLOW_TYPES = ['network-flow', 'storage-flow'];
    FlexGroup 這種從 SVM 起頭、沒有上游 aggr 的路徑，純最長路徑會把那台 SVM 推到第 0 欄。
    刻意不含 switch／node／pod：那是舊 switch 追查資料的型別，行為要維持逐 byte 不變。 */
 export const AUTO_TIER = ['netapp-node', 'netapp-aggr', 'netapp-svm', 'pvc'];
+/* 一串邊上實際出現了哪些通道（照 read、write 固定順序）。沒有通道的邊（switch 追查資料、
+   推導邊、歸屬線）不算——absent ≠ 0，不能用「有沒有邊」代替。
+   刻意放在 model 層：layout（節點的 tooltip）、svg（要不要輸出 write 漸層）、tables（欄數）、
+   app（圖例印幾行）四個消費者都要問這件事，各自寫一次的話粒度會不一樣——實際發生過：
+   app 只問「有沒有任何通道」就同時印 read 與 write 兩行圖例，資料只給 read 時圖例會
+   宣稱存在一種圖上根本沒有的通道，而 Defs 是正確分辨的。 */
+export const channelsIn = (edges: { channel: Channel | null }[]): Channel[] => {
+  const has = new Set<Channel>();
+  for (const e of edges) if (e.channel) has.add(e.channel);
+  return (['read', 'write'] as Channel[]).filter((c) => has.has(c));
+};
+
 /* 欄標題用的型別名稱；沒列的直接印 type 字串 */
 export const TYPE_LABEL: Record<string, string> = {
   'netapp-node': 'NetApp node', 'netapp-aggr': 'NetApp aggregate', 'netapp-svm': 'SVM',

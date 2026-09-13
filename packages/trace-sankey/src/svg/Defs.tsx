@@ -4,6 +4,7 @@
    顏色是三份定義沒有連動的其中一份（另兩份：styles/trace-sankey.css、app/src/app.css），改配色要三處一起改。
    語意：青＝已追查／read、燃橘＝write、玫瑰＝回流。 */
 import type { TraceModelOk } from '../model/types.js';
+import { channelsIn } from '../model/classify.js';
 
 export const Defs = ({ model, p }: { model: TraceModelOk; p: string }) => (
   <defs>
@@ -25,7 +26,7 @@ export const Defs = ({ model, p }: { model: TraceModelOk; p: string }) => (
     </linearGradient>
     {/* write 通道（storage 資料）：燃橘。read 沿用青帶——read 與無通道的 switch 帶同色。
         只在圖上真的有 write 帶時才輸出這兩個漸層：switch 追查資料的輸出不變 */}
-    {model.edges.some((e) => e.channel === 'write') && (
+    {channelsIn(model.edges).includes('write') && (
       <>
         <linearGradient id={p + 'gband-w'} x1="0" x2="1">
           <stop offset="0" stopColor="#c2410c" stopOpacity=".85" />

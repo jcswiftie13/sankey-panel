@@ -3,7 +3,7 @@
    鍵只在有值時出現（undefined 讓 JSON.stringify 丟掉），舊資料的輸出才不會變。 */
 import type { Channel, RateUnit, TraceEdge, TraceModelOk, TraceNode, TraceWrapper } from '../model/types.js';
 import { fmtBytes, fmtDelta, fmtRate } from '../model/format.js';
-import { TYPE_LABEL } from '../model/classify.js';
+import { TYPE_LABEL, channelsIn } from '../model/classify.js';
 import { fmtAmount } from '../model/format.js';
 import { sum } from '../model/util.js';
 import { resIn, resOut, typeWord, usageText } from './text.js';
@@ -53,13 +53,8 @@ export const bandTitle = (e: TraceEdge, meta: BandMeta): string =>
   meta.from + (e.fromIface ? ' ' + e.fromIface : '') + ' → ' +
   meta.to + (e.toIface ? ' ' + e.toIface : '') + '：' + fmtRate(e.bps, e.unit);
 
-/* 節點身上有哪些通道（照 read、write 順序）：沒有通道的邊（switch 資料、推導邊）不算 */
-const chList = (edges: TraceEdge[]): Channel[] => {
-  const has = new Set<Channel>();
-  for (const e of edges) if (e.channel) has.add(e.channel);
-  return (['read', 'write'] as Channel[]).filter((c) => has.has(c));
-};
-export const channelsOf = (n: TraceNode): Channel[] => chList(n.inEdges.concat(n.outEdges));
+/* 節點身上有哪些通道：一律走 model/classify 的 channelsIn（判定只有一份定義） */
+export const channelsOf = (n: TraceNode): Channel[] => channelsIn(n.inEdges.concat(n.outEdges));
 /* k8s node 外框的邊＝成員 pod 邊的聯集 */
 export const wrapperEdges = (w: TraceWrapper, model: TraceModelOk): { inb: TraceEdge[]; outb: TraceEdge[]; unit: RateUnit } => {
   let inb: TraceEdge[] = [], outb: TraceEdge[] = [];
@@ -94,7 +89,7 @@ export const nodeTip = (n: TraceNode | TraceWrapper, model: TraceModelOk): NodeT
   const we = isW ? wrapperEdges(n, model) : null;
   const inb = we ? we.inb : (n as TraceNode).inEdges, outb = we ? we.outb : (n as TraceNode).outEdges;
   const unit: RateUnit = we ? we.unit : (n as TraceNode).unit!;
-  const chs = we ? chList(inb.concat(outb)) : channelsOf(n as TraceNode);
+  const chs = we ? channelsIn(inb.concat(outb)) : channelsOf(n as TraceNode);
   const flowRow = (label: string, list: TraceEdge[]): void => {
     if (!chs.length) { rows.push([label, fmtAmount(sum(list), unit)]); return; }
     for (const ch of chs) rows.push([label + '（' + ch + '）', fmtAmount(sumCh(list, ch), unit)]);
