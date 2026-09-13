@@ -235,4 +235,10 @@ export const buildEdges = (ctx: BuildCtx): void => {
     ctx.warnings.push('只顯示 ' + channels + ' 通道：' + ctx.hiddenChannel + ' 條 ' + (channels === 'read' ? 'write' : 'read') +
       ' 帶不畫，量已併進其他輸入／其他輸出。');
   }
+  /* 被選成 root 卻一條可畫的邊都沒有的葉 pod：補成 no-flow pod 卡（root 一律畫） */
+  for (const id of ctx.rootLeafPods) {
+    if (nodes[id]) continue;
+    const p = ensureLeaf(id, { sif: '', tif: '' } as AggEdge, 'to');
+    p.noFlow = true;
+  }
 };

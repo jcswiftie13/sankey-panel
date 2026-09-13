@@ -2,6 +2,7 @@
 import type { AggEdge, BuildCtx, TraceNode, WireNodeData } from './types.js';
 import { AUTO_TIER, classOf, clientsOf, extraOf, FLOW_TYPES, infoOf, statusOf, usageOf, WEIGHT_KEYS, weightOf } from './classify.js';
 import { isObj, num, SEP, str } from './util.js';
+import { isRequestedRoot } from './roots.js';
 
 /* 1a. 掃邊：加總同鍵、記錄誰被 flow 邊碰到。方向計數（contOut/contIn）不看 metrics——
    「有沒有往下走的邊」是拓樸事實，不是量測事實。 */
@@ -14,8 +15,12 @@ export const scanEdges = (ctx: BuildCtx): void => {
     if (FLOW_TYPES.indexOf(d.type) < 0) continue;
     const lab = d.labels || {};
     if (lab.tier === 'pod-node') {
-      /* 擺放資訊而已，永遠不畫；記下來是為了認出「只被它碰到的 k8s node」 */
+      /* 擺放資訊而已，永遠不畫成帶；記下來是為了認出「只被它碰到的 k8s node」，
+         以及 layout:'node' 時知道哪個 pod 在哪台 node 上（不看 metrics，參考面板也是） */
       podNodeTouch.add(d.source); podNodeTouch.add(d.target);
+      let pods = ctx.k8sPods.get(d.target);
+      if (!pods) ctx.k8sPods.set(d.target, (pods = []));
+      pods.push(d.source);
       continue;
     }
     flowTouch.add(d.source); flowTouch.add(d.target);
@@ -81,18 +86,34 @@ const mkHop = (ctx: BuildCtx, d: WireNodeData): TraceNode => {
 /* 1b. 掃節點：群組跳過；葉型與葉 pod 等到第一條存活邊才建（lazy，門檻濾掉就不會留孤兒卡）；
    其餘建 hop 盒。回傳錯誤字串＝整個 build 失敗。 */
 export const scanNodes = (ctx: BuildCtx): string | null => {
-  const { nodes, order, flowTouch, podNodeTouch } = ctx;
+  const { nodes, order, flowTouch, podNodeTouch, roots, raw } = ctx;
   const isProxyPod = (id: string): boolean =>
     ((ctx.dir === 'destination' ? ctx.contOut : ctx.contIn).get(id) || 0) > 0;
+  /* roots 給了才套參考面板的保留規則：沒被畫到的 hop 只在「是 root」或「完全沒被任何邊碰到」時保留。
+     沒給 roots 就全保留（我們的超集）。 */
+  const keepNoFlow = (d: WireNodeData): boolean => {
+    if (!roots) return true;
+    return isRequestedRoot(d, roots, raw.nsOfPod) || (!flowTouch.has(d.id) && !podNodeTouch.has(d.id));
+  };
   for (const nd of ctx.doc.elements.nodes) {
     const d = nd.data, cls = classOf(d.type);
     if (cls !== 'hop') continue;
-    if (d.type === 'pod' && !isProxyPod(d.id)) continue;
-    /* k8s node 只被 pod-node 邊碰到＝參考面板的「Node layout 外框」，我們不畫那個 */
-    if (d.type === 'node' && !flowTouch.has(d.id) && podNodeTouch.has(d.id)) continue;
+    if (d.type === 'pod' && !isProxyPod(d.id)) {
+      /* 葉 pod 是 lazy 建的（第一條存活邊）；參考面板「root 一律畫」：被選成 root 卻沒有任何
+         可畫的邊的 pod，等邊都建完再補成 no-flow 卡（步驟 2 之後） */
+      if (roots && isRequestedRoot(d, roots, raw.nsOfPod)) ctx.rootLeafPods.push(d.id);
+      continue;
+    }
+    /* k8s node 只被 pod-node 邊碰到＝參考面板的「Node layout 外框」：flat 不畫；node 收起來，
+       等 pod 都建好再變成外框（不是圖節點，見步驟 6b） */
+    if (d.type === 'node' && !flowTouch.has(d.id) && podNodeTouch.has(d.id)) {
+      if (ctx.layout === 'node') ctx.k8sRaw.push(d);
+      continue;
+    }
+    if (!ctx.drawTouch.has(d.id) && !keepNoFlow(d)) continue;
     const n = mkHop(ctx, d);
     nodes[d.id] = n; order.push(d.id);
   }
-  if (!order.length) return '圖上沒有任何可畫的節點。';
+  if (!order.length && !ctx.k8sRaw.length && !ctx.rootLeafPods.length) return '圖上沒有任何可畫的節點。';
   return null;
 };

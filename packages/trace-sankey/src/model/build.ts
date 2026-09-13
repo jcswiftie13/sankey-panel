@@ -10,10 +10,14 @@
      4  prune       掛邊、編 id；4b ★ 移除孤立節點
      5  columns     排欄：tier 超級節點、多數決破環、SCC 破殘環、最長路徑、backward／lateral／subOrder
      6  residuals   ★ 濾掉的量併進殘差；每台守恆；葉加總；app／ns 的 pod 數與 status
-     7  normalize   欄位正規化、組回傳物件 */
+     6b wrappers    layout:'node' 的 k8s node 外框（不是圖節點）
+     7  normalize   欄位正規化（root 的 no-flow pod 改到 pod 欄）、組回傳物件 */
 import type { BuildCtx, BuildOptions, TraceModel, WireGraph } from './types.js';
 import { direction, validate } from './validate.js';
 import { resolveInvestigation } from './investigation.js';
+import { normRoots } from './roots.js';
+import { buildWrappers } from './wrappers.js';
+import { isObj } from './util.js';
 import { indexRaw } from './index-raw.js';
 import { scanEdges, scanNodes } from './scan.js';
 import { buildEdges } from './edges.js';
@@ -32,16 +36,20 @@ const makeCtx = (doc: WireGraph, opts?: BuildOptions): BuildCtx => ({
      channels 走同一條路：只看 read 時 write 帶的量也併進殘差。 */
   minBps: Math.max(0, Number(opts && opts.minBps) || 0),
   channels: opts && (opts.channels === 'read' || opts.channels === 'write') ? opts.channels : 'both',
+  /* layout／roots 的語意見 BuildOptions；roots 給了（含空物件）就正規化成每個鍵都有陣列 */
+  layout: opts && opts.layout === 'node' ? 'node' : 'flat',
+  roots: opts && isObj(opts.roots) ? normRoots(opts.roots) : null,
   warnings: [],
   raw: indexRaw(doc),
   flowTouch: new Set(), podNodeTouch: new Set(), drawTouch: new Set(),
   contOut: new Map(), contIn: new Map(),
-  agg: {}, aggOrder: [],
+  agg: {}, aggOrder: [], k8sPods: new Map(),
   nodes: {}, order: [], edges: [],
-  dropIn: {}, dropOut: {},
+  dropIn: {}, dropOut: {}, k8sRaw: [], rootLeafPods: [],
   filteredCount: 0, filteredBps: 0, hiddenChannel: 0,
   root: null, anchorEdge: null,
-  filteredNodes: []
+  filteredNodes: [],
+  wrappers: []
 });
 
 export const build = (doc: unknown, opts?: BuildOptions): TraceModel => {
@@ -61,6 +69,7 @@ export const build = (doc: unknown, opts?: BuildOptions): TraceModel => {
   attachAndPrune(ctx);
   assignColumns(ctx);
   computeResiduals(ctx);
+  buildWrappers(ctx);
   normalizeColumns(ctx);
   return assemble(ctx);
 };

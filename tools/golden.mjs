@@ -52,6 +52,9 @@ function variants(api, doc) {
   for (const min of MIN_BPS) out.push({ tag: '.min' + min, opts: { minBps: min } });
   const m = api.build(doc, { minBps: 0 });
   if (m.ok && m.edges.some((e) => e.channel)) out.push({ tag: '.read', opts: { channels: 'read' } });
+  /* 有 pod-node 邊的範例另跑 layout:'node'（k8s node 外框）；flat 的檔案集合不變 */
+  const hasPodNode = doc.elements.edges.some((e) => e.data && e.data.labels && e.data.labels.tier === 'pod-node');
+  if (m.ok && hasPodNode) out.push({ tag: '.node', opts: { layout: 'node' } });
   return out;
 }
 

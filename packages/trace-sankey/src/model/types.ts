@@ -148,6 +148,8 @@ export interface TraceNode {
   clients?: NodeClient[] | null;
   /** 顯示單位（跟著身上的邊）；步驟 6 才有 */
   unit?: RateUnit;
+  /** layout:'node'：這個葉 pod 被哪台 k8s node 外框包住（wrapper 的 id）；步驟 6b 才有 */
+  k8sNode?: string;
   /* hop */
   otherInBps?: number | null;
   otherOutBps?: number | null;
@@ -212,12 +214,41 @@ export interface TraceEdge {
   lateral?: boolean;
 }
 
+/** 參考面板的 root 選擇；每個鍵是名字陣列，pod 寫成「namespace/name」 */
+export interface StorageRoots {
+  ontap_cluster?: string[];
+  node?: string[];
+  aggr?: string[];
+  svm?: string[];
+  pod?: string[];
+}
+
+/** layout:'node' 的 k8s node 外框。不是圖節點：不進 nodes／nodeMap、沒有邊、不排欄、不算殘差。 */
+export interface TraceWrapper {
+  id: string;
+  label: string;
+  role: 'node';
+  kind: 'wrapper';
+  /** node 自己與成員 pod 的最差值 */
+  status: Status | null;
+  /** 成員葉 pod 的 id（門檻／通道濾掉的不算） */
+  podIds: string[];
+  /** 沒有成員（被選成 root 才會留下）：畫成空外框 */
+  noFlow: boolean;
+  info: NodeInfo | null;
+  usage: NodeUsage | null;
+}
+
 export interface TraceModelOk {
   ok: true;
   dir: Direction;
   /** 正規化後的起點（不論輸入寫在節點還是頂層），沒有就 null */
   investigation: WireInvestigation | null;
   channels: Channels;
+  layout: 'flat' | 'node';
+  wrappers: TraceWrapper[];
+  /** 正規化後的 roots（每個鍵都有陣列）；沒給就 null */
+  roots: Required<StorageRoots> | null;
   /** 信封欄位原樣帶出（沒給就 null） */
   apiVersion: string | null;
   clusters: string[] | null;
@@ -247,6 +278,12 @@ export interface BuildOptions {
   minBps?: number;
   /** storage 資料只看其中一個通道；被藏的通道併進其他輸入／其他輸出。無通道的邊不受影響 */
   channels?: Channels;
+  /** 'flat'（預設）不畫 k8s node；'node' 把只被 pod-node 邊碰到的 k8s node 畫成包住它 pod 的外框
+      （參考面板的 Layout: Node）。資料要有 tier:"pod-node" 的邊 */
+  layout?: 'flat' | 'node';
+  /** 參考面板的 root 選擇。省略＝現行超集（no-flow hop 全保留）；給了（含空物件）＝參考規則。
+      root 只用來保留、絕不用來過濾 */
+  roots?: StorageRoots | null;
 }
 
 
@@ -285,6 +322,8 @@ export interface BuildCtx {
   invSource: 'top' | 'node' | null;
   minBps: number;
   channels: Channels;
+  layout: 'flat' | 'node';
+  roots: Required<StorageRoots> | null;
   warnings: string[];
   raw: RawIndex;
   /* 1a */
@@ -295,12 +334,18 @@ export interface BuildCtx {
   contIn: Map<string, number>;
   agg: Record<string, AggEdge>;
   aggOrder: string[];
+  /** k8s node id → 它上面的 pod id（照 pod-node 邊出現順序） */
+  k8sPods: Map<string, string[]>;
   /* 1b／2 */
   nodes: Record<string, TraceNode>;
   order: string[];
   edges: TraceEdge[];
   dropIn: Record<string, number>;
   dropOut: Record<string, number>;
+  /** layout:'node' 時只被 pod-node 邊碰到的 k8s node，等 pod 建好再變成外框 */
+  k8sRaw: WireNodeData[];
+  /** 被選成 root 卻沒有任何可畫的邊的葉 pod，步驟 2 之後補成 no-flow 卡 */
+  rootLeafPods: string[];
   filteredCount: number;
   filteredBps: number;
   hiddenChannel: number;
@@ -309,4 +354,6 @@ export interface BuildCtx {
   anchorEdge: TraceEdge | null;
   /* 4b */
   filteredNodes: string[];
+  /* 6b */
+  wrappers: TraceWrapper[];
 }
