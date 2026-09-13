@@ -546,7 +546,9 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
 4. 多數決平手時依 `nodes` 陣列出現順序決勝；同鍵多條邊的 `attribution`／`extra` 採先到值——結果依賴輸入順序（但確定性）。
 5. **ns／app 分組與終點只作用於葉 pod**（`kind:'leaf' && role:'pod'`）：render 的欄內排序讓同 ns 相鄰、槽位跟著
    對端 y 重排；pod 流量自動匯進 app／ns 終點。proxy pod（有往下走的邊）的 ns 只是盒副標、不接終點。
-   pod 沒有 ns 是合法的（不接、沒色條、卡片矮一階）。ns 色盤 5 色依首次出現順序取用、超過循環。
+   pod 沒有 ns 是合法的（不接、沒色條、卡片矮一階）。ns 色盤 10 色依首次出現順序取用、第 11 個才循環
+   （前 5 色是原本的、不准動；6～7 是色輪上還空著的色相，8～10 是綠／黃／藍的暗變體。選色要一起看飽和度——
+   淺變體的 WCAG 對比度很漂亮但在深色底上一律讀成白／灰，試過並否決，理由在 `layout/constants.ts`）。
 6. `colCaption` 用 `col[0].col` 印「第 N 跳」，destination 模式下 anchor 佔 col 0，第一台顯示「第 1 跳」；
    沒有 investigation 的圖第一欄是「第 0 跳」——都是相對欄號、不是輸入裡的跳數。
 7. 規模上限：`stress/05-huge.json`（1365 台、5.4 萬個 SVG 元素）滾輪每格約 130ms；要撐這種量需要視野裁剪（未做）。

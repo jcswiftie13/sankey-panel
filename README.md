@@ -1067,8 +1067,8 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
   **全圖同 ns 合一個節點**（跨 node 的 pod 匯流），「這個 ns 總共多少」直接在圖上讀；
   追來源模式鏡像，ns 終點落在最左欄。有往下走的邊的中繼 pod（proxy pod）**不接** ns——
   它的流量已流向自己的下游，再接會重複計量破壞守恆，它的 ns 只是盒副標。
-  同 ns 的 pod 在欄內**相鄰排列**、左緣掛同色 ns 色條（色盤 5 色依首次出現順序取用、
-  超過循環）；pod 落在不同深度時各 ns 各自落欄，是預期行為。彙總數字在 `summary()`
+  同 ns 的 pod 在欄內**相鄰排列**、左緣掛同色 ns 色條（色盤 10 色依首次出現順序取用、
+  第 11 個才循環）；pod 落在不同深度時各 ns 各自落欄，是預期行為。彙總數字在 `summary()`
   的「namespace 流量小計」表（目前 app 沒有顯示這張表）。
 - 整欄同一種非 switch 型別時欄標題帶型別名：「第 N 跳 · k8s node」「第 N 跳 · NetApp aggregate」
   「第 N 跳 · SVM」「第 N 跳 · PVC」；整欄都是 pod 卡標「第 N 跳 · pod」；整欄 application 標
