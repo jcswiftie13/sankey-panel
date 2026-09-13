@@ -12,6 +12,7 @@
    讀者會把「型別標的顏色」讀成代表型別，實際代表的是狀態。 */
 import type { NodeGeom, Slot, WrapperGeom } from '../layout/geometry.js';
 import type { TraceModelOk, TraceNode, TraceWrapper } from '../model/types.js';
+import { COLORS as C } from '../layout/colors.js';
 import { CLIENT_GAP, CLIENT_PAD, DEVICE_TYPES, LINE_H, RES_GAP, RES_LEN, STATUS_COLOR, WRAP_HEADER_H } from '../layout/constants.js';
 import { clientCols, clientRows, clip, hasUsage, headerH, usageText } from '../layout/text.js';
 import { nodeTip } from '../layout/tips.js';
@@ -40,7 +41,7 @@ export const NodeBox = ({ n, g, model, nsColor, clickable }: CardProps) => {
   const lines: React.ReactNode[] = [];
   let ly = g.y + 29 + LINE_H;
   if (n.namespace) {
-    lines.push(<text key="ns" className="n-sub" style={{ fill: nsColor[n.namespace] || '#94a3b8' }} x={g.x + 12} y={ly}>{'ns/' + n.namespace}</text>);
+    lines.push(<text key="ns" className="n-sub" style={{ fill: nsColor[n.namespace] || C.gray }} x={g.x + 12} y={ly}>{'ns/' + n.namespace}</text>);
     ly += LINE_H;
   }
   if (n.ontapCluster) {
@@ -52,11 +53,11 @@ export const NodeBox = ({ n, g, model, nsColor, clickable }: CardProps) => {
      虛線只看設備型別——root 的 k8s node 兩個身分都看得見 */
   return (
     <g {...gAttrs(n, model, clickable)}>
-      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="9" fill="#101c28"
-        stroke={statusColor || (n.isRoot ? '#22d3ee' : (isDevice ? '#7dd3fc' : '#2c3e52'))}
+      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="9" fill={C.cardBg}
+        stroke={statusColor || (n.isRoot ? C.cyan : (isDevice ? C.sky : C.line2))}
         strokeWidth={n.isRoot || statusColor ? 1.8 : 1.2}
         strokeDasharray={isDevice ? '6 4' : undefined} />
-      <line x1={g.x} y1={g.y + hh - 6} x2={g.x + g.w} y2={g.y + hh - 6} stroke="#22303f" />
+      <line x1={g.x} y1={g.y + hh - 6} x2={g.x + g.w} y2={g.y + hh - 6} stroke={C.line} />
       {/* 型別標印 role 原字（switch／pod／netapp-aggr…） */}
       <text className="leaf-stop" x={g.x + 12} y={g.y + 15}>{n.role}</text>
       <text className="n-title" x={g.x + 12} y={g.y + 29}>{n.label}</text>
@@ -73,7 +74,7 @@ export const NodeBox = ({ n, g, model, nsColor, clickable }: CardProps) => {
 };
 
 export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
-  const nsc = n.namespace ? (nsColor[n.namespace] || '#94a3b8') : null;
+  const nsc = n.namespace ? (nsColor[n.namespace] || C.gray) : null;
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
   const cols = clientCols(n);
   const unit = n.unit!;
@@ -100,7 +101,7 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
       body.push(<text key={'h-' + col.key} className="leaf-stop" x={cx} y={hy}>{col.key}</text>);
       cx += col.w + CLIENT_GAP;
     }
-    body.push(<line key="hl" x1={g.x + CLIENT_PAD} y1={hy + 4} x2={g.x + g.w - CLIENT_PAD} y2={hy + 4} stroke="#22303f" />);
+    body.push(<line key="hl" x1={g.x + CLIENT_PAD} y1={hy + 4} x2={g.x + g.w - CLIENT_PAD} y2={hy + 4} stroke={C.line} />);
     ly += 14;
     clientRows(n).forEach((cells, r) => {
       let rx = g.x + CLIENT_PAD;
@@ -127,8 +128,8 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
   const nc = n.clients ? n.clients.length : 0;
   return (
     <g {...gAttrs(n, model, clickable)}>
-      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill="#0e151d"
-        stroke={statusColor || '#94a3b8'} strokeOpacity={statusColor ? '1' : '.65'}
+      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.leafBg}
+        stroke={statusColor || C.gray} strokeOpacity={statusColor ? '1' : '.65'}
         strokeWidth={statusColor ? '1.8' : '1.1'} strokeDasharray="5 4" />
       {/* 左緣 ns 色條：帶 ns 的非 pod 葉也照畫（與色盤取用條件一致）。上下內縮避開圓角，避免色條戳出弧線外。 */}
       {nsc && <rect x={g.x + 1.5} y={g.y + 5} width="4" height={g.h - 10} rx="2" fill={nsc} fillOpacity=".85" />}
@@ -146,14 +147,14 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
    另一側有邊接 app／ns 終點，「追查終止／未再往下追」字樣不再出現。
    沒有 ns 的 pod（合法）就沒有色條與 ns 行，iface 行上移。 */
 export const PodCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
-  const nsc = n.namespace ? (nsColor[n.namespace] || '#94a3b8') : null;
+  const nsc = n.namespace ? (nsColor[n.namespace] || C.gray) : null;
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
   const ly = g.y + 31 + LINE_H + (nsc ? LINE_H : 0);
   const ifc = n.iface || n.localIface || '';
   return (
     <g {...gAttrs(n, model, clickable)}>
-      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill="#0e151d"
-        stroke={statusColor || '#7dd3fc'} strokeOpacity={statusColor ? '1' : '.55'}
+      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.leafBg}
+        stroke={statusColor || C.sky} strokeOpacity={statusColor ? '1' : '.55'}
         strokeWidth={statusColor ? '1.8' : '1.1'} strokeDasharray="5 4" />
       {/* 左緣 ns 色條：同 ns 的 pod 相鄰排列時色條連成一段，彙總一眼可讀 */}
       {nsc && <rect x={g.x + 1.5} y={g.y + 5} width="4" height={g.h - 10} rx="2" fill={nsc} fillOpacity=".85" />}
@@ -173,12 +174,12 @@ export const WrapperBox = ({ g, model, clickable }: { g: WrapperGeom; model: Tra
   const statusColor = w.status ? STATUS_COLOR[w.status] : null;
   return (
     <>
-      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="12" fill="#0e151d" fillOpacity=".35"
-        stroke={statusColor || '#7dd3fc'} strokeOpacity={statusColor ? '1' : '.55'}
+      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="12" fill={C.leafBg} fillOpacity=".35"
+        stroke={statusColor || C.sky} strokeOpacity={statusColor ? '1' : '.55'}
         strokeWidth={statusColor ? '1.8' : '1.2'} pointerEvents="none" />
       <g {...gAttrs(w, model, clickable)}>
         <rect x={g.x} y={g.y} width={g.w} height={WRAP_HEADER_H} fill="transparent" />
-        <line x1={g.x} y1={g.y + WRAP_HEADER_H - 6} x2={g.x + g.w} y2={g.y + WRAP_HEADER_H - 6} stroke="#22303f" />
+        <line x1={g.x} y1={g.y + WRAP_HEADER_H - 6} x2={g.x + g.w} y2={g.y + WRAP_HEADER_H - 6} stroke={C.line} />
         <text className="leaf-stop" x={g.x + 12} y={g.y + 15}>node</text>
         <text className="n-title" x={g.x + 12} y={g.y + 29}>{w.label}</text>
         <text className="n-sub" x={g.x + 12} y={g.y + 29 + LINE_H}>{w.noFlow ? 'no flow' : w.podIds.length + ' 個 pod'}</text>
@@ -191,7 +192,7 @@ export const WrapperBox = ({ g, model, clickable }: { g: WrapperGeom; model: Tra
    虛線留給「設備／截斷」的既有語彙。bps 是所有成員邊的加總（model 算好）；
    status 是成員 pod 的最差值，有就換成 status 色描邊。 */
 export const GroupCard = ({ n, g, model, nsColor, clickable, word }: CardProps & { word: 'namespace' | 'application' }) => {
-  const nsc = nsColor[n.namespace!] || '#94a3b8';
+  const nsc = nsColor[n.namespace!] || C.gray;
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
   const lines: React.ReactNode[] = [];
   let ly = g.y + 31 + LINE_H;
@@ -220,7 +221,7 @@ export const GroupCard = ({ n, g, model, nsColor, clickable, word }: CardProps &
    那不是「沒有流量」而是「量停在 port」，所以第三行改印台數，不能印一個 0 出來。 */
 export const OwnerCard = ({ n, g, model, clickable }: CardProps) => (
   <g {...gAttrs(n, model, clickable)}>
-    <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill="#94a3b8" fillOpacity=".10" stroke="#94a3b8" strokeWidth="1.4" />
+    <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.gray} fillOpacity=".10" stroke={C.gray} strokeWidth="1.4" />
     <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>owner</text>
     <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{clip(n.label, 34)}</text>
     {/* 量與台數分兩行：擠成一行會讀成「這個量是這幾個 port 的總和」，
@@ -236,7 +237,7 @@ export const AnchorCard = ({ n, g, model, clickable }: CardProps) => {
   const inv = model.investigation!;
   return (
     <g {...gAttrs(n, model, clickable)}>
-      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill="#0d1a22" stroke="#22d3ee" strokeWidth="1.4" strokeDasharray="4 3" />
+      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.anchorBg} stroke={C.cyan} strokeWidth="1.4" strokeDasharray="4 3" />
       <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>追查起點</text>
       <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{inv.iface}</text>
       <text className="leaf-sub" x={g.x + 12} y={g.y + 31 + LINE_H}>{n.dirLabel + ' 方向 · ' + D(inv.delta_bps)}</text>
@@ -263,7 +264,7 @@ export const Card = (p: CardProps) => {
    原生 <title> 兩種模式都留：殘差沒有 data-tip，這是它唯一的 hover 資訊。 */
 export const Residual = ({ n, g, sl }: { n: TraceNode; g: NodeGeom; sl: Slot }) => {
   const isIn = sl.res === 'in';
-  const color = isIn ? '#f59e0b' : '#fb7185';
+  const color = isIn ? C.amber : C.rose;
   const h = sl.t;                                  /* 已含 THICK_MIN 下限 */
   const x = isIn ? g.x - RES_LEN : g.x + g.w;
   const txtX = isIn ? x - RES_GAP : x + RES_LEN + RES_GAP;
@@ -272,7 +273,7 @@ export const Residual = ({ n, g, sl }: { n: TraceNode; g: NodeGeom; sl: Slot }) 
   const unit = n.unit!;
   const amount = (isIn && unit !== 'bytesPerSec' ? '+' : '') + A(sl.bps!, unit);
   /* 標籤用描邊光暈，不用不透明底板——底板會在青帶上打出一個黑洞（殘差最後才畫） */
-  const halo = { fill: color, paintOrder: 'stroke', stroke: '#0b1017', strokeWidth: '3.5px' } as const;
+  const halo = { fill: color, paintOrder: 'stroke', stroke: C.bg, strokeWidth: '3.5px' } as const;
   return (
     <g>
       <title>{n.label + '：' + word + ' ' + A(sl.bps!, unit) +

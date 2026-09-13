@@ -1,0 +1,27 @@
+/* 使用端可以選用的色票：與圖同一份色值（由 src/layout/colors.ts 產生，不要手改）。
+   為什麼另外開一支 :root scope 的檔案——套件的主樣式表刻意把變數 scope 在 .trace-sankey 底下、
+   不污染宿主的全域。但使用端的圖例、工具列這些元素通常是 <TraceSankey> 的**兄弟**，
+   吃不到那個子樹裡的變數。想讓自己的 UI 跟圖同色就 import 這支（純變數、不含任何規則）：
+     import 'trace-sankey/tokens.css';
+   不 import 也完全不影響圖。 */
+:root {
+  --bg: #0b1017;
+  --bg2: #111a24;
+  --panel: #131d29;
+  --panel-glow: #12202e;
+  --line: #22303f;
+  --line2: #2c3e52;
+  --fg: #e6edf5;
+  --dim: #93a4b8;
+  --dim2: #6b7f95;
+  --cyan: #22d3ee;
+  --cyan-d: #0e7490;
+  --amber: #f59e0b;
+  --rose: #fb7185;
+  --rose-d: #9f1239;
+  --green: #4ade80;
+  --gray: #94a3b8;
+  --orange: #c2410c;
+  --orange-d: #7c2d12;
+  --sky: #7dd3fc;
+}

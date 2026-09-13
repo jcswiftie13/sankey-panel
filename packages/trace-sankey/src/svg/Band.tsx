@@ -4,6 +4,7 @@
    headless（Node 端字串渲染）才輸出原生 <title>：瀏覽器有 JS tooltip，留著會多一個瀏覽器自己的提示框。 */
 import type { EdgeGeom } from '../layout/geometry.js';
 import type { TraceEdge, TraceModelOk } from '../model/types.js';
+import { COLORS as C } from '../layout/colors.js';
 import { OWN_T } from '../layout/constants.js';
 import { backwardRibbon, lateralRibbon, ownLine, ribbon } from '../layout/paths.js';
 import { bandMeta, bandTitle } from '../layout/tips.js';
@@ -21,11 +22,11 @@ export const Band = ({ e, ei, g, model, headless, p }: BandProps) => {
     return g.backNear ? (
       /* 相鄰欄回流：整條活在兩欄之間的走廊，反向的一般帶 */
       <path className="band band-back" d={ribbon(g)} fill={'url(#' + p + 'gband-back)'}
-        stroke="#fb7185" strokeOpacity=".35" strokeWidth="1" data-e={ei} data-tip={tip}>{backTitle}</path>
+        stroke={C.rose} strokeOpacity=".35" strokeWidth="1" data-e={ei} data-tip={tip}>{backTitle}</path>
     ) : (
       /* band-loop：fill 是 none，hover 只能加深 stroke，CSS 得認得出來 */
       <path className="band band-back band-loop" d={backwardRibbon(g)} fill="none"
-        stroke="#fb7185" strokeOpacity=".55" strokeWidth={g.backT}
+        stroke={C.rose} strokeOpacity=".55" strokeWidth={g.backT}
         strokeLinejoin="round" strokeLinecap="butt" data-e={ei} data-tip={tip}>{backTitle}</path>
     );
   }
@@ -34,7 +35,7 @@ export const Band = ({ e, ei, g, model, headless, p }: BandProps) => {
   if (e.owns) {
     return (
       <path className="band band-own" d={ownLine(g)} fill="none"
-        stroke="#94a3b8" strokeOpacity=".55" strokeWidth={OWN_T} strokeDasharray="5 4" data-e={ei} data-tip={tip}>
+        stroke={C.gray} strokeOpacity=".55" strokeWidth={OWN_T} strokeDasharray="5 4" data-e={ei} data-tip={tip}>
         {headless ? <title>{meta.from + ' → ' + meta.to + '：歸屬（量停在 port）'}</title> : null}
       </path>
     );
@@ -50,7 +51,7 @@ export const Band = ({ e, ei, g, model, headless, p }: BandProps) => {
     <>
       <path className={'band' + (e.lateral ? ' band-lat' : '') + (isW ? ' band-w' : '') + (isZero ? ' band-zero' : '')}
         d={e.lateral ? lateralRibbon(g, g.bulge!) : ribbon(g)} fill={'url(#' + p + (isW ? 'gband-w' : 'gband') + ')'}
-        stroke={isW ? '#c2410c' : '#22d3ee'} strokeOpacity=".35" strokeWidth="1" data-e={ei} data-tip={tip}>
+        stroke={isW ? C.orange : C.cyan} strokeOpacity=".35" strokeWidth="1" data-e={ei} data-tip={tip}>
         {headless ? <title>{tt}</title> : null}
       </path>
       {e.lateral && (
@@ -72,6 +73,6 @@ export const BandLabel = ({ e, g }: { e: TraceEdge; g: EdgeGeom }) => {
   const my = loop ? g.backY! - g.backT! / 2 - 10 : (g.y1 + g.y2) / 2;
   return (
     <text x={mx} y={my + 4} textAnchor="middle" className="p-val"
-      style={{ paintOrder: 'stroke', stroke: '#0b1017', strokeWidth: '3.5px' }}>{fmtRate(e.bps, e.unit)}</text>
+      style={{ paintOrder: 'stroke', stroke: C.bg, strokeWidth: '3.5px' }}>{fmtRate(e.bps, e.unit)}</text>
   );
 };

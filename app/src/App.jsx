@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { channelsIn, fmtBps, zoomStep } from 'trace-sankey';
 import { TraceSankey } from 'trace-sankey/react';
 import 'trace-sankey/style.css';
+import 'trace-sankey/tokens.css';   /* 圖例與工具列吃得到跟圖同一份色票（:root scope） */
 import './app.css';
 import { useTraceDoc } from './useTraceDoc.js';
 import { TraceQueryBar, buildParams } from './TraceQueryBar.jsx';

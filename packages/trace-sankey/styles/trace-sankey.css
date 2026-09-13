@@ -1,11 +1,17 @@
 /* trace-sankey 套件樣式：<TraceSankey> 容器（.trace-sankey.chart-wrap）與 tooltip。
    色票變數不放 :root——套件不污染使用端的全域；scope 在自己的兩個根元素上，
    CSS 變數向下繼承，SVG 內的 text class 照常吃得到。
-   注意：svg/Defs.tsx／svg/Band.tsx／layout/constants.ts 產出的 SVG 硬編碼了同一批十六進位色
-   （漸層 defs、STATUS_COLOR），改配色要兩邊一起改。 */
+   下面的色票區塊由 src/layout/colors.ts 產生（npm run gen:css -w trace-sankey），不要手改：
+   同一批色值以前散在這裡、SVG 屬性、STATUS_COLOR 與使用端的 app.css 四處，已經漂移過。
+   SVG 屬性刻意保留字面色值（render() 產的字串不掛 CSS，改吃 var() 顏色會整片消失），
+   但那些字面值來自 colors.ts、不是抄的。 */
 .trace-sankey,
 .trace-sankey-tooltip {
+  /* gen:colors start — 由 src/layout/colors.ts 產生，不要手改（npm run gen:css -w trace-sankey） */
+  --bg: #0b1017;
+  --bg2: #111a24;
   --panel: #131d29;
+  --panel-glow: #12202e;
   --line: #22303f;
   --line2: #2c3e52;
   --fg: #e6edf5;
@@ -15,9 +21,13 @@
   --cyan-d: #0e7490;
   --amber: #f59e0b;
   --rose: #fb7185;
-  --green: #4ade80;     /* status normal 的外框色（warning 琥珀、critical 玫瑰） */
+  --rose-d: #9f1239;
+  --green: #4ade80;
   --gray: #94a3b8;
-  --orange: #c2410c;     /* storage 資料的 write 通道帶（read 沿用青） */
+  --orange: #c2410c;
+  --orange-d: #7c2d12;
+  --sky: #7dd3fc;
+  /* gen:colors end */
   --radius: 10px;
   /* SVG 文字繼承容器字型：不自帶的話會吃到使用端頁面的字型，圖的量字對不齊 */
   font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -27,7 +37,7 @@
 /* ---------- 容器 ---------- */
 /* 高度刻意不在這裡定：容器多高由使用端 CSS 決定，mount 不猜版面 */
 .trace-sankey.chart-wrap{position:relative;border:1px solid var(--line);border-radius:var(--radius);
-  background:radial-gradient(1200px 500px at 20% -10%,#12202e,transparent),var(--panel);
+  background:radial-gradient(1200px 500px at 20% -10%,var(--panel-glow),transparent),var(--panel);
   overflow:hidden;
   touch-action:none;-webkit-user-select:none;user-select:none}
 .trace-sankey.chart-wrap:focus-visible{outline:1px solid var(--cyan-d);outline-offset:2px}
