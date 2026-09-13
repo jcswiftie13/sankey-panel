@@ -4,7 +4,12 @@
    把 DOM 對回 model 的通道（帶的對應物是 data-e），與 zoom-layer、data-tip 一樣是套件的 public 契約。
    殘差色塊沒有 data-tip、只有原生 <title>。
    每張卡同一套版式：第 1 行型別標（.leaf-stop）、第 2 行名字、之後一行一個屬性（LINE_H）；
-   卡面不印 id（參考後端的 id 是路徑式長字串，卡面沒意義；tooltip 最後一列有）。 */
+   卡面不印 id（參考後端的 id 是路徑式長字串，卡面沒意義；tooltip 最後一列有）。
+   型別標一律吃 .leaf-stop 的灰、不帶 inline 色（styles/trace-sankey.css）：它是後設資訊層，
+   身分走底色與外框（ns／app 的 nsc、錨卡的青框、設備的天藍框），狀態走外框色＋加粗，型別標兩者都不表達。
+   曾經只有 ns／app 染 ns 色、錨卡染青，圖上看起來就是「只有這兩種卡的型別標有顏色」的無規則不一致；
+   更硬的理由是型別標若跟著外框色染，同一台 switch 從 normal 變 warning 時那行字會一起變色，
+   讀者會把「型別標的顏色」讀成代表型別，實際代表的是狀態。 */
 import type { NodeGeom, Slot, WrapperGeom } from '../layout/geometry.js';
 import type { TraceModelOk, TraceNode, TraceWrapper } from '../model/types.js';
 import { CLIENT_GAP, CLIENT_PAD, DEVICE_TYPES, LINE_H, RES_GAP, RES_LEN, STATUS_COLOR, WRAP_HEADER_H } from '../layout/constants.js';
@@ -202,7 +207,7 @@ export const GroupCard = ({ n, g, model, nsColor, clickable, word }: CardProps &
     <g {...gAttrs(n, model, clickable)}>
       <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={nsc} fillOpacity=".10"
         stroke={statusColor || nsc} strokeWidth={statusColor ? '1.8' : '1.4'} />
-      <text className="leaf-stop" style={{ fill: nsc }} x={g.x + 12} y={g.y + 17}>{word}</text>
+      <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>{word}</text>
       <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{n.label}</text>
       {lines}
     </g>
@@ -232,7 +237,7 @@ export const AnchorCard = ({ n, g, model, clickable }: CardProps) => {
   return (
     <g {...gAttrs(n, model, clickable)}>
       <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill="#0d1a22" stroke="#22d3ee" strokeWidth="1.4" strokeDasharray="4 3" />
-      <text className="leaf-stop" style={{ fill: '#22d3ee' }} x={g.x + 12} y={g.y + 17}>追查起點</text>
+      <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>追查起點</text>
       <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{inv.iface}</text>
       <text className="leaf-sub" x={g.x + 12} y={g.y + 31 + LINE_H}>{n.dirLabel + ' 方向 · ' + D(inv.delta_bps)}</text>
     </g>

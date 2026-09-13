@@ -448,7 +448,10 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
   `NodeBox` 外框色優先序 **status（critical `#fb7185`／warning `#f59e0b`／normal `#4ade80`；綠刻意避開 ns 色盤的
   `#34d399`）> isRoot 青 > 設備天藍 > 預設**，`DEVICE_TYPES`（node/pod/netapp 三型別）虛線。
   **每張卡同一套版式**：第 1 行型別標（`.leaf-stop`，hop 印 `role` 原字、葉印 `type||'host'`）、第 2 行名字、
-  之後一行一個屬性（`LINE_H 13`）；**卡面不印 id**，tooltip 最後一列才有。hop 盒 `headerH(n) = HEADER_H(40) + 13 × 屬性行數`；
+  之後一行一個屬性（`LINE_H 13`）；**卡面不印 id**，tooltip 最後一列才有。
+  **型別標九處一律吃 `.leaf-stop` 的灰、不疊 inline 色**：它是後設資訊層，身分走底色與外框、狀態走外框色＋加粗，
+  兩者都不表達（ns／app 曾染 ns 色、錨卡曾染青，只有那兩種卡有顏色反而讀不出規則）。理由寫在 `svg/cards.tsx` 檔頭。
+  hop 盒 `headerH(n) = HEADER_H(40) + 13 × 屬性行數`；
   葉／群組卡高度 `cardH(屬性行數)`；k8s node 外框標題區 `WRAP_HEADER_H 52`（型別／名字／pod 數）。
   tooltip 的流量行每一種卡都是 `in／out` × 通道四行（`nodeTip` 共用 `flowRow`），卡種差異只在附加列；
   wrapper 的邊是成員 pod 邊的聯集、`unit` 算成區域變數（`wrapperEdges`），不寫回 model。

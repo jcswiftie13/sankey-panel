@@ -65,6 +65,9 @@
 .trace-sankey .p-label{fill:var(--dim);font-size:10.5px}
 .trace-sankey .p-val{fill:#cfe9f3;font-size:10.5px;font-weight:600}
 .trace-sankey .res-label{font-size:10.5px;font-weight:600}
+/* 卡片左上角的型別標（switch／pod／owner／namespace／application／node／host／追查起點）。
+   九處全部只吃這支灰、不在 cards.tsx 疊 inline 色——型別標是後設資訊層，不表達身分也不表達狀態，
+   理由寫在 svg/cards.tsx 檔頭。 */
 .trace-sankey .leaf-stop{fill:var(--gray);font-size:9.5px;letter-spacing:.06em}
 .trace-sankey .leaf-main{fill:#c3cfdc;font-size:11px;font-weight:600}
 .trace-sankey .leaf-sub{fill:var(--dim2);font-size:10px}
