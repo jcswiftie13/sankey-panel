@@ -15,8 +15,12 @@ export const summary = (model: TraceModelOk): string => {
       (n.noFlow ? ' <span class="c-dim">(no-flow)</span>' : '') + '</td>' +
       '<td class="num">' + A(n.tracedIn!, unit) + '</td>' +
       '<td class="num">' + A(n.tracedOut!, unit) + '</td>' +
-      '<td class="num c-amber">' + (resIn(n) ? (unit === 'bytesPerSec' ? '' : '+') + A(n.otherIn!, unit) : '—') + '</td>' +
-      '<td class="num c-rose">' + (resOut(n) ? A(n.otherOut!, unit) : '—') + '</td></tr>');
+      /* 兩個殘差欄都走 fmtRate（同一個「何時加 +」的定義，只有 format.ts 一份）。
+         以前「其他進」自己手刻加號、「其他出」沒有，兩欄不對稱。
+         前兩欄（追查輸入／出口增加）維持 fmtAmount 不帶號——那是這張表既有的慣例，
+         不要只改一半。 */
+      '<td class="num c-amber">' + (resIn(n) ? R(n.otherIn!, unit) : '—') + '</td>' +
+      '<td class="num c-rose">' + (resOut(n) ? R(n.otherOut!, unit) : '—') + '</td></tr>');
   }
   h.push('</tbody></table></div>');
   /* namespace 流量小計：走 aggregates.ts 的共用彙總，與 flowTables 的那張表同一份來源。

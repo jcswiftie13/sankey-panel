@@ -271,12 +271,17 @@ export const Residual = ({ n, g, sl }: { n: TraceNode; g: NodeGeom; sl: Slot }) 
   const anchor = isIn ? 'end' : 'start';
   const word = isIn ? '其他輸入' : '其他輸出';
   const unit = n.unit!;
-  const amount = (isIn && unit !== 'bytesPerSec' ? '+' : '') + A(sl.bps!, unit);
+  /* 殘差的量走 fmtRate，跟帶上的數字同一個格式規則（bytes/s 不帶號、bps 帶 +）。
+     以前這裡自己手刻「isIn && 不是 bytesPerSec 才加 +」——判斷的是 isIn 這個布林、
+     不是數值本身，所以「其他輸入」帶 + 而「其他輸出」不帶，兩側不對稱；而且一旦哪天
+     改成「其他輸入＝0 也畫色塊」就會印出「+0 bps」（fmtDelta 判斷的是數值，不會）。
+     <title> 用同一個函式，卡面與 hover 文字不會一個帶號一個不帶。 */
+  const amount = R(sl.bps!, unit);
   /* 標籤用描邊光暈，不用不透明底板——底板會在青帶上打出一個黑洞（殘差最後才畫） */
   const halo = { fill: color, paintOrder: 'stroke', stroke: C.bg, strokeWidth: '3.5px' } as const;
   return (
     <g>
-      <title>{n.label + '：' + word + ' ' + A(sl.bps!, unit) +
+      <title>{n.label + '：' + word + ' ' + amount +
         '（已追查 in ' + A(n.tracedIn!, unit) + ' / out ' + A(n.tracedOut!, unit) + '）'}</title>
       <rect x={x} y={sl.cy - h / 2} width={RES_LEN} height={h} fill={color} fillOpacity=".16"
         stroke={color} strokeWidth="1.4" strokeDasharray="4 3" />
