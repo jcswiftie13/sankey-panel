@@ -217,29 +217,49 @@ contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 // React：
 import { TraceSankey } from 'trace-sankey/react';
 import 'trace-sankey/style.css';
-<TraceSankey doc={wireJson} minBps={0} channels="both" className="my-chart" />
+<TraceSankey doc={wireJson} minBps={0} channels="both" layout="flat" pathHighlight
+  onNodeClick={(id, node) => locate(id)} className="my-chart" />
 // 容器高度由你的 CSS 決定（元件不設高度）
 
 // 不用 React（vanilla）：
 import { mount } from 'trace-sankey';
-const inst = mount(document.getElementById('chart'), wireJson, { minBps: 0, channels: 'both' });
-inst.setMinBps(5e8); inst.setChannels('read'); inst.zoom.fit(); inst.destroy();
+const inst = mount(document.getElementById('chart'), wireJson, {
+  minBps: 0, channels: 'both', layout: 'flat', roots: null, pathHighlight: true,
+  onNodeClick: (id, node) => locate(id)
+});
+inst.setMinBps(5e8); inst.setChannels('read'); inst.setLayout('node'); inst.setRoots({ aggr: ['aggr1'] });
+inst.focus(true); inst.zoom.fit(); inst.destroy();
 
 // 只要 SVG 字串（Node 也能跑，沒有 DOM 依賴）：
-import { build, render } from 'trace-sankey';
-const model = build(wireJson, { minBps: 0, channels: 'both' });
+import { build, render, summary, flowTables } from 'trace-sankey';
+const model = build(wireJson, { minBps: 0, channels: 'both', layout: 'node' });
 if (model.ok) fs.writeFileSync('out.svg', render(model));
+if (model.ok) fs.writeFileSync('tables.html', flowTables(model).html);   // 參考面板的三張表
 ```
+
+選項對照參考面板（kube-state-graph-frontend 的 Storage Flow Sankey）——**參考能改變呈現的選項，
+這裡都是套件的選項**，app 只接了其中幾個：
+
+| 參考面板 | 套件選項 | 說明 |
+| --- | --- | --- |
+| mode Read／Write／Both | `channels` | storage 資料每條邊有 read／write 兩條帶，只看其中一種時另一種的量**併進其他輸入／其他輸出**（與顯示門檻同一套機制，每台仍守恆）。`delta_bps` 的邊沒有通道、不受影響 |
+| Layout Flat／Node | `layout: 'flat' \| 'node'` | `'node'` 把只被 `pod-node` 邊碰到的 k8s node 畫成 pod 欄裡包住它 pod 的外框（照 node 名字排、沒排班的 pod 在所有外框之下、status 取 node 與成員 pod 最差）。外框不是圖節點：沒有邊、不排欄、不算殘差。app 工具列有切換鈕 |
+| roots（root 選擇） | `roots: { ontap_cluster, node, aggr, svm, pod }` | 只用來**保留** no-flow 節點：沒給＝所有 no-flow hop 都保留（超集）；給了（含空物件）＝照參考只保留是 root 或完全沒被任何邊碰到的；被選成 root 卻沒有邊的 pod／k8s node 也補成 no-flow 卡／空外框。`node` 同時比對 NetApp controller 與 k8s node，`pod` 寫 `<namespace>/<pod>`，pvc 不是 root kind |
+| hover 全路徑高亮 | `pathHighlight: true` | 滑到卡片亮整條上下游路徑（穿過推導邊與歸屬線）、其餘變淡；k8s node 外框取成員 pod 的聯集。狀態只在 class、樣式全在 CSS，游標衝出視窗也不會卡住 |
+| Locate（點卡片） | `onNodeClick(id, node)` | 只有可定位的卡會綁（hop 除了 `netapp-svm`、葉 pod、k8s node 外框）；namespace／application／owner／錨卡／host 葉不綁，與參考的 locatable 規則相同 |
+| 專注模式 | `inst.focus(on)`／`isFocused()` | 純 CSS（`body.chart-focus`），刻意不用 Fullscreen API（tooltip 掛在 body 會消失）。套件只負責容器去框；你自己的工具列要藏，對 `body.chart-focus` 加規則 |
+| Flow summary 三張表 | `flowTables(model)` | Node flow summary（tier／node／in／out（有通道時分 read／write）／usage／status／health／notes）、Application subtotal、Namespace subtotal；回傳 `{nodes, applications, namespaces, html}`。`summary(model)` 是我們自己的 hop 平衡表，兩者並存 |
+| 主題 dark／light | — | 不做（深色） |
 
 對外契約（自己接互動時可依賴）：
 
 - render 產出的 `<g class="zoom-layer">` 是縮放的掛點。
-- 每條 `.band` 上的 `data-tip` 屬性是一份 JSON（`from/to/fi/ti/bps` ＋ storage 資料才有的
-  `unit/channel/tier/attr/extra`），每張卡片的 `<g>` 也有一份（`{node:1, title, rows:[[k,v],…]}`，
+- 每條 `.band` 有 `data-e`（它是 `model.edges` 的第幾條）、每張卡片與 k8s node 外框的 `<g>` 有
+  `data-n`（節點 id）：路徑高亮與點擊回呼靠這兩個屬性把 DOM 對回 model，自己接互動也可以用。
+- 每條 `.band` 上的 `data-tip` 屬性是一份 JSON（`from/to/fi/ti/bps` ＋ 有值才出現的
+  `unit/channel/tier/attr/extra/derived`），每張卡片的 `<g>` 也有一份（`{node:1, title, rows:[[k,v],…]}`，
   render 已經把數字格式化好）；tooltip 的資料都從這來，不掛套件 tooltip 的人可以自己讀。
-- `channels` 選項（`'both'`（預設）／`'read'`／`'write'`）：storage 資料每條邊有 read／write 兩條帶，
-  只看其中一種時另一種的量**併進其他輸入／其他輸出**（與顯示門檻同一套機制，每台仍守恆）。
-  `delta_bps` 的邊沒有通道、不受影響。app 沒有這個開關，是給使用套件的人接的。
+- 值為 0 的帶（有量測、量是 0）帶 `band-zero`（虛線＋半透明），跟「沒有量測、根本不建邊」分得開。
 
 SVG 的文字顏色與字級在 `trace-sankey/style.css`，不載入會沒有正確外觀。
 
@@ -520,18 +540,18 @@ http://localhost:8080/?hostname=tor-01&from_ts=1757000000000&to_ts=1757003600000
 
 ```jsonc
 {
-  "apiVersion": "v1",                 // 選填，忽略
-  "clusters": ["prod"],               // 選填，忽略
-  "kind": "destination" | "source",   // 選填；否則看 investigation.direction（out→source）；預設 destination
-  "investigation": {                  // 選填（我們的擴充）。沒給＝無錨卡、不查 root
-    "node_id": "sw-edge-a",           // 必須是 hop 型節點
-    "iface": "xe-0/0/1", "delta_bps": 10000000000,   // delta_bps > 0（bps）
-    "direction": "in" | "out", "note": ""
-  },
+  "apiVersion": "v1",                 // 選填（參考後端回應的信封欄位）；給了要是字串，原樣帶到 model
+  "clusters": ["prod"],               // 選填；給了要是字串陣列，原樣帶到 model。只列 K8s cluster
+  "kind": "destination" | "source",   // 選填；否則看起點的 direction（out→source）；預設 destination
   "elements": {
     "nodes": [{ "data": {
       "id": "…", "type": "…",         // 必填；id 不可重複
       "name": "…",                    // 選填，卡片標題，缺就用 id
+      "investigation": {              // 選填（我們的擴充）：追查起點就寫在起點節點上，全圖最多一個；
+        "iface": "xe-0/0/1",          // 節點必須是 hop 型。沒給＝無錨卡、不查 root
+        "delta_bps": 10000000000,     // > 0（bps）
+        "direction": "in" | "out", "note": ""
+      },
       "parent": "…",                  // 選填，群組鏈（namespace / application）
       "labels": { "namespace": "…", "tier": "…", "ontap_cluster": "…" },   // 選填，純字串對應表
       "status": "normal|warning|critical",           // 選填；其他值視同沒有
@@ -561,32 +581,41 @@ http://localhost:8080/?hostname=tor-01&from_ts=1757000000000&to_ts=1757003600000
 | 欄位 | 型別 | 必填 | 說明 |
 | --- | --- | --- | --- |
 | `elements` | object | ✔ | 必須含 `nodes` 與 `edges` 兩個陣列（可以是空陣列，但 `nodes` 裡至少要有一個 hop 型節點才畫得出圖） |
-| `kind` | `"destination"` \| `"source"` | | 追查方向。沒給就看 `investigation.direction`，再沒給就當 `destination`。見「追查方向」 |
-| `investigation` | object | | 追查起點。**選填**：給了就畫錨卡與錨邊；沒給就沒有起點、沒有 root，第一欄從「第 0 跳」起算 |
-| `apiVersion`、`clusters` | | | 參考 wire 會帶，忽略 |
+| `kind` | `"destination"` \| `"source"` | | 追查方向。沒給就看起點的 `direction`，再沒給就當 `destination`。見「追查方向」 |
+| `apiVersion` | string | | 參考後端回應的信封欄位。給了要是字串（否則驗證錯誤），`build()` 原樣帶到 `model.apiVersion`；不影響畫圖。參考前端自己也不讀它 |
+| `clusters` | string[] | | 同上，`model.clusters`。只列 K8s cluster 名稱、不含 ONTAP cluster；參考前端的 Clusters 圖例是從 `type:"cluster"` 節點派生的，不讀這欄 |
+| `investigation` | object | | **已 deprecated**：舊的頂層寫法，多一個 `node_id` 指向起點。仍接受、行為與節點寫法完全相同，但 `warnings` 會多一則提醒；**與節點的 `data.investigation` 兩處都給是驗證錯誤** |
 
 不認得的頂層鍵一律忽略（`pruning` 也是——舊格式的截斷註記已從契約移除）。
 
-### `investigation`
+### `investigation`（寫在起點節點的 `data` 裡）
+
+追查起點寫在**起點那個節點**的 `data.investigation`。放在 `elements` 裡面而不是頂層，同一份文件丟給
+cytoscape（只吃 `elements`）也拿得到起點資訊。全圖最多一個節點帶它，那個節點的 `type` 必須是
+hop 型（見下）；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不能當起點。沒有任何節點帶它＝沒有起點、
+沒有 root，第一欄從「第 0 跳」起算。
 
 | 欄位 | 型別 | 必填 | 說明 |
 | --- | --- | --- | --- |
-| `node_id` | string | ✔ | 起點那台的 `id`。必須存在於 `nodes`，且 `type` 是 hop 型（見下）；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不能當起點 |
 | `iface` | string | ✔ | 你看到增加的那條 interface。顯示在錨卡與錨邊兩端 |
 | `delta_bps` | number > 0 | ✔ | 速率增量 Δ，bps。錨邊的帶寬。**永遠不受顯示門檻／通道過濾** |
 | `direction` | `"in"` \| `"out"` | | `in` = 追終點，`out` = 追來源。`kind` 優先 |
 | `note` | string | | 一句話備註，顯示在錨卡的 tooltip |
 
+`build()` 回傳的 `model.investigation` 一律是 `{ node_id, iface, delta_bps, direction, note }`，
+不管輸入寫在節點還是 deprecated 的頂層。
+
 ### `nodes[].data`
 
 | 欄位 | 型別 | 必填 | 效果 |
 | --- | --- | --- | --- |
-| `id` | string（非空） | ✔ | 唯一鍵，**不可重複**。邊的 `source`／`target`、`investigation.node_id`、別的節點的 `parent` 都指它 |
+| `id` | string（非空） | ✔ | 唯一鍵，**不可重複**。邊的 `source`／`target`、別的節點的 `parent` 都指它 |
 | `type` | string（非空） | ✔ | 決定畫成什麼（見「節點 `type` 分三類」）。自由字串，不認得的值畫成葉卡 |
 | `name` | string | | 卡片標題；缺或空字串就用 `id`。群組節點的 `name` 是 application／namespace 終點卡的標題 |
+| `investigation` | object | | 我們的擴充：追查起點，見上一節。只有 hop 型節點能帶，全圖最多一個 |
 | `parent` | string（非空） | | 上一層群組節點的 `id`，可以一層層接（pod → controller → application → namespace）。指到不存在的 id 視同沒有 parent；鏈成環不會卡死（走到重複就停）。只有 pod 會沿 parent 鏈找 application／namespace，其他型別的 parent 不影響畫面 |
 | `labels` | object，值全是 string | | 純字串對應表；出現非字串的值是驗證錯誤。認得的鍵見下表，其他鍵忽略 |
-| `status` | `"normal"` \| `"warning"` \| `"critical"` | | 卡片外框色：critical 玫瑰、warning 琥珀（優先於 root 的青框）、normal 中性框。其他任何值**視同沒有**（中性框，不報錯、不退成 normal）。也進 tooltip |
+| `status` | `"normal"` \| `"warning"` \| `"critical"` | | 卡片外框色：critical 玫瑰、warning 琥珀、normal 綠（都優先於 root 的青框與設備天藍；參考面板同樣「有 status 就以 status 框」）。其他任何值**視同沒有**（中性框，不報錯、不退成 normal）。也進 tooltip |
 | `usage` | object | | `{ used_bytes, capacity_bytes }`，見「`usage`」。不是物件是驗證錯誤 |
 | `health` | string | | 只進 tooltip（`health` 列），原字串照印。不影響外框色——status 才管顏色 |
 | `hardware` | object | | 只讀 `hardware.model`，進 tooltip（`model` 列）；其他鍵忽略 |
@@ -763,9 +792,8 @@ http://localhost:8080/?hostname=tor-01&from_ts=1757000000000&to_ts=1757003600000
 
 | 畫面元素 | 來源 |
 | --- | --- |
-| 盒子標題 | `name`，缺就 `id` |
-| 盒子副標 | `id` · `ns/<namespace>`（pod：推導的 ns；其他：`labels.namespace`）· `<type>`（switch 不印）· `labels.ontap_cluster` |
-| 盒子第三行 | `usage`（兩欄齊全才有） |
+| 每張卡的版式（統一） | 第 1 行型別標（hop 是 `type` 原字、葉是輸入的 `type`、pod／application／namespace／owner／node 固定字、錨卡「追查起點」）→ 第 2 行名字（`name`，缺就 `id`）→ 之後一行一個屬性。**卡面不印 id**（參考後端的 id 是路徑式長字串），tooltip 最後一列有 |
+| 盒子屬性行 | `ns/<namespace>`（ns 色；pod：推導的 ns，其他：`labels.namespace`）、`labels.ontap_cluster`、`usage`（兩欄齊全才有）——各自有才印，標題區高度跟著行數 |
 | 盒子外框 | `status` 色 > 追查起點青框 > 設備天藍虛線 > 預設灰 |
 | 槽位旁的小字 | 邊的 `labels.source_iface`（右緣）／`target_iface`（左緣） |
 | 帶寬與帶上數字 | `metrics.delta_bps` 或 `read/write_bytes_per_sec`（加總後） |
@@ -775,11 +803,11 @@ http://localhost:8080/?hostname=tor-01&from_ts=1757000000000&to_ts=1757003600000
 | 葉卡（帶 `clients`） | 標題只在有 `name` 時畫；`labels.namespace` 色條、`clients` 的 `hostname` / `ip` / `owner` 三欄表格（有表頭、每台一列、全部列出、空欄不畫）、數量合計（**不重複印 iface**）；右上角 `client`／`N 個 client` |
 | owner 卡 | 從葉卡的 `clients[].owner` 推導（查不到 owner 的不開卡）：標題＝owner 字串、已量到的合計（只算「整張卡只有這一個 owner」的 port，不足時標「（部分 port）」／全無時印「量停在 port」）、`N 台 client · M 個 port` |
 | 歸屬線 | port 上不只一位的機器（含查不到 owner 的）時，葉卡 → 各具名 owner 卡的灰虛線，**不帶量、不印數字** |
-| pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條（推導的 ns）、iface、數量 |
-| application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：標題＝群組的 `name`、合計、pod 數、成員最差 `status` 框 |
+| pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條與 `ns/<ns>` 行（推導的 ns）、`iface · 量` 行 |
+| application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：名字＝群組的 `name`；屬性行 `ns/<ns>`（application 才有）、`N 個 pod`、`合計 <量>`；成員最差 `status` 框 |
 | 錨卡 | `investigation`：`iface`、方向、`delta_bps`、`note`（tooltip） |
-| 帶的 tooltip | from／to、出口／入口 iface、速率（含 channel；**歸屬線沒有這一列**）、ns、`client`（下游那端的葉有 `clients` 時；往 owner 卡的邊改列 port 那端）、`歸屬`（歸屬線）、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
-| 卡片的 tooltip | 型別／名稱、id、ns、ontap_cluster、已追查 in／out 與殘差（或合計＋pod 數；owner 卡是已量到的合計＋台數＋port 數）、usage、status、health、model、perf(raw)、alerts、no-flow、`clients`（每筆一列、不截斷） |
+| 帶的 tooltip | from／to、出口／入口 iface（**那一端有值才印**：switch 的 port 才有 iface，storage 邊、推導邊、歸屬線沒有）、速率（含 channel；**歸屬線沒有這一列**）、ns、`client`（下游那端的葉有 `clients` 時；往 owner 卡的邊改列 port 那端）、`歸屬`（歸屬線）、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
+| 卡片的 tooltip | 每一種卡同一套：型別／名稱、ns、ontap_cluster、**`in（read）／in（write）／out（read）／out（write）` 四行**（沒通道的資料是 `in`／`out` 兩行；in／out 一律是封包方向的入邊／出邊，namespace 終點的 out 是 0）、卡種附加列（hop：其他輸入／其他輸出；application／namespace／k8s node 外框：`來源：成員 pod 加總（推導值）`＋pod 數；owner：來源＋台數＋port 數，量停在 port 時 in 印「—」）、usage、status、health、model、perf(raw)、alerts、no-flow、`clients`（每筆一列、不截斷）、**id（最後一列，只在 id ≠ 名字時）** |
 | 欄標題 | 整欄同一非 switch 型別 → `第 N 跳 · <型別名>`；整欄 pod／application／namespace／owner 各有文案（整欄都接了 owner 的 port 葉標 `第 N 跳 · port`） |
 
 ### 範例
@@ -789,10 +817,10 @@ http://localhost:8080/?hostname=tor-01&from_ts=1757000000000&to_ts=1757003600000
 ```json
 {
   "kind": "destination",
-  "investigation": { "node_id": "sw-edge-a", "iface": "xe-0/0/1", "direction": "in", "delta_bps": 10000000000 },
   "elements": {
     "nodes": [
-      { "data": { "id": "sw-edge-a", "type": "switch", "name": "Edge A" } },
+      { "data": { "id": "sw-edge-a", "type": "switch", "name": "Edge A",
+                  "investigation": { "iface": "xe-0/0/1", "direction": "in", "delta_bps": 10000000000 } } },
       { "data": { "id": "sw-core-1", "type": "switch", "name": "Core 1" } },
       { "data": { "id": "srv-db-07", "type": "host" } }
     ],
@@ -812,10 +840,10 @@ http://localhost:8080/?hostname=tor-01&from_ts=1757000000000&to_ts=1757003600000
 ```json
 {
   "kind": "source",
-  "investigation": { "node_id": "sw-core-1", "iface": "et-1/0/9", "direction": "out", "delta_bps": 20000000000 },
   "elements": {
     "nodes": [
-      { "data": { "id": "sw-core-1", "type": "switch", "name": "Core 1" } },
+      { "data": { "id": "sw-core-1", "type": "switch", "name": "Core 1",
+                  "investigation": { "iface": "et-1/0/9", "direction": "out", "delta_bps": 20000000000 } } },
       { "data": { "id": "sw-edge-a", "type": "switch", "name": "Edge A" } },
       { "data": { "id": "lab-gpu-01", "type": "host" } }
     ],
@@ -835,10 +863,10 @@ k8s（`samples/k8s.json` 的節錄）：`node` 是虛線盒、`pod` 是中繼卡
 ```json
 {
   "kind": "destination",
-  "investigation": { "node_id": "sw-tor-k8s", "iface": "et-0/0/48", "direction": "in", "delta_bps": 30000000000 },
   "elements": {
     "nodes": [
-      { "data": { "id": "sw-tor-k8s", "type": "switch", "name": "ToR k8s" } },
+      { "data": { "id": "sw-tor-k8s", "type": "switch", "name": "ToR k8s",
+                  "investigation": { "iface": "et-0/0/48", "direction": "in", "delta_bps": 30000000000 } } },
       { "data": { "id": "node-w-11", "type": "node", "other_out_bps": 2500000000 } },
       { "data": { "id": "node-w-13", "type": "node" } },
       { "data": { "id": "ingest-7d9c", "type": "pod", "labels": { "namespace": "telemetry" } } },
@@ -899,13 +927,18 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 | --- | --- |
 | 最外層必須是 JSON 物件。 | 檔案最外面是陣列或字串 |
 | kind 只能是 "destination" 或 "source"。 | 拼錯 |
-| investigation 必須是物件。 | 給了字串或陣列 |
-| investigation.node_id 必填。 | 沒給、或給了空字串（舊格式的 `switchId` 要改名） |
-| investigation.iface 必填。 | 同上 |
-| investigation.delta_bps 必須是正數（bps）。 | 不是數字、是 0、或是負數；別寫成 `"10G"`（舊格式的 `deltaBps` 要改名） |
-| investigation.direction 只能是 "in" 或 "out"。 | 拼錯 |
-| investigation.node_id「X」在 nodes 裡找不到。 | 起點那台沒有出現在 `nodes`，通常是 id 打錯 |
-| investigation.node_id「X」的 type 是 Y，追查起點必須是 hop 型… | 起點指到葉或群組節點 |
+| apiVersion 必須是字串。／clusters 必須是字串陣列。 | 信封欄位給了但型別錯 |
+| nodes[i].data.investigation 必須是物件。 | 給了字串或陣列 |
+| nodes[i].data.investigation.iface 必填。 | 沒給、或給了空字串 |
+| nodes[i].data.investigation.delta_bps 必須是正數（bps）。 | 不是數字、是 0、或是負數；別寫成 `"10G"` |
+| nodes[i].data.investigation.direction 只能是 "in" 或 "out"。 | 拼錯 |
+| nodes[i].data.investigation.note 必須是字串。 | 給了非字串 |
+| nodes[i].data.investigation：這個節點的 type 是 Y，追查起點必須是 hop 型… | 起點寫在葉或群組節點上 |
+| 有 N 個節點帶 data.investigation（…），追查起點只能有一個。 | 兩個以上節點都寫了起點 |
+| 頂層 investigation 與 nodes[i].data.investigation 兩處都給了，請只留節點那一份（頂層已 deprecated）。 | 遷移時忘了刪頂層 |
+| investigation 必須是物件。／investigation.node_id 必填。／investigation.iface 必填。／… | deprecated 的頂層寫法，欄位規則同上，多一個 `node_id`（舊格式的 `switchId`／`deltaBps` 要改名） |
+| investigation.node_id「X」在 nodes 裡找不到。 | 頂層寫法：起點那台沒有出現在 `nodes`，通常是 id 打錯 |
+| investigation.node_id「X」的 type 是 Y，追查起點必須是 hop 型… | 頂層寫法：起點指到葉或群組節點 |
 | 缺少 elements（必須是物件，含 nodes 與 edges 陣列）。 | 沒有 `elements`——**舊格式（`hops`）會落在這裡** |
 | elements.nodes 必須是陣列。／elements.edges 必須是陣列。 | 型別錯 |
 | nodes[i] 必須是 { data: {...} } 物件。 | 忘了包一層 `data` |
@@ -1056,9 +1089,15 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 - **`labels.tier` 認不得的邊**：參考整條丟掉；我們照畫（switch 拓樸沒有 tier 詞彙）。
 - **其他 type（`host`／`router`）**：參考靜默丟棄；我們畫成灰色「追查終止」葉卡。
 - **欄內排序**：參考依流量遞減；我們用拓樸／上游重心，帶子才不互穿。
-- **不做的 UI**：app 端的 Read／Write／Both 切換鈕（帶子分兩條，但切換是套件 API `channels`）、
-  Flat／Node layout 切換與 k8s node 外框、hover 全路徑高亮、Flow summary 數字表、Locate 跳轉、
-  淺色主題、az/env/root scope bar 與 URL 參數、四段式空狀態。
+- **帶上的數字**：參考在帶厚度小於字高時不印；我們一律印（零值帶除外），靠 tooltip 補的是參考。
+- **application 卡面**：參考印 `application · ns/prod · 2 pods`；我們卡面只印合計與 pod 數，ns 靠色框與 tooltip。
+- **svm-pvc 帶的延遲**：參考只印該方向的 latency；我們 read／write 兩行都印。
+- **no-flow 節點**：參考只保留 root 與完全沒被邊碰到的；我們沒給 `roots` 時全保留（給了就跟參考一樣）。
+- **文案與配色**：欄標題是 `第 N 跳 · NetApp node` 不是 `NetApp node`；read／write／status 色票是本專案的，
+  不是參考的 token。
+- **不做的 UI**：app 端的 Read／Write／Both 切換鈕（切換是套件 API `channels`）、Locate 的跳轉本身
+  （套件只給 `onNodeClick` 回呼）、淺色主題、az/env/root scope bar 與 URL 參數、四段式空狀態。
+  Node layout、路徑高亮、專注模式、三張表都已是套件選項（見「當套件用」）。
 
 ## 檔案
 
@@ -1066,9 +1105,10 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 Makefile                     跑起來與驗證的入口（make help）
 packages/trace-sankey/       npm 套件（零依賴、純 ESM、無 build step）
   src/model.js               驗證、分類節點、加總同鍵的邊、顯示門檻／通道過濾、算殘差
-  src/render.js              SVG Sankey、等比殘差色塊、各種卡片、欄標題、hop 摘要（summary）
+  src/render.js              SVG Sankey、等比殘差色塊、各種卡片、k8s node 外框、欄標題、hop 摘要（summary）、三張表（flowTables）
   src/zoom.js                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
   src/tooltip.js             createTooltip()：帶子與卡片 hover 的 tooltip
+  src/highlight.js           createHighlight()：路徑高亮（pathHighlight 選項）
   src/mount.js               mount(el, doc, opts)：一行接好整條管線
   src/react.js               <TraceSankey> React 元件（trace-sankey/react）
   src/samples.js             十個內建範例（trace-sankey/samples）；storage 是參考面板的 demo fixture

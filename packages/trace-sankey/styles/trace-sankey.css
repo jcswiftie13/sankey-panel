@@ -15,6 +15,7 @@
   --cyan-d: #0e7490;
   --amber: #f59e0b;
   --rose: #fb7185;
+  --green: #4ade80;     /* status normal 的外框色（warning 琥珀、critical 玫瑰） */
   --gray: #94a3b8;
   --orange: #c2410c;     /* storage 資料的 write 通道帶（read 沿用青） */
   --radius: 10px;
@@ -49,6 +50,8 @@
 .trace-sankey .band.band-w:hover{fill:url(#gband-w-h)}
 .trace-sankey .band.band-loop:hover{fill:none;stroke-opacity:.85}
 /* 歸屬線也是 fill:none 的描邊帶：hover 只能加深 stroke。虛線很細，hover 判定放寬到整條線 */
+/* 零值帶：有量測、值是 0。最小厚度＋虛線＋半透明，跟很小的流量分得出來 */
+.trace-sankey .band-zero{stroke-dasharray:4 3;fill-opacity:.4}
 .trace-sankey .band-own{pointer-events:stroke;stroke-linecap:butt}
 .trace-sankey .band.band-own:hover{fill:none;stroke-opacity:1}
 
@@ -71,3 +74,16 @@
 .trace-sankey-tooltip[hidden]{display:none}
 .trace-sankey-tooltip b{display:block;margin-bottom:3px}
 .trace-sankey-tooltip .t-row{color:var(--dim);display:flex;gap:10px;justify-content:space-between}
+
+/* ---------- 路徑高亮（mount 的 pathHighlight 選項）---------- */
+/* 狀態只在 class 上：容器 .hl-on＝有東西被亮著，路徑上的帶與卡片帶 .lit，其餘變淡。
+   帶用 opacity 而不是換 fill：write 帶、回流帶、歸屬線各自的 fill／stroke 都不用管 */
+.trace-sankey.hl-on .band:not(.lit){opacity:.14}
+.trace-sankey.hl-on .lat-arrow{opacity:.14}
+.trace-sankey.hl-on g[data-n]:not(.lit){opacity:.35}
+
+/* 點擊回呼（mount 的 onNodeClick 選項）：可定位的卡由 mount 在 DOM 上加 .clickable */
+.trace-sankey g[data-n].clickable{cursor:pointer}
+
+/* 專注模式（mount 的 focus()）：容器去框吃滿。使用端要藏自己的工具列／圖例，自己對 body.chart-focus 加規則 */
+body.chart-focus .trace-sankey.chart-wrap{border:0;border-radius:0}

@@ -11,9 +11,10 @@ function row(k, v) { return '<div class="t-row"><span>' + esc(k) + '</span><span
 
 function bandHtml(d) {
   var isBytes = d.unit === 'bytesPerSec';
+  /* iface 只在那一端真的有才印：switch 的 port 才有 iface，storage 邊、推導邊、歸屬線沒有這回事 */
   var h = '<b>' + esc(d.from) + ' → ' + esc(d.to) + '</b>' +
-    row('出口 iface', d.fi || '—') +
-    row('入口 iface', d.ti || '—') +
+    (d.fi ? row('出口 iface', d.fi) : '') +
+    (d.ti ? row('入口 iface', d.ti) : '') +
     /* delta_bps 是「速率的差」；bytes/s 是絕對速率，標籤跟著換。
        歸屬線的 bps 是 0，那不是「零流量」而是「沒有量」——印出來就是憑空生一個值 */
     (d.owns ? '' :
@@ -27,6 +28,9 @@ function bandHtml(d) {
        拆開就是攤分推估，我們不做 */
     (d.owns ? row('歸屬', '這個 port 上還有別人的機器，量停在 port（不攤分）') : '') +
     (d.tier ? row('tier', d.tier) : '') +
+    /* 推導邊：不是後端量的一條 flow，而是同一筆量測重新分組。pod→app→ns 有欄對 tier，
+       值是成員 pod 入邊的加總；owner 邊沒有 tier，值是整張 port 卡的量歸到這個 owner */
+    (d.derived && !d.owns ? row('來源', d.tier ? '成員 pod 加總（推導值）' : 'port 卡的量歸到 owner（推導值）') : '') +
     (d.attr ? row('attribution', d.attr === 'split' ? 'split（平均攤分的估計值）' : d.attr) : '') +
     (d.anchor ? row('這條是追查起點', '') : '') +
     (d.backward ? row('回流（逆著多數流量方向）', '') : '');

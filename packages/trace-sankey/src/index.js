@@ -6,7 +6,8 @@ export {
   build, validate, direction, fmtBps, fmtDelta, fmtBytes, fmtRate, fmtAmount, gbps,
   HOP_TYPES, GROUP_TYPES, FLOW_TYPES, TYPE_LABEL
 } from './model.js';
-export { render, summary, esc } from './render.js';
+export { render, summary, flowTables, esc } from './render.js';
 export { createZoom, zoomStep } from './zoom.js';
 export { createTooltip } from './tooltip.js';
+export { createHighlight } from './highlight.js';
 export { mount } from './mount.js';

@@ -1,19 +1,18 @@
 {
   "kind": "destination",
-  "investigation": {
-    "node_id": "sw-tor-1",
-    "iface": "et-0/0/49",
-    "delta_bps": 50000000000,
-    "direction": "in",
-    "note": "ToR 1 的 uplink 進來 +50 Gbps，往下的 access port 多半沒有 LLDP 鄰居"
-  },
   "elements": {
     "nodes": [
       {
         "data": {
           "id": "sw-tor-1",
           "type": "switch",
-          "name": "ToR 1"
+          "name": "ToR 1",
+          "investigation": {
+            "iface": "et-0/0/49",
+            "delta_bps": 50000000000,
+            "direction": "in",
+            "note": "ToR 1 的 uplink 進來 +50 Gbps，往下的 access port 多半沒有 LLDP 鄰居"
+          }
         }
       },
       {

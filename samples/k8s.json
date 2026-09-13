@@ -1,18 +1,17 @@
 {
   "kind": "destination",
-  "investigation": {
-    "node_id": "sw-tor-k8s",
-    "iface": "et-0/0/48",
-    "delta_bps": 30000000000,
-    "direction": "in"
-  },
   "elements": {
     "nodes": [
       {
         "data": {
           "id": "sw-tor-k8s",
           "type": "switch",
-          "name": "ToR k8s"
+          "name": "ToR k8s",
+          "investigation": {
+            "iface": "et-0/0/48",
+            "delta_bps": 30000000000,
+            "direction": "in"
+          }
         }
       },
       {

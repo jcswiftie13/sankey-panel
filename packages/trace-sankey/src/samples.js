@@ -26,13 +26,12 @@ var SAMPLES = [
     desc: 'A→B 10G 進來，B→C 出去 20G。多出來的 10G 是 B 的其他輸入，不是 B 生的。',
     json: {
       kind: 'destination',
-      investigation: {
-        node_id: 'sw-edge-a', iface: 'xe-0/0/1', delta_bps: G(10), direction: 'in',
-        note: 'Edge A 的 access port 進來 +10 Gbps'
-      },
       elements: {
         nodes: [
-          N('sw-edge-a', 'switch', 'Edge A'),
+          N('sw-edge-a', 'switch', 'Edge A', { investigation: {
+            iface: 'xe-0/0/1', delta_bps: G(10), direction: 'in',
+            note: 'Edge A 的 access port 進來 +10 Gbps'
+          } }),
           N('sw-core-1', 'switch', 'Core 1'),
           N('srv-db-07', 'host')
         ],
@@ -50,10 +49,9 @@ var SAMPLES = [
     desc: '兩條 uplink 匯入同一台 core：同一對節點之間兩條邊，各自一條帶；core 往下的兩筆量測相加成一條。',
     json: {
       kind: 'destination',
-      investigation: { node_id: 'sw-edge-a', iface: 'xe-0/0/1', delta_bps: G(10), direction: 'in' },
       elements: {
         nodes: [
-          N('sw-edge-a', 'switch', 'Edge A'),
+          N('sw-edge-a', 'switch', 'Edge A', { investigation: { iface: 'xe-0/0/1', delta_bps: G(10), direction: 'in' } }),
           N('sw-core-1', 'switch', 'Core 1'),
           N('sw-agg-9', 'switch', 'Agg 9'),
           N('srv-cache-02', 'host'),
@@ -77,13 +75,12 @@ var SAMPLES = [
     desc: '宿網 → 匯聚 → 核心 → 出口／機房。每層都有沒追的上聯與沒跟的出口；rtr-tanet 從兩台接進來，是一張多邊葉卡。',
     json: {
       kind: 'destination',
-      investigation: {
-        node_id: 'sw-dorm-b3', iface: 'ae0', delta_bps: G(8), direction: 'in',
-        note: '宿舍 B3 上聯 ae0 進向 +8 Gbps'
-      },
       elements: {
         nodes: [
-          N('sw-dorm-b3', 'switch', '宿網 B3'),
+          N('sw-dorm-b3', 'switch', '宿網 B3', { investigation: {
+            iface: 'ae0', delta_bps: G(8), direction: 'in',
+            note: '宿舍 B3 上聯 ae0 進向 +8 Gbps'
+          } }),
           N('sw-agg-dorm', 'switch', '宿區匯聚'),
           N('sw-core-n', 'switch', '核心 North'),
           N('fw-campus', 'switch', '校園防火牆'),
@@ -110,10 +107,9 @@ var SAMPLES = [
     desc: '這層有 9 個 port 在漲，只跟前 3 名（≥10%）。沒跟的併成其他輸出（other_out_bps 顯式給），用等比的虛線色塊貼在右邊。',
     json: {
       kind: 'destination',
-      investigation: { node_id: 'sw-tor-14', iface: 'et-0/0/52', delta_bps: G(40), direction: 'in' },
       elements: {
         nodes: [
-          N('sw-tor-14', 'switch', 'ToR 14', { other_out_bps: G(9) }),
+          N('sw-tor-14', 'switch', 'ToR 14', { investigation: { iface: 'et-0/0/52', delta_bps: G(40), direction: 'in' }, other_out_bps: G(9) }),
           N('sw-leaf-3', 'switch', 'Leaf 3', { other_out_bps: G(3) }),
           N('srv-app-11', 'host'),
           N('srv-app-12', 'host'),
@@ -137,13 +133,12 @@ var SAMPLES = [
     desc: '看到某條 out 增加，往回追貢獻大的 in。起點釘在最右，邊仍一律照封包方向寫（上游 → 下游）。',
     json: {
       kind: 'source',
-      investigation: {
-        node_id: 'sw-core-1', iface: 'et-1/0/9', delta_bps: G(20), direction: 'out',
-        note: 'Core 1 出向 et-1/0/9 +20 Gbps，問誰灌的'
-      },
       elements: {
         nodes: [
-          N('sw-core-1', 'switch', 'Core 1'),
+          N('sw-core-1', 'switch', 'Core 1', { investigation: {
+            iface: 'et-1/0/9', delta_bps: G(20), direction: 'out',
+            note: 'Core 1 出向 et-1/0/9 +20 Gbps，問誰灌的'
+          } }),
           N('sw-edge-a', 'switch', 'Edge A'),
           N('sw-edge-b', 'switch', 'Edge B', { other_in_bps: G(2) }),
           N('lab-gpu-01', 'host'),
@@ -169,10 +164,9 @@ var SAMPLES = [
       'node 也能當葉（沒有往下的邊就整台補成其他輸出）。',
     json: {
       kind: 'destination',
-      investigation: { node_id: 'sw-tor-k8s', iface: 'et-0/0/48', delta_bps: G(30), direction: 'in' },
       elements: {
         nodes: [
-          N('sw-tor-k8s', 'switch', 'ToR k8s'),
+          N('sw-tor-k8s', 'switch', 'ToR k8s', { investigation: { iface: 'et-0/0/48', delta_bps: G(30), direction: 'in' } }),
           N('node-w-11', 'node', 'node-w-11', { other_out_bps: G(2.5) }),
           N('node-w-12', 'node', 'node-w-12'),
           /* node 當葉：沒有往下的邊，進來的 5G 由平衡式補成其他輸出 */
@@ -206,13 +200,12 @@ var SAMPLES = [
       'node-w-21 的邊全省略 iface。',
     json: {
       kind: 'source',
-      investigation: {
-        node_id: 'sw-tor-k8s', iface: 'et-0/0/48', delta_bps: G(18), direction: 'out',
-        note: 'ToR uplink 出量 +18G，追是哪些 pod 打出來的'
-      },
       elements: {
         nodes: [
-          N('sw-tor-k8s', 'switch', 'ToR k8s'),
+          N('sw-tor-k8s', 'switch', 'ToR k8s', { investigation: {
+            iface: 'et-0/0/48', delta_bps: G(18), direction: 'out',
+            note: 'ToR uplink 出量 +18G，追是哪些 pod 打出來的'
+          } }),
           N('node-w-21', 'node', 'node-w-21'),
           N('node-w-22', 'node', 'node-w-22'),
           N('web-6f8d', 'pod', null, { labels: { namespace: 'frontend' } }),
@@ -239,7 +232,10 @@ var SAMPLES = [
       '同層的節點都標 labels.tier: "border" 就鎖在同一欄，互連畫成右側弧帶。',
     json: (function () {
       var T = { labels: { tier: 'border' } };
-      var nodes = [N('core-1', 'switch', 'Core')];
+      var nodes = [N('core-1', 'switch', 'Core', { investigation: {
+        iface: 'et-0/0/0', delta_bps: G(24), direction: 'in',
+        note: 'core 進來 +24 Gbps，跨 DC 流量經 dci 繞回同層 bdr'
+      } })];
       [1, 2, 3].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, T)); });
       [1, 2].forEach(function (i) { nodes.push(N('dci-' + i, 'switch', 'DCI ' + i, T)); });
       [4, 5, 6].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, T)); });
@@ -268,10 +264,6 @@ var SAMPLES = [
       [1, 2, 3, 4].forEach(function (t) { add('tor-' + t, 'xe-3/0/10', 'srv-a-0' + t, 'eno1', G(6)); });
       return {
         kind: 'destination',
-        investigation: {
-          node_id: 'core-1', iface: 'et-0/0/0', delta_bps: G(24), direction: 'in',
-          note: 'core 進來 +24 Gbps，跨 DC 流量經 dci 繞回同層 bdr'
-        },
         elements: { nodes: nodes, edges: edges }
       };
     })()
@@ -281,7 +273,10 @@ var SAMPLES = [
        bdr 全同 tier；dci 與 spn 同 tier；tor 同 tier。dci 只回打 bdr，
        跟 bdr→dci/spn 的主流向繞成環 → 多數決排欄，6 條 dci→bdr 畫成回流帶。
        數字全守恆：每台 bdr in = 4G(core)+1G(dci 回打) = out = 1G(dci)+4G(spn)。 */
-    var nodes = [N('core-1', 'switch', 'Core 1')];
+    var nodes = [N('core-1', 'switch', 'Core 1', { investigation: {
+      iface: 'et-0/0/0', delta_bps: G(24), direction: 'in',
+      note: 'core 進來 +24 Gbps，部分流量經 dci 繞回 bdr 再下去'
+    } })];
     [1, 2, 3, 4, 5, 6].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, { labels: { tier: 'bdr' } })); });
     [1, 2, 3].forEach(function (j) { nodes.push(N('dci-' + j, 'switch', 'DCI ' + j, { labels: { tier: 'dci-spn' } })); });
     [1, 2, 3].forEach(function (s) { nodes.push(N('spn-' + s, 'switch', 'SPN ' + s, { labels: { tier: 'dci-spn' } })); });
@@ -313,10 +308,6 @@ var SAMPLES = [
         'dci 與 spn 同 tier 鎖同欄，多數決排欄後 6 條 dci→bdr 畫成走廊內的玫瑰色回流帶。',
       json: {
         kind: 'destination',
-        investigation: {
-          node_id: 'core-1', iface: 'et-0/0/0', delta_bps: G(24), direction: 'in',
-          note: 'core 進來 +24 Gbps，部分流量經 dci 繞回 bdr 再下去'
-        },
         elements: { nodes: nodes, edges: edges }
       }
     };
@@ -332,13 +323,12 @@ var SAMPLES = [
       '最後一張是沒有 clients 的對照組。',
     json: {
       kind: 'destination',
-      investigation: {
-        node_id: 'sw-tor-1', iface: 'et-0/0/49', delta_bps: G(50), direction: 'in',
-        note: 'ToR 1 的 uplink 進來 +50 Gbps，往下的 access port 多半沒有 LLDP 鄰居'
-      },
       elements: {
         nodes: [
-          N('sw-tor-1', 'switch', 'ToR 1'),
+          N('sw-tor-1', 'switch', 'ToR 1', { investigation: {
+            iface: 'et-0/0/49', delta_bps: G(50), direction: 'in',
+            note: 'ToR 1 的 uplink 進來 +50 Gbps，往下的 access port 多半沒有 LLDP 鄰居'
+          } }),
           /* 單一 client、三個欄位齊全：節點沒給 name，標題用 client 的 hostname */
           N('sw-tor-1:xe-0/0/12', 'host', null, {
             clients: [{ ip: '10.42.7.31', hostname: 'lab-gpu-01', owner: '網管部 王小明' }]

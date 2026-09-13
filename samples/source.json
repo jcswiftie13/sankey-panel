@@ -1,19 +1,18 @@
 {
   "kind": "source",
-  "investigation": {
-    "node_id": "sw-core-1",
-    "iface": "et-1/0/9",
-    "delta_bps": 20000000000,
-    "direction": "out",
-    "note": "Core 1 出向 et-1/0/9 +20 Gbps，問誰灌的"
-  },
   "elements": {
     "nodes": [
       {
         "data": {
           "id": "sw-core-1",
           "type": "switch",
-          "name": "Core 1"
+          "name": "Core 1",
+          "investigation": {
+            "iface": "et-1/0/9",
+            "delta_bps": 20000000000,
+            "direction": "out",
+            "note": "Core 1 出向 et-1/0/9 +20 Gbps，問誰灌的"
+          }
         }
       },
       {

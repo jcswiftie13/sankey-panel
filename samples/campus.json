@@ -1,19 +1,18 @@
 {
   "kind": "destination",
-  "investigation": {
-    "node_id": "sw-dorm-b3",
-    "iface": "ae0",
-    "delta_bps": 8000000000,
-    "direction": "in",
-    "note": "宿舍 B3 上聯 ae0 進向 +8 Gbps"
-  },
   "elements": {
     "nodes": [
       {
         "data": {
           "id": "sw-dorm-b3",
           "type": "switch",
-          "name": "宿網 B3"
+          "name": "宿網 B3",
+          "investigation": {
+            "iface": "ae0",
+            "delta_bps": 8000000000,
+            "direction": "in",
+            "note": "宿舍 B3 上聯 ae0 進向 +8 Gbps"
+          }
         }
       },
       {

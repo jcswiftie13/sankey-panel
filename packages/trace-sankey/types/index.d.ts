@@ -2,14 +2,19 @@
 
 /* ---------- 輸入：cytoscape-style wire JSON ---------- */
 
-export interface WireInvestigation {
-  /** 必須是 hop 型節點（switch／node／pod／netapp-*／pvc）的 id */
-  node_id: string;
+/** 追查起點，寫在起點節點的 data.investigation。節點本身就是起點所以沒有 node_id；
+    放在 elements 裡面，同一份文件丟 cytoscape 也拿得到。全圖最多一個節點帶它。 */
+export interface WireNodeInvestigation {
   iface: string;
   /** 必須 > 0，bps */
   delta_bps: number;
   direction?: 'in' | 'out';
   note?: string;
+}
+/** 頂層形式（deprecated）：多一個 node_id 指向起點節點 */
+export interface WireInvestigation extends WireNodeInvestigation {
+  /** 必須是 hop 型節點（switch／node／pod／netapp-*／pvc）的 id */
+  node_id: string;
 }
 
 export interface WireUsage {
@@ -41,6 +46,8 @@ export interface WireNodeData {
   parent?: string;
   /** 純字串對應表。認得的鍵：namespace、tier（同欄鎖）、ontap_cluster */
   labels?: Record<string, string>;
+  /** 我們的擴充：追查起點。只有 hop 型節點能帶，全圖最多一個 */
+  investigation?: WireNodeInvestigation;
   /** normal／warning／critical；其他值視同沒有（中性框） */
   status?: string;
   usage?: WireUsage;
@@ -88,11 +95,14 @@ export interface WireEdgeData {
 }
 
 export interface WireGraph {
+  /** 信封欄位（參考 repo 後端回應帶的）：選填，給了就驗型別、build 原樣帶出，不影響畫圖 */
   apiVersion?: string;
+  /** 只列 K8s cluster 名稱（不含 ONTAP cluster）；同上 */
   clusters?: string[];
-  /** 省略時看 investigation.direction（out → source）；預設 destination */
+  /** 省略時看起點的 direction（out → source）；預設 destination */
   kind?: 'destination' | 'source';
-  /** 選填；沒給就沒有錨卡、不查 root */
+  /** @deprecated 起點請寫在起點節點的 data.investigation（見 WireNodeInvestigation）。頂層形式仍接受，
+      build 會發警告；兩處都給是驗證錯誤。沒給就沒有錨卡、不查 root */
   investigation?: WireInvestigation;
   elements: {
     nodes: Array<{ data: WireNodeData }>;
@@ -138,13 +148,26 @@ export interface TraceEdge {
   lateral?: boolean;
   /** 歸屬線：port 上掛著多個 owner，量停在 port，這條邊只表達歸屬，bps 恆 0 */
   owns?: boolean;
+  /** 推導邊（pod→app→ns、port→owner）：同一筆量測重新分組，不是後端量的一條 flow */
+  derived?: boolean;
+  /** 推導邊的欄對：'pod-application' | 'application-namespace' | 'pod-namespace'；後端邊是 labels.tier 原值 */
+  tier?: string | null;
   [key: string]: unknown;
 }
 
 export interface TraceModelOk {
   ok: true;
   dir: 'destination' | 'source';
+  /** 正規化後的起點（不論輸入寫在節點 data 還是 deprecated 的頂層），沒有就是 null */
   investigation: WireInvestigation | null;
+  /** 信封欄位原樣帶出；輸入沒給就是 null */
+  apiVersion: string | null;
+  clusters: string[] | null;
+  layout: 'flat' | 'node';
+  /** layout:'node' 才會有內容 */
+  wrappers: TraceWrapper[];
+  /** 正規化後的 roots（五個鍵都在）；沒給就是 null */
+  roots: Required<StorageRoots> | null;
   channels: 'both' | Channel;
   minBps: number;
   /** 被顯示門檻濾掉的帶數與總量 */
@@ -167,11 +190,43 @@ export interface TraceModelError {
 
 export type TraceModel = TraceModelOk | TraceModelError;
 
+/** 參考面板的 root 選擇（{@link https://github.com/akira-core/kube-state-graph-frontend} 的 StorageGraphRoots）。
+    只用來「保留」no-flow 節點，絕不用來過濾。 */
+export interface StorageRoots {
+  /** 涵蓋該 ONTAP cluster 底下的 netapp-node／aggr／svm */
+  ontap_cluster?: string[];
+  /** 同時比對 NetApp controller 與 k8s node 的名字 */
+  node?: string[];
+  aggr?: string[];
+  svm?: string[];
+  /** `<namespace>/<pod>` */
+  pod?: string[];
+}
+
+/** layout:'node' 的 k8s node 外框：不是圖節點（沒有邊、不排欄、不算殘差），只包住 pod 欄裡它的 pod */
+export interface TraceWrapper {
+  id: string;
+  label: string;
+  role: 'node';
+  kind: 'wrapper';
+  /** node 自己與成員 pod 的最差值；都沒有就 null（中性框） */
+  status: 'normal' | 'warning' | 'critical' | null;
+  /** 成員葉 pod 的 id（門檻／通道濾掉的不算） */
+  podIds: string[];
+  /** 沒有成員（只因為是 root 才畫） */
+  noFlow: boolean;
+  [key: string]: unknown;
+}
+
 export interface BuildOptions {
   /** 顯示門檻：只留值大於它的帶子；0＝不過濾 */
   minBps?: number;
   /** storage 資料只看其中一個通道；被藏的通道併進其他輸入／其他輸出。無通道的邊不受影響 */
   channels?: 'both' | Channel;
+  /** 'flat'（預設）不畫 k8s node；'node' 把只被 pod-node 邊碰到的 k8s node 畫成 pod 欄的外框 */
+  layout?: 'flat' | 'node';
+  /** 沒給＝所有 no-flow hop 都保留；給了（含空物件）＝只保留 root 與完全沒被任何邊碰到的 */
+  roots?: StorageRoots | null;
 }
 
 /* ---------- 純函式（Node 也能跑） ---------- */
@@ -243,13 +298,23 @@ export interface MountOptions extends BuildOptions {
   onError?: (errors: string[]) => void;
   /** 縮放倍率變化（螢幕實際倍率；量不到時 null） */
   onZoom?: (screenScale: number | null) => void;
+  /** 滑到卡片亮整條上下游路徑、其餘變淡（預設關）。掛載時決定 */
+  pathHighlight?: boolean;
+  /** 點擊卡片。只有可定位的卡會綁：hop（netapp-svm 除外）、葉 pod、k8s node 外框；
+      namespace／application／owner／錨卡／host 葉不綁（參考面板 Locate 的 locatable 規則） */
+  onNodeClick?: (id: string, node: TraceNode | TraceWrapper) => void;
 }
 
 export interface MountInstance {
-  /** 回傳 build 結果（含 ok:false）。同 doc 同門檻同通道的重複呼叫不重畫、縮放保留。 */
+  /** 回傳 build 結果（含 ok:false）。同 doc 同選項的重複呼叫不重畫、縮放保留。 */
   update(doc?: unknown, opts?: BuildOptions): TraceModel;
   setMinBps(minBps: number): TraceModel;
   setChannels(channels: 'both' | Channel): TraceModel;
+  setLayout(layout: 'flat' | 'node'): TraceModel;
+  setRoots(roots: StorageRoots | null): TraceModel;
+  /** 專注模式：toggle body.chart-focus（純 CSS，不用 Fullscreen API）並 refresh 縮放 */
+  focus(on: boolean): void;
+  isFocused(): boolean;
   /** 最近一次成功 build 的 model（失敗後是 null） */
   readonly model: TraceModelOk | null;
   zoom: Pick<ZoomInstance, 'fit' | 'actual' | 'zoomBy' | 'refresh' | 'step' | 'isPanning'>;
