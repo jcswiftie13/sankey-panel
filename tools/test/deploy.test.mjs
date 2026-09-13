@@ -39,6 +39,29 @@ test('內容映像名的三處預設值一致', () => {
   assert.match(read('deploy/kustomization.yaml'), new RegExp(expect));
 });
 
+/* 安全標頭的單一來源。add_header 不繼承是 nginx 的事實（location 自己寫了一行，server 層
+   那一組就對它失效），所以四個位置都要有；但內容抽成 security-headers.conf 一份。
+   這條抓的是「有人又在某個 location 直接寫 add_header X-Frame-Options」那種回頭路。 */
+test('安全標頭只有一份定義，四個位置各 include 一次', () => {
+  const tpl = read('deploy/templates/default.conf.template');
+  const snippet = read('deploy/templates/security-headers.conf');
+  const includes = tpl.match(/include\s+\/etc\/nginx\/templates\/security-headers\.conf;/g) || [];
+  assert.equal(includes.length, 4,
+    'include 次數不是 4（server 層＋/api/＋= /index.html＋/assets/）：' + includes.length);
+  for (const h of ['X-Frame-Options', 'X-Content-Type-Options']) {
+    assert.match(snippet, new RegExp('add_header\\s+' + h), 'snippet 少了 ' + h);
+    assert.doesNotMatch(tpl, new RegExp('add_header\\s+' + h),
+      'template 又直接寫了 ' + h + '，應該只出現在 security-headers.conf');
+  }
+  /* Cache-Control 刻意留在各 location（那是每個 location 自己的語意，不是共用的安全標頭） */
+  assert.match(tpl, /add_header\s+Cache-Control/, 'Cache-Control 應該留在 template 的 location 裡');
+  /* 放錯目錄會被主 nginx.conf 的 include conf.d/*.conf 當成獨立設定吃掉 */
+  assert.doesNotMatch(tpl, /\/etc\/nginx\/conf\.d\/security-headers/, 'snippet 不能放在 conf.d/');
+  /* k8s 那條路徑靠 configMapGenerator 把檔案列進去才會出現在 /etc/nginx/templates */
+  assert.match(read('deploy/kustomization.yaml'), /templates\/security-headers\.conf/,
+    'kustomization 沒有把 snippet 列進 ConfigMap，k8s 上 include 會找不到檔案');
+});
+
 /* dev proxy 與 nginx 都要送同一個 header（CLAUDE.md §11：兩邊要一起改，否則 dev 與正式環境
    行為分歧）。名字寫死在兩個不同語言的檔案裡，沒有共用來源。 */
 test('X-API-Key 與 TRACE_API_AUTH 在 dev proxy 與 nginx template 兩邊都在', () => {

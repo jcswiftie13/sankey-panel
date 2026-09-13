@@ -257,9 +257,11 @@ if (model.ok) fs.writeFileSync('tables.html', flowTables(model).html);   // 參�
 - `<g class="zoom-layer">` 是縮放的掛點（它的 `transform` 由套件 imperative 設定，不是 React prop）。
 - 每條 `.band` 有 `data-e`（它是 `model.edges` 的第幾條）、每張卡片與 k8s node 外框的 `<g>` 有
   `data-n`（節點 id）：路徑高亮與點擊回呼靠這兩個屬性把 DOM 對回 model，自己接互動也可以用。
-- 每條 `.band` 上的 `data-tip` 屬性是一份 JSON（`from/to/fi/ti/bps` ＋ 有值才出現的
-  `unit/channel/tier/attr/extra/derived`），每張卡片的 `<g>` 也有一份（`{node:1, title, rows:[[k,v],…]}`，
-  render 已經把數字格式化好）；tooltip 的資料都從這來，不掛套件 tooltip 的人可以自己讀。
+- 每條 `.band` 上的 `data-tip` 屬性是一份 JSON（固定鍵 `from/to/fi/ti/bps/anchor` ＋ 有值才出現的
+  `backward/owns/ns/clients/unit/channel/tier/attr/extra/derived`——用 `undefined` 讓 `JSON.stringify`
+  丟掉，所以舊資料的 `data-tip` 逐 byte 不變），每張卡片的 `<g>` 也有一份
+  （`{node:1, title, rows:[[k,v],…]}`，render 已經把數字格式化好）；tooltip 的資料都從這來，
+  不掛套件 tooltip 的人可以自己讀。
 - 值為 0 的帶（有量測、量是 0）帶 `band-zero`（虛線＋半透明），跟「沒有量測、根本不建邊」分得開。
 - 路徑高亮是容器 `.hl-on`＋路徑上的 `.lit`；有 `onNodeClick` 時可定位的卡帶 `.clickable`。
 
@@ -404,8 +406,14 @@ if ($host = "127.0.0.1") { return 301 http://localhost:$server_port$request_uri;
 **nginx 端該做的：自己先送一份 CSP。** Chromium 對多份 CSP 是「每一份都要通過」（取交集），
 所以你送的不會蓋掉 host 那份，但能對「host 沒送」的情況直接生效，也等於把需求寫成契約：
 
+目前的 `deploy/templates/default.conf.template` **沒有**送 CSP（只有 `X-Frame-Options` 與
+`X-Content-Type-Options`）。要加就加在 `deploy/templates/security-headers.conf` **一處**——
+那支是安全標頭的單一來源，被 template 的 server 層與三個 location 各 `include` 一次
+（`add_header` 不繼承，所以四處都要有，但內容只有一份）：
+
 ```nginx
-# 三處 add_header 都要加。connect-src 'self' 的前提是 API 走同源 proxy（見 §7）
+# 加在 deploy/templates/security-headers.conf。
+# connect-src 'self' 的前提是 API 走同源 proxy（見「打 API 取資料」那節）
 add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'" always;
 ```
 
@@ -1027,9 +1035,18 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 - storage 資料（`read_bytes_per_sec`／`write_bytes_per_sec`）每條邊**兩條帶**：read 沿用青、write 燃橘
   （`#c2410c`），數字是 bytes/s 的絕對速率、不帶號（`5.24 MB/s`）。同欄弧帶的箭頭跟著通道換色；
   回流帶維持玫瑰、不分通道。圖例在有通道時自動換成 read／write 兩色。
+- **欄內上下順序預設照流量**（`order:'flow'`）：一個節點的流量＝`max(入邊總和, 出邊總和)`，
+  read＋write 一起加總、**不含殘差**（殘差是「沒追到的量」，讓它決定誰排上面等於讓沒追到的東西
+  主導版面）。既有分組全部保留——同 namespace 的葉 pod 相鄰（組之間照組總流量，與 namespace 小計
+  那張表的列序一致）、k8s node 外框仍分區（外框之間照成員流量加總）、**同欄互連鏈整條相鄰且
+  生產者在上**（否則 `dci-tier` 那種欄會把消費者排到生產者上面、弧帶跨整欄）。
+  流量相等時（守恆的中間層很常見）自動退化成上游重心排法，所以帶子不會比舊版面更亂。
+  `order:'barycenter'` 切回純上游重心（帶子最不互穿），那是這個選項之前唯一的排法。
 - 殘差不進走廊：不畫成穿越別台的長色帶，也不做盒子內底部 chips。
 - 殘差貼在該台外側的虛線色塊：其他輸入在左、其他輸出在右；**高度跟 Gbps 等比，
   跟青帶共用同一把比例尺**（`maxVal` 也把殘差算進去），標籤與數量寫在色塊旁。
+  數量走 `fmtRate`，與帶上的數字同一個規則：`delta_bps` 兩側都帶 `+`（殘差也是 Δ），
+  `bytes/s` 兩側都不帶（絕對速率）。以前「其他輸入」帶號、「其他輸出」不帶，那是兩處手刻造成的不對稱。
   這樣「有追查」跟「沒追查」的比例一眼看得出來。
 - 殘差是盒子左右 port 疊裡的**真槽位**，跟已追查 port 一起排版。同一台左右兩側的
   **色塊厚度總和完全相等**（守恆等式保證）；但每一列有 24px 最小高度、列間 9px 間距，
@@ -1089,7 +1106,9 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 - **同鍵多條邊相加**：參考不合併；我們相加是超集，安全。
 - **`labels.tier` 認不得的邊**：參考整條丟掉；我們照畫（switch 拓樸沒有 tier 詞彙）。
 - **其他 type（`host`／`router`）**：參考靜默丟棄；我們畫成灰色「追查終止」葉卡。
-- **欄內排序**：參考依流量遞減；我們用拓樸／上游重心，帶子才不互穿。
+- **欄內排序**：**預設已與參考一致**（流量大的在上，`order:'flow'`）。差別在兩件事：
+  流量相等時我們退化成上游重心（帶子不互穿），同欄互連鏈整條相鄰且生產者在上（參考沒有這種拓樸）；
+  另外我們保留 `order:'barycenter'` 選項可以切回舊的純上游重心排法，參考沒有這個開關。
 - **帶上的數字**：參考在帶厚度小於字高時不印；我們一律印（零值帶除外），靠 tooltip 補的是參考。
 - **application 卡面**：參考印 `application · ns/prod · 2 pods`；我們卡面只印合計與 pod 數，ns 靠色框與 tooltip。
 - **svm-pvc 帶的延遲**：參考只印該方向的 latency；我們 read／write 兩行都印。

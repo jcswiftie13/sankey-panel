@@ -25,6 +25,10 @@ configMapGenerator:
   - name: trace-sankey-nginx
     files:
       - templates/default.conf.template
+      # 安全標頭的單一來源，被 template 的四個位置各 include 一次。ConfigMap 整個掛在
+      # /etc/nginx/templates，所以這裡列進來就會出現在 include 指到的路徑上，不必多一個掛載。
+      # 檔名刻意不是 .template：官方 entrypoint 只 envsubst *.template，這支沒有變數參照。
+      - templates/security-headers.conf
 
 # 換一版網頁只要改這裡的 tag（或用 kustomize edit set image）。
 images:

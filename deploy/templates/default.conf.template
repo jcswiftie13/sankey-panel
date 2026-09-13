@@ -37,11 +37,10 @@ server {
     index index.html;
 
     # nginx 的 add_header 不會繼承：只要 location 自己寫了 add_header，
-    # server 層的就整組失效。所以下面每個有 add_header 的 location
-    # 都得把安全標頭重寫一次，別以為 server 層那兩行會自動蓋下去。
-    # 目前共四處：server 層、= /index.html、/assets/、/api/——改標頭要四處一起改。
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
+    # server 層的就整組失效。所以下面每個有 add_header 的 location 都得把安全標頭重寫一次，
+    # 別以為 server 層這一行會自動蓋下去。目前共四處：server 層、= /index.html、/assets/、/api/。
+    # **標頭本身只有 security-headers.conf 一份**（以前是四處各抄兩行，漏一處會安靜地少標頭）。
+    include /etc/nginx/templates/security-headers.conf;
 
     # 追查 API 的反向代理。前端只打同源相對路徑 /api/…，所以免 CORS，
     # 也不必把後端網址烤進 bundle（Vite 是 build 時做字串替換，烤進去就沒辦法
@@ -70,9 +69,8 @@ server {
         #   後端收到字面字串然後回 401。所以每個部署路徑都要把它定義成至少空字串。
         proxy_set_header X-API-Key        "${TRACE_API_AUTH}";
         proxy_read_timeout 120s;          # 逐跳追查可能跑很久，別用預設 60s
-        # add_header 不繼承：server 層那兩行在這裡整組失效，必須重寫（見檔頭註解）
-        add_header X-Frame-Options       "DENY"    always;
-        add_header X-Content-Type-Options "nosniff" always;
+        # add_header 不繼承：server 層那一行在這裡整組失效，必須再 include 一次（見檔頭註解）
+        include /etc/nginx/templates/security-headers.conf;
     }
 
     # SPA fallback：找不到實體檔就回 index.html。
@@ -84,15 +82,13 @@ server {
     # index.html 絕不快取，否則使用者會拿到舊的 bundle 檔名、載到不存在的 assets。
     location = /index.html {
         add_header Cache-Control "no-cache, must-revalidate" always;
-        add_header X-Frame-Options "DENY" always;
-        add_header X-Content-Type-Options "nosniff" always;
+        include /etc/nginx/templates/security-headers.conf;
     }
 
     # Vite 產出的 assets 檔名帶 content hash，改檔就換名，可以永久快取。
     location /assets/ {
         add_header Cache-Control "public, max-age=31536000, immutable" always;
-        add_header X-Frame-Options "DENY" always;
-        add_header X-Content-Type-Options "nosniff" always;
+        include /etc/nginx/templates/security-headers.conf;
     }
 
     gzip on;

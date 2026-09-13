@@ -131,6 +131,10 @@ packages/trace-sankey/
     Defs.tsx              漸層（gband-w／-h 只在有 write 帶時輸出）
     Band.tsx              Band（data-e、band-zero；含 lat-arrow 兄弟、headless 才有 <title>）、BandLabel
     cards.tsx             NodeBox／LeafCard／PodCard／GroupCard／OwnerCard／AnchorCard／WrapperBox／Card 分派／Residual（卡的 <g> 帶 data-n）
+  src/layout/options.ts   layout() 的選項型別：NodeOrder（'flow'／'barycenter'）、LayoutOptions、DEFAULT_ORDER
+  src/layout/colors.ts    **全套件唯一的色票**（COLORS／NS_COLORS／STATUS_COLOR）；CSS 變數由它產生
+  src/aggregates.ts       namespaceAggs()／nsTotalText()：summary 與 flowTables 共用的 ns 小計（見 §10.14）
+  scripts/gen-css.mjs     由 colors.ts 產生 styles/ 的色票區塊與 styles/tokens.css（npm run gen:css）
   src/summary.ts          hop 摘要表（HTML 字串；app 目前沒用）
   src/tables.ts           flowTables(model, geo?)：參考面板的三張表（結構化資料＋HTML）
   src/locatable.ts        哪些卡可定位：cards.tsx 的 .clickable 與 useNodeClick 共用同一份規則
@@ -163,6 +167,9 @@ electron/                 Electron 測試殼：main.js（CJS）＋ fallback.html
 samples/*.json            同一批範例的檔案版（golden 用；與 src/samples.ts 重複維護，見 §10.1）
                           storage.json 原封不動取自參考 repo public/demo/storage-graph.json @ 9e568c7（Apache-2.0）
 stress/                   縮放平移壓力測試資料 + gen.py（輸出 wire 格式）。make check 也會 build 它們
+tools/test/*.test.mjs     node --test：單一來源的不變量（golden 管「輸出沒變」，這裡管「同一個結論只有一份定義」）
+deploy/templates/security-headers.conf
+                          安全標頭的單一來源（add_header 不繼承，被 template 四個位置各 include 一次）
 tools/golden.mjs          對拍工具：dump 所有範例的 build()/render()/summary()/flowTables() 輸出，cmp 對拍（svg 語意等價、
                           其餘逐 byte；--ignore 略過幾類檔）；check 子命令（含 deep-freeze、頂層／節點起點往返）
 docs/migration-wire-format.md  舊 investigation+hops 格式 → elements 格式的手動遷移指南
@@ -186,10 +193,10 @@ README.md                 使用說明 + 輸入 JSON 契約 + 驗證錯誤對照
 
 ```
 doc（app：useTraceDoc 打 GET /api/trace 取回，validate 過才進來）
-  → <TraceSankey doc minBps channels layout roots pathHighlight onNodeClick focus onModel onError onZoom>（TraceSankey.tsx）
+  → <TraceSankey doc minBps channels layout roots order pathHighlight onNodeClick focus onModel onError onZoom>（TraceSankey.tsx）
     → useStableDoc(doc)／useStableJson(roots)   內容相同的新物件沿用舊參考（identity 變才 JSON.stringify 比一次）
     → useTraceModel(doc, {minBps, channels, layout, roots})   = useMemo(build)；失敗 → effect 裡 onError(errors)，app 畫錯誤 UI
-    → useMemo(() => layout(model))        純函式，版面在 Geometry Map 裡（含外框 WrapperGeom）、model 不被改
+    → useMemo(() => layout(model, {order}), [model, order])   純函式，版面在 Geometry Map 裡（含外框 WrapperGeom）、model 不被改
     → <div.trace-sankey.chart-wrap><div.chart><TraceSvg model geo idPrefix clickable/></div><TraceTooltip/></div>
     → useZoom：useLayoutEffect 裡 zoom.attach(wrap, …, reset)；model 不 ok 就 detach
     → useHighlight(wrap, model, pathHighlight)   容器上 mouseover／mouseout 委派；只加減 .hl-on／.lit
@@ -205,6 +212,10 @@ doc（app：useTraceDoc 打 GET /api/trace 取回，validate 過才進來）
 幾個約束（多半是 mount.js 時代踩過的坑，換成 hooks 後仍然成立）：
 
 - **會改 model 的選項（門檻、通道、`layout`、`roots`）一定要在 `useTraceModel` 的 deps 裡**，不然改了不會重畫。
+- **只改版面、不改 model 的選項（`order`）要進 `layout` 的 `useMemo` deps、不要進 `useTraceModel` 的**：
+  進後者會白重算一次 `build()`；忘了進前者是「切了不重畫」，而且完全靜默。
+  版面選項一律只掛 `layout(model, opts)`——`render(model, geo?)` 與 `flowTables(model, geo?)` 吃算好的
+  `Geometry`，刻意都不收第二份選項參數，否則加一個選項要兩邊各穿一次、漏一邊就「圖照新選項畫、表照預設排」。
   `pathHighlight`／`onNodeClick`／`focus` 不進 model，各自是一個 effect；沒有 setter，全部 props 驅動。
 - **`onNodeClick` 沒給就不把卡標成 `.clickable`**（`<TraceSvg clickable={!!onNodeClick}>`）：永遠標會讓
   所有可定位的卡都變 `cursor:pointer` 但點了沒事。`.clickable` 由 React 當 className 輸出，headless 不給。
@@ -402,7 +413,22 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
   跨兩欄以上才繞圖底外圍 lane（`backwardRibbon`）。
 - **port 槽位順序**（`leftSlots`/`rightSlots`）：一般邊 → lateral → backNear → 跨多欄回流；**殘差是真槽位，push 在最外側**。
   pod 葉的槽位依對端 y 重排（node、ns、app 卡都重排）。
-- **欄位 y**：先算 `__pref`（跨欄上游 `__cy` 平均）；只被同欄餵的節點沿 `subOrder` 繼承；pod 依 ns 分組相鄰。
+- **欄位 y**：先算 `pref`（跨欄上游 `cyOf` 平均）；只被同欄餵的節點沿 `subOrder` 繼承 lateral 上游的 pref。
+  接著 `sortColumn(col, order, …)` 決定欄內上下順序，**兩種模式各一個比較器、彼此不共用鍵**：
+  - `'barycenter'`（`sortColBarycenter`）＝加上 `order` 選項之前唯一的排法，那一段**逐字沒動**
+    （`nsPref`／`nsIdx` 的計算也留在它自己的分支裡），所以「舊版面沒被污染」讀程式就能確認。
+  - `'flow'`（`sortColByFlow`，**預設**）鍵向量：群組流量 → 群組序 → lateral 鏈的拓樸層 `depth`
+    → 自己的流量 → `pref` → `subOrder` → `ord`。流量用 `layout/text.ts` 的 `flowOf(n) =
+    max(sum(inEdges), sum(outEdges))`（read＋write 一起、**不含殘差**；O(邊數)，**先算進 Map，
+    絕不在 comparator 裡叫**）。
+    前兩鍵是**群組級**的，群組才會相鄰——就是 ns 分組原本靠 `nsPref`／`nsIdx` 的同一個技巧，
+    把「組平均 pref」換成「組流量」。ns 群用**加總**（與 `flowTables` 的 namespace 小計同義，
+    圖與表的列序才一致）、lateral 鏈用**最大值**（同一股量流過整條鏈，加總會重複計）。
+    **`gIdx` 對非群節點必須是 0、只有成員數 ≥ 2 才算一個群**：否則它會在兩個流量相等的單身節點之間
+    先分勝負，`pref`／`ord` 兩層兜底永遠輪不到，守恆圖的帶子會開始互穿。
+    流量相等時（storage 中間層每台守恆、`dci-tier` 的 `bdr-1..3` 全是 4G）鍵 1/4 平手，
+    **排序自動退化成 barycenter 的結果**——這是預設換成 flow 風險最低的關鍵性質。
+  `shift`（整欄對齊上游重心）兩種模式都保留：`prefAvg` 是整欄平均、與欄內順序正交。
 - **三種路徑產生器**：`ribbon`、`lateralRibbon`、`backwardRibbon`。
 
 `render(model)` 的繪製順序＝z-order：defs 漸層（**留在 zoom-layer 外面**；`gband-w`／`gband-w-h` 只在圖上
@@ -455,6 +481,10 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
   葉／群組卡高度 `cardH(屬性行數)`；k8s node 外框標題區 `WRAP_HEADER_H 52`（型別／名字／pod 數）。
   tooltip 的流量行每一種卡都是 `in／out` × 通道四行（`nodeTip` 共用 `flowRow`），卡種差異只在附加列；
   wrapper 的邊是成員 pod 邊的聯集、`unit` 算成區域變數（`wrapperEdges`），不寫回 model。
+- **k8s node 外框的順序跟著 `order`**：`'barycenter'` 照 `label.localeCompare`（node 是照名字查的庫存項目）；
+  `'flow'` 照**成員葉 pod 的 `flowOf` 加總**降冪、平手才照名字（k8s 欄的「組」就是外框，組之間不照流量
+  等於流量排序只做了一半）。空外框（root 的 no-flow 框）流量 0、落在最後。流量先算進 Map。
+  刻意不用 `layout/tips.ts` 的 `wrapperEdges`：那會讓 `layout.ts` import tooltip 內容層（層次倒掛）。
 - **k8s node 外框**（`layout:'node'`，`WrapperBox`）：`layout()` 在 pod 欄（有葉 pod 的欄；全被濾光只剩 root 空外框時
   另開一欄）先依外框分區——外框照 `label.localeCompare` 排、框內 pod 維持既有比較器順序、沒排班的 pod 在所有外框
   之下，`cols[podCol]` 同步重排；被包的 pod `x += WRAP_PAD`，欄寬取 `max(最寬 pod + 2*WRAP_PAD, NODE_W)`；外框的
@@ -463,13 +493,16 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
 - `colCaption`：錨欄要 `kinds.anchor && col.length===1`（no-flow 卡會落在第 0 欄）；整欄同一非 switch role →
   `第 N 跳 · TYPE_LABEL[role]`；被外框分區的 pod 欄 → `第 N 跳 · node / pod`；整欄 app → `第 N 跳 · application`。
   只有空外框的 pod 欄沒有節點可問，`wrapperColCaption(ci)` 自己印。
-- **`flowTables(model, geo = layout(model))`**（`src/tables.ts`）：參考的三張表；`summary()` 不動。節點列照欄、再欄內 y
+- **`flowTables(model, geo = layout(model))`**（`src/tables.ts`）：參考的三張表。列序跟著 `order` 走
+  （要 barycenter 的列序就自己 `layout(model, {order:'barycenter'})` 再把 `geo` 傳進來）。
+  namespace 小計與 `summary()` 共用 `src/aggregates.ts` 的 `namespaceAggs()`（見 §10.14）。節點列照欄、再欄內 y
   排（main 的字串版靠 layout 寫回節點的 y，這裡靠 Geometry），沒給 geo 就自己算一次。namespace 小計只算葉 pod 的入邊。
 
 **套件的 public 契約**（README 也要記）：`<g class="zoom-layer">` 是 zoom 的 hook；`.band` 與卡片 `<g>` 上的
 `data-tip` JSON 是 tooltip 的資料通道；**`.band` 的 `data-e`（edges 索引）與卡片／外框 `<g>` 的 `data-n`（id）**
 是 `useHighlight`／`useNodeClick` 把 DOM 對回 model 的通道（靠 DOM 順序會在輸出順序一動就壞）；`band-zero`；
-`.hl-on`／`.lit`／`.clickable`；`channels`／`layout`／`roots` 選項。改這些等於改對外 API。
+`.hl-on`／`.lit`／`.clickable`；`channels`／`layout`／`roots`／`order` 選項；`channelsIn`／`namespaceAggs`；
+`styles/tokens.css`（使用端選用的色票）。改這些等於改對外 API。
 
 ## 8. zoom / tooltip / TraceSankey / CSS 關鍵決策（改壞會回退歷史 bug）
 
@@ -498,11 +531,18 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
   才回呼；拖曳中忽略、`stopPropagation`。`.clickable` 由 `cards.tsx` 依同一份 `locatable` 當 className 輸出。
 - **專注模式刻意不用 Fullscreen API**（tooltip 在容器外會消失），用 `body.chart-focus` class 純 CSS 實作
   （`hooks/useFocus.ts`，prop `focus`）。
-- **顏色是三份定義沒有連動**：`styles/trace-sankey.css` 的 CSS 變數（`--cyan #22d3ee`、`--amber #f59e0b`、
-  `--rose #fb7185`、`--gray #94a3b8`、`--orange #c2410c`）、`svg/Defs.tsx`／`svg/Band.tsx`／`layout/constants.ts`
-  裡的硬編碼十六進位（漸層、`STATUS_COLOR`、write 帶 `#c2410c → #7c2d12`）、`app/src/app.css` 的頁面色票
-  （圖例 `.lg-write`／`.lg-status`）。
-  改配色要三處一起改。語意：青＝已追查／read、燃橘＝write、琥珀＝其他輸入／warning 框、玫瑰＝其他輸出／回流／critical 框。
+- **顏色只有一份來源：`src/layout/colors.ts`**（`COLORS`、`NS_COLORS`、`STATUS_COLOR` 都在裡面）。
+  以前是四處手抄（CSS 變數、三個 svg 檔的屬性、`STATUS_COLOR`、`app/src/app.css`），而且已經漂移過
+  兩處（`#7dd3fc` 三處互抄且沒有 CSS 變數對應；app 圖例的 write 漸層要手動對齊 `Defs.tsx` 的兩個 stop）。
+  現在：`styles/trace-sankey.css` 的色票區塊（`gen:colors` 標記之間）與 `styles/tokens.css`
+  由 `scripts/gen-css.mjs` 產生，**改色改 colors.ts 再跑 `npm run gen:css -w trace-sankey`**；
+  `app/src/app.css` 不再定義色票，改 `import 'trace-sankey/tokens.css'`（`:root` scope 的選用檔——
+  圖例與 `<TraceSankey>` 在 DOM 上是兄弟，吃不到 `.trace-sankey` 子樹裡的變數）。
+  **SVG 屬性刻意保留字面色值**：`render()` 是 SSR／headless 純函式、產出的字串不掛任何 CSS，
+  改吃 `var(--cyan)` 之後單獨嵌用那份 SVG 顏色會整片消失。`tools/test/colors.test.mjs` 守著
+  這四件事（src 裡只有 colors.ts 可以有 hex、CSS 與它同步、app.css 不准抄、SVG 不准用 var()）。
+  語意：青＝已追查／read、燃橘＝write、琥珀＝其他輸入／warning 框、玫瑰＝其他輸出／回流／critical 框、
+  綠＝normal 框、灰＝追查終止／歸屬線、天藍＝設備框。
 - `.trace-sankey .chart svg{display:block;width:100%;height:100%}` 是 fit 計算的隱性前提；
   `.chart svg text{pointer-events:none}`——帶上數字不能擋 hover。別動。
 - `TraceSankey.tsx`：callback props 存 `useLatest` ref；ref handle 只有 `refresh`／`model`／`zoom.*`（`update`／`setMinBps`／
@@ -514,12 +554,28 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
 ## 9. 開發慣例與驗證
 
 - Commit message 慣例：先寫「為什麼舊做法是錯的」再寫改法（繁體中文）。
+- **兩套測試，管的是不同的事，兩個都要跑**：
+  - `make check` / `node tools/golden.mjs …`（對拍）管「**輸出沒變**」——重構的安全網。
+  - `make test`（`node --test tools/test/*.test.mjs`，Node 內建、零依賴）管「**同一個結論只有一份定義**」。
+    golden 對這件事完全無感：有人在第二個檔案裡再寫一次同樣的判定，輸出一模一樣、對拍全綠，
+    等到下次只改一邊才漂移。目前守著：入口等價（`render`／`flowTables` 的 geo）、`layout()` 確定性、
+    流量排序的性質（含 `dci-tier` 的 lateral 鏈順序）、通道判定單一來源、色值只在 `colors.ts`、
+    產生的 CSS 與 `colors.ts` 同步、`summary()` 與 `flowTables()` 的 ns 小計逐列相同、
+    加號判斷只在 `format.ts`、安全標頭只有一份、部署三處映像名一致、`DEVICE_TYPES ⊆ HOP_TYPES`、
+    `bandMeta` 的鍵都在 `BandTip` 裡。
+    **寫新斷言時務必實際弄壞一次確認它會炸**——這次就抓到兩個弱斷言（子字串比對被打錯的名字騙過、
+    外框排序在「名字序剛好等於流量序」的範例上測了個巧合）。
 - 重構的驗證黃金標準是 `tools/golden.mjs`，**兩層嚴格度**：
   改前 `node tools/golden.mjs dump /tmp/a`、改後 dump `/tmp/b`、`node tools/golden.mjs cmp /tmp/a /tmp/b`。
   它會把所有範例（內建 + samples/ + stress/）的 `build()`（`.model.json`，序列化時 `nodeMap` 丟掉、
   邊／節點參照換成 id）、`render()`（`.svg`）、`summary()`（`.summary.html`）、`flowTables()`（`.tables.html`）、
   `warnings.json` 各跑 minBps 0 與 5e8 兩組，有通道的範例另跑 `channels:'read'` 一組，有 pod-node 邊的另跑
-  `layout:'node'` 一組。`cmp … --ignore=a,b` 略過檔名含那些子字串的檔（拿沒有 model.json 的舊 dump 當基準時用）。
+  `layout:'node'` 一組，有 pod 的另跑 `roots`（照兩個門檻各一次、有 write 帶的再加一組 `channels:'write'`——
+  `roots` 是參考面板的主要路徑，以前**零覆蓋**，§10.14 那個 bug 就躲在這個缺口裡），
+  每份範例再加一組 `.bary`（`order:'barycenter'`，**只寫 `.svg` 與 `.tables.html`**，排序不進 model）。
+  環境變數 **`ORDER=barycenter`** 則是把所有變體都用那個排序跑、**檔名完全不變**——拿改動前的 dump 當基準
+  零 `--ignore` 直接 `cmp`，就能證明舊版面逐 byte 沒動（比「暫時把預設翻回去」可靠：不靠人工紀律、可重複）。
+  `cmp … --ignore=a,b` 略過檔名含那些子字串的檔（拿沒有 model.json 的舊 dump 當基準時用）。
   **`.model.json`／summary／tables／warnings 逐 byte 相同**（model 拆檔、語法現代化都不准動到任何鍵序或警告文字）；
   **`.svg` 走語意等價**（`cmp` 會先正規化：屬性排序、自閉合統一、實體解碼、白名單數值屬性四捨五入到 3 位、
   `data-tip` 以 parse 後 JSON 比、`style`／`class` 排序；**文字內容一個字都不放過**）。
@@ -535,7 +591,9 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
 
 ## 10. 已知怪癖與陷阱（動手前必讀；均為現況陳述，除非被要求不要修）
 
-1. **`samples/*.json` 與 `packages/trace-sankey/src/samples.ts` 是重複維護的同一批資料**：
+1. **`samples/*.json` 與 `packages/trace-sankey/src/samples.ts` 是重複維護的同一批資料**（11 筆目前
+   `deepEqual` 完全一致，`tools/test/samples.test.mjs` 守著；`storage` 那筆在 samples.ts 裡曾經是
+   425 行手抄的 JSON，已改成讀 `samples/storage.json`——那份必須原封不動來自參考 repo，只能當來源）：
    samples.ts 是套件的 `trace-sankey/samples` 匯出（app 只在 dev 的 `DevSampleBar` 用它），golden／make check
    兩邊都讀。改一邊忘了另一邊不會有任何警告。
    `samples/storage.json` 另外還要跟參考 repo 的 fixture 對得上（來源與 commit 標在 samples.ts 註解）。
@@ -561,7 +619,20 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
     沒有任何 flow 邊的 hop。
 12. 卡片 `<g>` 與帶子的 `data-tip`：golden 的 `cmp` 把它們以 parse 後的 JSON 比（鍵序無關、值要全同），
     不再需要 perl 正規化。
-13. client 很多的 port 卡會很高（每台 14px）也會很寬（三欄齊全 364px），目前都**沒有上限**。
+13. **flow 模式下「同欄 lateral 鏈」是一個群組，不要簡化成純流量排序**。`samples/dci-tier.json` 可複現：
+    `bdr-1..3`（4G）→ `dci-1,2`（3G）→ `bdr-4..6`（6G）全在同一欄，純流量排序會把消費者排到生產者
+    上面、兩條 dci 的弧帶得從整欄最底跨到最上。反過來也**不能把 `subOrder` 排在流量前面**：
+    `columns.ts` 5g 對每一個成員數 ≥ 2 的 tier 群都發唯一的 Kahn 序（`AUTO_TIER` 讓 netapp／pvc 自動
+    同 tier，switch 範例也有 `bdr`／`tor` 節點 tier），那會先分完勝負，storage 與 switch 的欄整欄照舊、
+    流量排序完全沒作用。正解是「鏈當一個群、鏈內用 `depth` 強迫生產者在上、同層之間才比流量」。
+14. **`podCount` 與 `podsTotal` 是兩個不同語意，不要合併**。ns 終點卡是推導節點（葉 pod 自動接一條邊
+    匯進去），所以 `podCount` 是「**有邊匯進來的** pod 數」；完全沒有邊的 no-flow pod 根本不與它相連。
+    `src/aggregates.ts` 的 `namespaceAggs()` 另外給 `podsTotal`（圖上屬於那個 ns 的**全部**葉 pod）。
+    兩張表都讀這一份（以前 `summary()` 讀 ns 卡、`flowTables()` 自己掃 pod，兩邊註解都自稱單一事實來源，
+    而在 `roots` ＋ no-flow pod 下已經對不上）。**application 小計刻意沒有 `podsTotal`**：沒有邊的 pod
+    與任何 app 卡都不相連、它的 application 祖先在 model 裡沒有留下，硬給一個數字就是憑空編。
+    計量 pod 數為 0 時量印「—」不印 0（`nsTotalText()`，缺值不是零）。
+15. client 很多的 port 卡會很高（每台 14px）也會很寬（三欄齊全 364px），目前都**沒有上限**。
     真的遇到幾十台再加一個 `CLIENT_MAX` 常數截，**不要順手改成「一個 client 一張卡」**——
     後端量得到的只有整個 port 的 Δ bps，N 張卡各帶全額會讓 `tracedOut` 變 `N×V`、
     其他輸入被灌水 `(N−1)×V`，而且四種殘差情況裡有三種完全不發警告；攤分則是 `5499b24`
