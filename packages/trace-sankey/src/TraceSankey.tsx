@@ -7,6 +7,8 @@
      channels      'both'（預設）／'read'／'write'：storage 資料的 read／write 帶只看其中一種；
                    被藏起來的通道併進其他輸入／其他輸出（與門檻同一套機制）。無通道的邊不受影響
      layout        'flat'（預設）／'node'：k8s node 外框（參考面板的 Layout: Node），資料要有 pod-node 邊
+     order         'flow'（預設，欄內流量大的在上）／'barycenter'（上游重心，帶子最不互穿）。
+                   **只改版面、不改 model**，所以它進 layout 的 useMemo deps、不進 useTraceModel 的
      roots         參考面板的 root 選擇；省略＝現行超集（no-flow 全保留）。內容相同的新物件不重算
      pathHighlight hover 卡片時亮整條路徑（其餘變淡），可隨時開關
      onNodeClick   可定位的卡（locatable）被點到時呼叫 (id, node)；有給才把那些卡標成 .clickable
@@ -16,6 +18,8 @@
      onZoom        縮放倍率變化（螢幕實際倍率，量不到時是 null）
    ref：{ refresh, model, zoom: { fit, actual, zoomBy, refresh, isPanning } }
    會改 model 的選項（minBps／channels／layout／roots）都是 props、都在 useTraceModel 的 deps 裡；
+   只改版面的選項（order）進 layout 的 useMemo deps——放進 useTraceModel 會白重算一次 build()，
+   忘了放進 layout 的 deps 則是「切了不重畫」（靜默）；
    pathHighlight／onNodeClick／focus 不進 model，各自是一個 effect。handle 沒有 setter：props 驅動。
 
    套件裡沒有任何 innerHTML：SVG 由 React 直接渲染，Trusted Types 開著也能畫。
@@ -23,6 +27,8 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import type { Channel, StorageRoots, TraceModelOk, TraceNode, TraceWrapper } from './model/types.js';
+import type { NodeOrder } from './layout/options.js';
+import { DEFAULT_ORDER } from './layout/options.js';
 import { layout } from './layout/layout.js';
 import { TraceSvg } from './svg/TraceSvg.js';
 import { TraceTooltip } from './tooltip/TraceTooltip.js';
@@ -46,6 +52,8 @@ export interface TraceSankeyProps {
   channels?: 'both' | Channel;
   /** 'node'：k8s node 外框（pod 欄依所在 node 分區）；預設 'flat' */
   layout?: 'flat' | 'node';
+  /** 欄內上下順序：'flow'（預設，流量大的在上）／'barycenter'（上游重心）。不改 model，只換版面 */
+  order?: NodeOrder;
   /** 參考面板的 root 選擇；省略＝no-flow hop 全保留 */
   roots?: StorageRoots | null;
   /** hover 卡片時亮整條路徑 */
@@ -71,12 +79,15 @@ export interface TraceSankeyHandle {
 }
 
 export const TraceSankey = forwardRef<TraceSankeyHandle, TraceSankeyProps>(function TraceSankey(props, ref) {
-  const { minBps = 0, channels = 'both', layout: lay = 'flat', pathHighlight = false, focus = false, className, style } = props;
+  const { minBps = 0, channels = 'both', layout: lay = 'flat', order = DEFAULT_ORDER,
+    pathHighlight = false, focus = false, className, style } = props;
   const latest = useLatest(props);
   const doc = useStableDoc(props.doc);
   const roots = useStableJson(props.roots ?? null);
   const model = useTraceModel(doc, { minBps, channels, layout: lay, roots });
-  const geo = useMemo(() => (model.ok ? layout(model) : null), [model]);
+  /* order 是字串字面量，直接進 deps 沒有 identity 問題（不需要 useStableJson）。
+     忘了把它放進 deps 就會「切了不重畫」，而且不會有任何錯誤——這是接這個 prop 最容易犯的錯。 */
+  const geo = useMemo(() => (model.ok ? layout(model, { order }) : null), [model, order]);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const tipRef = useRef<TraceTooltipHandle | null>(null);

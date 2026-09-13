@@ -1,6 +1,7 @@
-/* 版面與繪製共用的純函式：文字截斷、卡片尺寸、殘差門檻。全部不碰 DOM——render 必須是純函式、Node 也要能跑。 */
+/* 版面與繪製共用的純函式：文字截斷、卡片尺寸、殘差門檻、排序鍵。全部不碰 DOM——render 必須是純函式、Node 也要能跑。 */
 import type { NodeUsage, TraceNode, TraceWrapper } from '../model/types.js';
 import { fmtBytes } from '../model/format.js';
+import { sum } from '../model/util.js';
 import { CARD_BASE, CLIENT_COLS, CLIENT_GAP, CLIENT_PAD, HEADER_H, LEAF_W, LINE_H, NODE_W } from './constants.js';
 import type { ClientCol } from './constants.js';
 
@@ -71,6 +72,16 @@ export const resIn = (n: TraceNode): number =>
   n.kind === 'node' && n.otherIn! > (n.resEps || 0) ? n.otherIn! : 0;
 export const resOut = (n: TraceNode): number =>
   n.kind === 'node' && n.otherOut! > (n.resEps || 0) ? n.otherOut! : 0;
+
+/* 欄內流量排序（order:'flow'）用的「一個節點的流量」＝ max(入邊總和, 出邊總和)。
+   - read＋write 一起加總（sum() 不分 channel），跟「守恆看色塊厚度總和」同一個定義。
+   - **不含殘差**：殘差是「沒追到的量」，拿它決定誰排上面等於讓沒追到的東西主導版面。
+   - 歸屬線（owns）的 bps 恆 0，加進去等於不加——owner 卡的量只來自整張卡獨佔的 port，這是對的。
+   - hop 沒有 bps 欄位，但 tracedIn／tracedOut 的定義就是這兩個 sum，所以這個式子對
+     hop／葉／pod／ns／app／owner／錨卡一律成立，不必為了排序在 model 上長新欄位。
+   注意它是 O(邊數)：**絕不能在 comparator 裡呼叫**（sort 會叫 O(n log n) 次，
+   stress/05-huge.json 有 1365 台）——一律先算進 Map。 */
+export const flowOf = (n: TraceNode): number => Math.max(sum(n.inEdges), sum(n.outEdges));
 
 export const typeWord = (n: TraceNode | TraceWrapper): string => {
   if (n.kind === 'anchor') return '追查起點';

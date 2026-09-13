@@ -11,7 +11,9 @@
 
    門檻（minBps）除 0 之外另跑一組 5e8，鎖住過濾路徑的行為；圖上有 read／write 通道的範例
    另跑一組 channels:'read'（只有 storage 資料會多出這組檔案，switch 資料的檔案集合不變）；
-   有 pod-node 邊的範例另跑一組 layout:'node'（k8s node 外框）。
+   有 pod-node 邊的範例另跑一組 layout:'node'（k8s node 外框）；每份範例另跑一組
+   order:'barycenter'（.bary，只寫 .svg 與 .tables.html——排序不進 model）。
+   環境變數 ORDER=barycenter 則是把**所有**變體都用那個排序跑、檔名不變，用來對拍「舊版面沒動」。
 
    用法：
      node tools/golden.mjs dump <outDir>         # dump 所有輸出（model.json 在 render 之前寫）
@@ -28,6 +30,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIN_BPS = [0, 5e8];
+/* ORDER=barycenter：把所有變體都用這個欄內排序跑，**檔名完全不變**——拿改動前的 dump 當基準
+   直接 cmp（零 --ignore、檔案集合相同）就能證明那條路徑逐 byte 沒動，不必暫時把預設翻回去
+   （那靠人工紀律，而且三個月後沒辦法再跑一次）。 */
+const ORDER = process.env.ORDER || '';
 
 /* 走套件名（root node_modules/trace-sankey 是 workspace symlink）而不是檔案路徑：
    Node 不認 exports 的 development 條件，所以拿到的是 dist/——跟外部使用者裝到的東西
@@ -57,6 +63,11 @@ export function variants(api, doc) {
   /* 有 pod-node 邊的範例另跑 layout:'node'（k8s node 外框）；flat 的檔案集合不變 */
   const hasPodNode = doc.elements.edges.some((e) => e.data && e.data.labels && e.data.labels.tier === 'pod-node');
   if (m.ok && hasPodNode) out.push({ tag: '.node', opts: { layout: 'node' } });
+  if (ORDER) return out;              /* 強制模式：檔案集合要跟基準一致，不加額外變體 */
+  /* 欄內排序是 layout 的選項、不進 model：另跑一組 barycenter 把那條路徑永久留在對拍語料裡
+     （未來重構 layout() 才不會只有預設模式被蓋到）。model／summary／warnings 與 .min0
+     完全相同（排序不進 model），所以 geoOnly 只寫會變的那兩種輸出。 */
+  out.push({ tag: '.bary', opts: { minBps: 0 }, lopts: { order: 'barycenter' }, geoOnly: true });
   return out;
 }
 
@@ -87,13 +98,17 @@ async function dump(api, outDir) {
       /* 版面算一次、餵給兩個消費者。render 與 flowTables 各自呼叫 layout() 也會得到相同結果
          （純函式），但那是同一份幾何算兩次，而且日後誰多帶一個版面選項就會變成
          「圖與表出自不同版面」——geo 從外面傳進去，兩者不可能不同源。 */
-      const geo = api.layout(model);
-      writeFileSync(join(outDir, tag + '.model.json'), modelJson(model));
+      /* ORDER 有設就強制；否則用變體自己的（沒有就是套件預設） */
+      const geo = api.layout(model, ORDER ? { order: ORDER } : v.lopts);
       writeFileSync(join(outDir, tag + '.svg'), api.render(model, geo));
-      writeFileSync(join(outDir, tag + '.summary.html'), api.summary(model));
       writeFileSync(join(outDir, tag + '.tables.html'), api.flowTables(model, geo).html);
+      n += 2;
+      /* 只換版面的變體（.bary）：model／summary／warnings 與 .min0 逐字相同，不重複寫一份 */
+      if (v.geoOnly) continue;
+      writeFileSync(join(outDir, tag + '.model.json'), modelJson(model));
+      writeFileSync(join(outDir, tag + '.summary.html'), api.summary(model));
       writeFileSync(join(outDir, tag + '.warnings.json'), JSON.stringify(model.warnings, null, 2) + '\n');
-      n += 5;
+      n += 3;
     }
   }
   console.log('dumped ' + n + ' files to ' + outDir);
@@ -254,14 +269,15 @@ function check(api) {
       const logged = [];
       console.error = (...a) => logged.push(a.map(String).join(' '));
       let svg = null;
-      try { const geo = api.layout(model); svg = api.render(model, geo); api.summary(model); api.flowTables(model, geo); }
+      const lopts = ORDER ? { order: ORDER } : v.lopts;
+      try { const geo = api.layout(model, lopts); svg = api.render(model, geo); api.summary(model); api.flowTables(model, geo); }
       catch (e) { fail++; origErr('FAIL ' + name + v.tag + ': render threw ' + e.message); }
       console.error = origErr;
       if (logged.length) { fail++; origErr('FAIL ' + name + v.tag + ': console.error 被呼叫 ' + logged.length + ' 次：' + logged[0].slice(0, 300)); }
       if (legacy && svg != null) {
         const lm = api.build(legacy, v.opts);
         if (!lm.ok) { fail++; origErr('FAIL ' + name + v.tag + ' (頂層 investigation): ' + lm.errors.join(' / ')); continue; }
-        if (api.render(lm) !== svg) { fail++; origErr('FAIL ' + name + v.tag + ': 頂層 investigation 的輸出與節點形式不同'); continue; }
+        if (api.render(lm, api.layout(lm, lopts)) !== svg) { fail++; origErr('FAIL ' + name + v.tag + ': 頂層 investigation 的輸出與節點形式不同'); continue; }
         if (!lm.warnings.some((w) => w.indexOf('deprecated') >= 0)) {
           fail++; origErr('FAIL ' + name + v.tag + ': 頂層 investigation 沒有 deprecated 警告');
         }

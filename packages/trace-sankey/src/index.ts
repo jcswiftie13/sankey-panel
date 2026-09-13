@@ -13,6 +13,7 @@ export { esc } from './layout/text.js';
 export { layout } from './layout/layout.js';
 export { locatable } from './locatable.js';
 export type { Geometry, NodeGeom, EdgeGeom, Slot, WrapperGeom } from './layout/geometry.js';
+export type { LayoutOptions, NodeOrder } from './layout/options.js';
 export { createZoom, zoomStep } from './zoom.js';
 export type {
   WireInvestigation, WireUsage, WireClient, WireNodeData, WireIoMetrics, WireEdgeData, WireGraph,

@@ -19,6 +19,7 @@ export const render = (model: TraceModelOk, geo: Geometry = layout(model)): stri
   renderToStaticMarkup(createElement(TraceSvg, { model, geo, headless: true }));
 
 export { layout } from './layout/layout.js';
+export type { LayoutOptions, NodeOrder } from './layout/options.js';
 export { summary } from './summary.js';
 export { flowTables } from './tables.js';
 export { esc } from './layout/text.js';

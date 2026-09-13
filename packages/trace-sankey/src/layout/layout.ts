@@ -2,12 +2,15 @@
    （舊版直接把 x／y／槽位寫在節點與邊上；改成另存 Map 之後 React 的 useMemo(() => layout(model))
    才是誠實的，onModel 交給使用端的 model 也不會被偷偷加欄位。） */
 import type { TraceEdge, TraceModelOk, TraceNode } from '../model/types.js';
+import { SEP } from '../model/util.js';
 import type { EdgeGeom, Geometry, NodeGeom, Slot, WrapperGeom } from './geometry.js';
+import type { LayoutOptions, NodeOrder } from './options.js';
+import { DEFAULT_ORDER } from './options.js';
 import {
   ANCHOR_W, BODY_MIN, BODY_PAD, COL_GAP, NODE_W, NS_COLORS, OWN_T,
   PAD_BOTTOM, PAD_SIDE, PAD_TOP, ROW_GAP, ROW_H, THICK_MAX, THICK_MIN, VGAP, WRAP_HEADER_H, WRAP_PAD
 } from './constants.js';
-import { clientW, headerH, leafH, resIn, resOut } from './text.js';
+import { clientW, flowOf, headerH, leafH, resIn, resOut } from './text.js';
 
 const stackH = (slots: Slot[]): number => {
   if (!slots.length) return 0;
@@ -25,8 +28,159 @@ const place = (slots: Slot[], top: number, avail: number): void => {
 
 /* 排欄用的暫存鍵（舊版的 __pref／__ord／__hasXParent／__nsPref／__nsIdx） */
 interface SortKeys { pref: number; ord: number; hasXParent: boolean; nsPref: number | null; nsIdx: number }
+type KeyOf = (n: TraceNode) => SortKeys;
 
-export const layout = (model: TraceModelOk): Geometry => {
+/* ---------- 欄內上下順序：兩種模式各一個比較器，彼此不共用鍵 ---------- */
+
+/* barycenter：上游重心。**這一段與加上 order 選項之前逐字相同**——order:'barycenter' 的輸出
+   必須逐 byte 等於那時候，所以連 nsPref 的計算都留在這個分支裡（flow 模式不讀 nsPref，
+   算了沒人看就是誤導）。 */
+const sortColBarycenter = (col: TraceNode[], K: KeyOf): void => {
+  /* pod 葉依 namespace 分組：同 ns 的 pod 共用「組平均 pref」當第一排序鍵，
+     整組相鄰排列；組間平手再用 ns 首次出現序拆。組內仍照各自 pref（上游重心），
+     跨 node 的同 ns pod 相鄰但各自貼近自己的上游。只有帶 ns 的 pod 葉會設
+     nsPref——沒有 pod 的圖兩個新鍵全空，比較器退化成原本的三鍵，輸出不變。
+     注意 source 模式 pod 在第 0 欄沒有跨欄上游、pref 是輸入順序：分組照文件順序聚攏。 */
+  const nsAgg: Record<string, { s: number; c: number; idx: number }> = {};
+  let nsSeq = 0;
+  for (const n of col) {
+    if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) continue;
+    const a = nsAgg[n.namespace] || (nsAgg[n.namespace] = { s: 0, c: 0, idx: ++nsSeq });
+    a.s += K(n).pref; a.c++;
+  }
+  for (const n of col) {
+    if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) continue;
+    const a = nsAgg[n.namespace];
+    K(n).nsPref = a.s / a.c;
+    K(n).nsIdx = a.idx;
+  }
+  col.sort((a, b) => {
+    const A = K(a), B = K(b);
+    const ka = A.nsPref != null ? A.nsPref : A.pref;
+    const kb = B.nsPref != null ? B.nsPref : B.pref;
+    return (ka - kb) || (A.nsIdx - B.nsIdx) || (A.pref - B.pref) ||
+      ((a.subOrder || 0) - (b.subOrder || 0)) || (A.ord - B.ord);
+  });
+};
+
+/* flow 模式的欄內排序鍵，全部預算好放 Map（flowOf 是 O(邊數)，不能在 comparator 裡叫） */
+interface FlowKeys {
+  /** 群組流量降冪＝第一鍵。ns 群＝成員加總、同欄 lateral 鏈＝成員最大值、非群節點＝自己的流量 */
+  gFlow: number;
+  /** 群組序（首次出現），只用來拆「流量剛好相等的兩個群」。非群節點一律 0 */
+  gIdx: number;
+  /** 同欄 lateral 鏈裡的拓樸層：生產者 0、它餵的消費者 1…。不在鏈上的一律 0 */
+  depth: number;
+  /** 節點自己的流量 */
+  flow: number;
+}
+
+/* flow：流量大的在上（預設）。
+   鍵 1／2 是**群組級**而不是節點級，才能保證群組相鄰——這就是 ns 分組原本靠 nsPref／nsIdx
+   達成的同一個技巧，只是把「組平均 pref」換成「組流量」。
+
+   為什麼同欄 lateral 鏈也要當一個群：samples/dci-tier.json 的 tier `border` 裡
+   bdr-1..3（4G）→ dci-1,2（3G）→ bdr-4..6（6G）全在同一欄，純流量排序會把消費者 bdr-4..6
+   排到生產者上面，兩條 dci 的弧帶得從整欄最底跨到最上。鏈當一個群、鏈內用 depth 強迫
+   生產者在上之後，bdr-1..3 之間與 bdr-4..6 之間仍然照流量排，只有跨層的相對位置由拓樸決定。
+
+   反過來**不能**把 subOrder 直接排在流量前面：columns.ts 5g 對每一個成員數 ≥ 2 的 tier 群
+   都發 0,1,2… 的 Kahn 序（AUTO_TIER 讓 netapp-node／aggr／svm／pvc 自動以 type 當 tier，
+   switch 範例也有 bdr／border／tor 這些節點 tier），每個成員的 subOrder 都唯一 →
+   它會先分完勝負，storage 與 switch 的欄會整欄照舊、流量排序完全沒作用。
+
+   tie-break 刻意是 pref → subOrder → ord：storage 的中間層每台都守恆、同一欄常常出現
+   一堆數值完全相同的節點（dci-tier 的 bdr-1..3 全是 4G），這時流量鍵整欄平手、
+   **排序自動退化成 barycenter 的結果**，帶子照樣不互穿。這是預設換成 flow 風險最低的關鍵性質。
+   最後一鍵一律 ord（欄內出現序）保證確定性。 */
+const sortColByFlow = (col: TraceNode[], model: TraceModelOk, K: KeyOf): void => {
+  const F = new Map<string, FlowKeys>();
+  for (const n of col) {
+    const f = flowOf(n);
+    F.set(n.id, { gFlow: f, gIdx: 0, depth: 0, flow: f });
+  }
+
+  /* 同欄 lateral 連通鏈。lateral 邊兩端一定同欄（e.lateral 的定義），沿著它走不會走出這一欄；
+     還是用 F.has 守一道，model 被門檻濾過之後別的欄不該被拉進來。 */
+  const lat = (n: TraceNode): TraceEdge[] =>
+    n.inEdges.filter((e) => e.lateral).concat(n.outEdges.filter((e) => e.lateral));
+  const chain = new Map<string, string>();
+  for (const seed of col) {
+    if (chain.has(seed.id) || !lat(seed).length) continue;
+    chain.set(seed.id, seed.id);
+    const stack: TraceNode[] = [seed];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const e of lat(cur)) {
+        for (const id of [e.fromId, e.toId]) {
+          if (chain.has(id) || !F.has(id)) continue;
+          chain.set(id, seed.id);
+          stack.push(model.nodeMap[id]);
+        }
+      }
+    }
+  }
+
+  /* 拓樸層：subOrder 是 tier 內的 Kahn 序，生產者一定先被走到，所以單趟就算得出 depth。
+     tier 內有環時（columns.ts 5g 的補完分支）會退化成偏小的值，仍然穩定。 */
+  for (const n of col.slice().sort((a, b) => (a.subOrder || 0) - (b.subOrder || 0))) {
+    let d = 0;
+    for (const e of n.inEdges) {
+      if (!e.lateral) continue;
+      const up = F.get(e.fromId);
+      if (up) d = Math.max(d, up.depth + 1);
+    }
+    F.get(n.id)!.depth = d;
+  }
+
+  /* 群組：ns 優先（理論上 pod 之間也可以有同欄互連邊，先講定誰贏才不會有第二種解） */
+  const NS = 'ns' + SEP, LAT = 'lat' + SEP;
+  const gk = (n: TraceNode): string | null =>
+    (n.kind === 'leaf' && n.role === 'pod' && n.namespace) ? NS + n.namespace
+      : (chain.has(n.id) ? LAT + chain.get(n.id)! : null);
+  const groups = new Map<string, { flow: number; idx: number; count: number; ns: boolean }>();
+  let seq = 0;
+  for (const n of col) {
+    const k = gk(n);
+    if (k == null) continue;
+    let g = groups.get(k);
+    if (!g) groups.set(k, (g = { flow: 0, idx: ++seq, count: 0, ns: k.startsWith(NS) }));
+    g.count++;
+    /* ns 群用加總（「這個 ns 總共多少」，與 flowTables 的 namespace 小計同義，圖與表的順序才一致）；
+       lateral 鏈用最大值——同一股量流過整條鏈，加總會把它算好幾次。 */
+    const f = F.get(n.id)!.flow;
+    g.flow = g.ns ? g.flow + f : Math.max(g.flow, f);
+  }
+  for (const n of col) {
+    const k = gk(n);
+    if (k == null) continue;
+    const g = groups.get(k)!;
+    /* 只有一個成員的「群」不是群：留著會讓它的 gIdx 在兩個流量相等的節點之間先分出勝負，
+       pref／ord 那兩層兜底就永遠輪不到，守恆圖的帶子會開始互穿。 */
+    if (g.count < 2) continue;
+    const f = F.get(n.id)!;
+    f.gFlow = g.flow; f.gIdx = g.idx;
+  }
+
+  col.sort((a, b) => {
+    const A = F.get(a.id)!, B = F.get(b.id)!;
+    return (B.gFlow - A.gFlow)                     /* 1. 群組流量大的在上 */
+      || (A.gIdx - B.gIdx)                         /* 2. 群流量相等：首次出現序（群內因此相鄰） */
+      || (A.depth - B.depth)                       /* 3. lateral 鏈內：生產者在消費者上面 */
+      || (B.flow - A.flow)                         /* 4. 群內／同層：自己的流量大的在上 */
+      || (K(a).pref - K(b).pref)                   /* 5. 流量相等：貼近自己的上游重心 */
+      || ((a.subOrder || 0) - (b.subOrder || 0))   /* 6. 同 tier 的拓樸序 */
+      || (K(a).ord - K(b).ord);                    /* 7. 兜底：欄內出現序，保證確定性 */
+  });
+};
+
+const sortColumn = (col: TraceNode[], order: NodeOrder, model: TraceModelOk, K: KeyOf): void => {
+  if (order === 'barycenter') sortColBarycenter(col, K);
+  else sortColByFlow(col, model, K);
+};
+
+export const layout = (model: TraceModelOk, opts: LayoutOptions = {}): Geometry => {
+  const order = opts.order ?? DEFAULT_ORDER;
   const nodes = model.nodes, edges = model.edges;
   const gn = new Map<string, NodeGeom>();
   const ge = new Map<string, EdgeGeom>();
@@ -105,9 +259,19 @@ export const layout = (model: TraceModelOk): Geometry => {
   for (const n of nodes) (cols[n.col] = cols[n.col] || []).push(n);
   /* layout:'node'：k8s node 外框住在 pod 欄（有葉 pod 的那一欄）。全部 pod 都被濾掉、只剩 root 的
      空外框時，pod 欄不存在——另開一欄放它們，否則「root 一律畫」畫不出來。
-     外框照名字排（node 是照名字查的庫存項目，不是照流量）；座標另存 WrapperGeom，不寫回 model。 */
+     外框的順序跟著 order：barycenter 照名字（node 是照名字查的庫存項目，不是照流量）；
+     flow 照成員 pod 的流量加總降冪、平手才照名字——k8s 欄的「組」就是外框，組之間不照流量
+     等於流量排序只做了一半。空外框（root 的 no-flow 框，podIds 空）流量 0，落在最後。
+     流量先算進 Map，不在 comparator 裡叫 flowOf。
+     不用 layout/tips.ts 的 wrapperEdges：那會讓這支去 import tooltip 內容層（層次倒掛），
+     而且成員混合「只有入邊」與「只有出邊」時，逐一照 flowOf 定義再加總才是對的。
+     座標另存 WrapperGeom，不寫回 model。 */
+  const wFlow = new Map<string, number>(model.wrappers.map((w) =>
+    [w.id, w.podIds.reduce((t, id) => t + flowOf(model.nodeMap[id]), 0)]));
   const wrappers: WrapperGeom[] = model.wrappers.slice()
-    .sort((a, b) => a.label.localeCompare(b.label))
+    .sort(order === 'flow'
+      ? (a, b) => (wFlow.get(b.id)! - wFlow.get(a.id)!) || a.label.localeCompare(b.label)
+      : (a, b) => a.label.localeCompare(b.label))
     .map((w) => ({ wrapper: w, x: 0, y: 0, w: 0, h: 0 }));
   let podCol = -1;
   for (const n of nodes) if (n.kind === 'leaf' && n.role === 'pod' && podCol < 0) podCol = n.col;
@@ -157,31 +321,9 @@ export const layout = (model: TraceModelOk): Geometry => {
         K(n).pref = lat.reduce((s, e) => s + K(model.nodeMap[e.fromId]).pref, 0) / lat.length;
       }
     }
-    /* pod 葉依 namespace 分組：同 ns 的 pod 共用「組平均 pref」當第一排序鍵，
-       整組相鄰排列；組間平手再用 ns 首次出現序拆。組內仍照各自 pref（上游重心），
-       跨 node 的同 ns pod 相鄰但各自貼近自己的上游。只有帶 ns 的 pod 葉會設
-       nsPref——沒有 pod 的圖兩個新鍵全空，比較器退化成原本的三鍵，輸出不變。
-       注意 source 模式 pod 在第 0 欄沒有跨欄上游、pref 是輸入順序：分組照文件順序聚攏。 */
-    const nsAgg: Record<string, { s: number; c: number; idx: number }> = {};
-    let nsSeq = 0;
-    for (const n of col) {
-      if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) continue;
-      const a = nsAgg[n.namespace] || (nsAgg[n.namespace] = { s: 0, c: 0, idx: ++nsSeq });
-      a.s += K(n).pref; a.c++;
-    }
-    for (const n of col) {
-      if (n.kind !== 'leaf' || n.role !== 'pod' || !n.namespace) continue;
-      const a = nsAgg[n.namespace];
-      K(n).nsPref = a.s / a.c;
-      K(n).nsIdx = a.idx;
-    }
-    col.sort((a, b) => {
-      const A = K(a), B = K(b);
-      const ka = A.nsPref != null ? A.nsPref : A.pref;
-      const kb = B.nsPref != null ? B.nsPref : B.pref;
-      return (ka - kb) || (A.nsIdx - B.nsIdx) || (A.pref - B.pref) ||
-        ((a.subOrder || 0) - (b.subOrder || 0)) || (A.ord - B.ord);
-    });
+    /* 欄內上下順序（見檔案上方的 sortColBarycenter／sortColByFlow）。
+       兩種模式都用得到 pref，所以上面那段一定要留在這裡先算完。 */
+    sortColumn(col, order, model, K);
     let y = 0;
     if (ci === podCol && wrappers.length) {
       /* layout:'node'：pod 欄先依 k8s node 分區——外框照 node 名字排，外框內的 pod 維持上面排好的順序
