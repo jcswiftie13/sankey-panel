@@ -24,7 +24,7 @@
      node tools/golden.mjs check                 # 所有範例 build 都要 ok、render 不炸、不印 console.error（make check） */
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIN_BPS = [0, 5e8];
@@ -32,13 +32,13 @@ const MIN_BPS = [0, 5e8];
 /* 走套件名（root node_modules/trace-sankey 是 workspace symlink）而不是檔案路徑：
    Node 不認 exports 的 development 條件，所以拿到的是 dist/——跟外部使用者裝到的東西
    同一份。所以要先 npm run build -w trace-sankey（make check／golden 會先做）。 */
-async function loadEsm() {
+export async function loadEsm() {
   const [core, stat, samples] = await Promise.all([import('trace-sankey'), import('trace-sankey/static'), import('trace-sankey/samples')]);
   return { build: core.build, layout: core.layout, render: stat.render, summary: stat.summary,
     flowTables: core.flowTables, samples: samples.list };
 }
 
-function inputs(samples) {
+export function inputs(samples) {
   const docs = [];
   for (const s of samples) docs.push({ name: 'sample-' + s.key, doc: s.json });
   for (const dir of ['samples', 'stress']) {
@@ -49,7 +49,7 @@ function inputs(samples) {
   return docs;
 }
 
-function variants(api, doc) {
+export function variants(api, doc) {
   const out = [];
   for (const min of MIN_BPS) out.push({ tag: '.min' + min, opts: { minBps: min } });
   const m = api.build(doc, { minBps: 0 });
@@ -286,4 +286,8 @@ async function main() {
   process.exit(2);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+/* 只有被直接執行才跑 CLI：tools/test/ 要 import loadEsm／inputs／variants
+   （變體矩陣與輸入清單只能有一份定義，測試再抄一份就是這次要修的那種病）。 */
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

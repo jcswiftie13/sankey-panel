@@ -4,7 +4,7 @@ IMAGE  ?= trace-sankey
 PORT   ?= 8080
 
 .DEFAULT_GOAL := help
-.PHONY: help dev serve build pkg-build docker-build content-build up up-dev down electron check golden clean
+.PHONY: help dev serve build pkg-build docker-build content-build up up-dev down electron check test golden clean
 
 help:  ## 列出所有 target
 	@echo "追查 Sankey — 可用指令："
@@ -52,6 +52,9 @@ pkg-build:  ## 編譯 trace-sankey 套件（tsc → packages/trace-sankey/dist�
 
 check: pkg-build  ## 所有範例（內建 + samples/ + stress/）都 build 一次，任何一份失敗就非零退出
 	@node tools/golden.mjs check
+
+test: pkg-build  ## 單一來源的不變量（node --test）：golden 管「輸出沒變」，這支管「同一個結論只有一份定義」
+	@node --test tools/test/*.test.mjs
 
 golden: pkg-build  ## dump 目前 build/render/summary 輸出（重構前後對拍用；DIR=輸出目錄；比對用 node tools/golden.mjs cmp A B）
 	@node tools/golden.mjs dump $(or $(DIR),/tmp/golden)
