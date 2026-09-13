@@ -1,8 +1,8 @@
 /* golden 對拍工具：把所有範例（內建 samples ＋ samples/*.json ＋ stress/*.json）
-   的 build()/render()/summary() 輸出 dump 成檔案，重構前後對拍。
+   的 build()/render()/summary()/flowTables() 輸出 dump 成檔案，重構前後對拍。
 
    兩種嚴格度，對應兩層不同的重構風險：
-     - model.json／warnings.json／summary.html／errors.json：逐 byte 相同（diff -r 或 cmp）。
+     - model.json／warnings.json／summary.html／tables.html／errors.json：逐 byte 相同（diff -r 或 cmp）。
        model 拆檔、語法現代化都不該動到任何一個鍵、任何一段警告文字。
      - svg：走 `cmp` 的語意等價——渲染層從手拼字串換成 React 元件之後，屬性順序、
        自閉合寫法、實體轉義（&#39; 與 &#x27;）、數值尾零都會不同，但那些不是版面差異。
@@ -10,7 +10,8 @@
        文字內容（帶上的量字、卡片標題）一個字都不放過。
 
    門檻（minBps）除 0 之外另跑一組 5e8，鎖住過濾路徑的行為；圖上有 read／write 通道的範例
-   另跑一組 channels:'read'（只有 storage 資料會多出這組檔案，switch 資料的檔案集合不變）。
+   另跑一組 channels:'read'（只有 storage 資料會多出這組檔案，switch 資料的檔案集合不變）；
+   有 pod-node 邊的範例另跑一組 layout:'node'（k8s node 外框）。
 
    用法：
      node tools/golden.mjs dump <outDir>         # dump 所有輸出（model.json 在 render 之前寫）
@@ -33,7 +34,7 @@ const MIN_BPS = [0, 5e8];
    同一份。所以要先 npm run build -w trace-sankey（make check／golden 會先做）。 */
 async function loadEsm() {
   const [core, stat, samples] = await Promise.all([import('trace-sankey'), import('trace-sankey/static'), import('trace-sankey/samples')]);
-  return { build: core.build, render: stat.render, summary: stat.summary, samples: samples.list };
+  return { build: core.build, render: stat.render, summary: stat.summary, flowTables: core.flowTables, samples: samples.list };
 }
 
 function inputs(samples) {
@@ -86,8 +87,9 @@ async function dump(api, outDir) {
       writeFileSync(join(outDir, tag + '.model.json'), modelJson(model));
       writeFileSync(join(outDir, tag + '.svg'), api.render(model));
       writeFileSync(join(outDir, tag + '.summary.html'), api.summary(model));
+      writeFileSync(join(outDir, tag + '.tables.html'), api.flowTables(model).html);
       writeFileSync(join(outDir, tag + '.warnings.json'), JSON.stringify(model.warnings, null, 2) + '\n');
-      n += 4;
+      n += 5;
     }
   }
   console.log('dumped ' + n + ' files to ' + outDir);
@@ -248,7 +250,7 @@ function check(api) {
       const logged = [];
       console.error = (...a) => logged.push(a.map(String).join(' '));
       let svg = null;
-      try { svg = api.render(model); api.summary(model); }
+      try { svg = api.render(model); api.summary(model); api.flowTables(model); }
       catch (e) { fail++; origErr('FAIL ' + name + v.tag + ': render threw ' + e.message); }
       console.error = origErr;
       if (logged.length) { fail++; origErr('FAIL ' + name + v.tag + ': console.error 被呼叫 ' + logged.length + ' 次：' + logged[0].slice(0, 300)); }

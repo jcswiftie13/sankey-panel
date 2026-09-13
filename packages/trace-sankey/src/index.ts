@@ -7,13 +7,17 @@ export { validate, direction } from './model/validate.js';
 export { fmtBps, fmtDelta, fmtBytes, fmtRate, fmtAmount, gbps } from './model/format.js';
 export { HOP_TYPES, GROUP_TYPES, FLOW_TYPES, TYPE_LABEL } from './model/classify.js';
 export { summary } from './summary.js';
+export { flowTables } from './tables.js';
+export type { FlowTables, FlowRow, AppRow, NsRow } from './tables.js';
 export { esc } from './layout/text.js';
 export { layout } from './layout/layout.js';
-export type { Geometry, NodeGeom, EdgeGeom, Slot } from './layout/geometry.js';
+export { locatable } from './locatable.js';
+export type { Geometry, NodeGeom, EdgeGeom, Slot, WrapperGeom } from './layout/geometry.js';
 export { createZoom, zoomStep } from './zoom.js';
 export type {
   WireInvestigation, WireUsage, WireClient, WireNodeData, WireIoMetrics, WireEdgeData, WireGraph,
   Channel, RateUnit, Direction, Channels, Status, NodeInfo, NodeUsage, NodeClient,
-  TraceNode, TraceEdge, TraceModelOk, TraceModelError, TraceModel, BuildOptions
+  TraceNode, TraceEdge, TraceModelOk, TraceModelError, TraceModel, BuildOptions,
+  WireNodeInvestigation, StorageRoots, TraceWrapper
 } from './model/types.js';
 export type { ZoomInstance, ZoomOptions } from './zoom.js';

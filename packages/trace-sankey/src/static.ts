@@ -12,4 +12,5 @@ export const render = (model: TraceModelOk): string =>
   renderToStaticMarkup(createElement(TraceSvg, { model, geo: layout(model), headless: true }));
 
 export { summary } from './summary.js';
+export { flowTables } from './tables.js';
 export { esc } from './layout/text.js';
