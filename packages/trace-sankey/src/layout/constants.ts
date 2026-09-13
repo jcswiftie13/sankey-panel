@@ -2,13 +2,18 @@
    app/src/app.css 的圖例色票），改配色要三處一起改。 */
 
 export const NODE_W = 208, LEAF_W = 178, ANCHOR_W = 152;
-export const HEADER_H = 36, ROW_H = 24, ROW_GAP = 9, BODY_PAD = 12, BODY_MIN = 26;
+export const HEADER_H = 40, ROW_H = 24, ROW_GAP = 9, BODY_PAD = 12, BODY_MIN = 26;
 export const COL_GAP = 218, VGAP = 34;
 export const PAD_TOP = 46, PAD_BOTTOM = 26, PAD_SIDE = 122;
 export const THICK_MAX = 86, THICK_MIN = 3;
 /* 歸屬線的線寬：不帶量，不能照 thick() 佔一般帶的視覺重量；
    但 fill:none 的帶 hover 判定就是 stroke-width，太細會點不到 */
 export const OWN_T = 2.4;
+/* layout:'node' 的 k8s node 外框：pod 卡縮排 WRAP_PAD、外框上緣留型別標＋名字＋pod 數三行 */
+export const WRAP_PAD = 10, WRAP_HEADER_H = 52;
+/* 每張卡同一套版式：第 1 行型別標（y+17）、第 2 行名字（y+31）、之後一行一個屬性（每行 LINE_H）。
+   卡高＝名字行之後的屬性行數決定：0 行 57、1 行 70、2 行 84、3 行 97…（CARD_BASE + LINE_H*行數 + 底邊留白） */
+export const LINE_H = 13, CARD_BASE = 44;
 export const RES_LEN = 34, RES_GAP = 8;   /* 高度改用 thick()，不再有固定的 RES_H／RES_PAD */
 
 /* namespace 色盤：依「首次出現順序」配色、超過就循環。不用 hash——色盤只有 5 色，
@@ -33,4 +38,6 @@ export const CLIENT_GAP = 10, CLIENT_PAD = 12;
 
 /* 非 switch 的設備型別（k8s node／pod、netapp 三型別）畫虛線框；pvc／app／ns 實線，與參考面板一致 */
 export const DEVICE_TYPES = ['node', 'pod', 'netapp-node', 'netapp-aggr', 'netapp-svm'];
-export const STATUS_COLOR: Record<string, string> = { critical: '#fb7185', warning: '#f59e0b' };
+/* 三色都上框（參考面板：有 status 就以 status 框，normal 也是一個判定）；沒有 status 維持中性框。
+   綠刻意避開 ns 色盤的 #34d399 */
+export const STATUS_COLOR: Record<string, string> = { critical: '#fb7185', warning: '#f59e0b', normal: '#4ade80' };

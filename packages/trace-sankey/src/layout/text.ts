@@ -1,7 +1,7 @@
 /* 版面與繪製共用的純函式：文字截斷、卡片尺寸、殘差門檻。全部不碰 DOM——render 必須是純函式、Node 也要能跑。 */
-import type { NodeUsage, TraceNode } from '../model/types.js';
+import type { NodeUsage, TraceNode, TraceWrapper } from '../model/types.js';
 import { fmtBytes } from '../model/format.js';
-import { CLIENT_COLS, CLIENT_GAP, CLIENT_PAD, HEADER_H, LEAF_W, NODE_W } from './constants.js';
+import { CARD_BASE, CLIENT_COLS, CLIENT_GAP, CLIENT_PAD, HEADER_H, LEAF_W, LINE_H, NODE_W } from './constants.js';
 import type { ClientCol } from './constants.js';
 
 export const esc = (s: unknown): string =>
@@ -44,20 +44,25 @@ export const clientRows = (n: TraceNode): string[][] => {
   return n.clients!.map((c) => cols.map((col) => (c[col.key] ? clip(c[col.key], col.budget) : '')));
 };
 
+/* 卡高（統一版式）：名字行之後有幾行屬性 */
+export const cardH = (lines: number): number => CARD_BASE + LINE_H * lines + 13;
 /* 帶 namespace 的葉多一行資訊（ns 標示），卡要高一階；沒 ns 的 pod 跟一般葉一樣高。
-   有 clients 時多的是：name 那行（只有真的給了 name 才有）、表頭一行、每台一行。
-   沒有 clients 時回傳值與舊版完全相同。 */
+   有 clients 時多的是：name 那行（只有真的給了 name 才有）、表頭一行、每台一行。 */
 export const leafH = (n: TraceNode): number => {
-  if (n.role === 'owner') return 84;      /* 量一行、台數／port 數一行 */
+  if (n.role === 'owner') return cardH(2);                 /* 量一行、台數／port 數一行 */
+  if (n.role === 'app') return cardH(n.namespace ? 3 : 2); /* ns、pod 數、合計 */
+  if (n.role === 'ns') return cardH(2);                    /* pod 數、合計 */
   const cols = clientCols(n);
-  if (!cols.length) return n.namespace ? 80 : 70;
+  if (!cols.length) return cardH(n.namespace ? 2 : 1);     /* ns、iface · 量 */
   return 70 + (n.namespace ? 14 : 0) + (n.named ? 14 : 0) + 14 + n.clients!.length * 14;
 };
 
-/* hop 盒的標題區高度：有 usage 副標（兩欄都在才畫）就多一行 */
-export const hasUsage = (n: TraceNode): boolean =>
+/* hop 盒的標題區：型別標＋名字固定 HEADER_H，屬性行（ns／ontap_cluster／usage）每行 LINE_H */
+export const hasUsage = (n: TraceNode | TraceWrapper): boolean =>
   !!(n.usage && n.usage.used_bytes != null && n.usage.capacity_bytes != null);
-export const headerH = (n: TraceNode): number => HEADER_H + (hasUsage(n) ? 12 : 0);
+export const hopLineCount = (n: TraceNode): number =>
+  (n.namespace ? 1 : 0) + (n.ontapCluster ? 1 : 0) + (hasUsage(n) ? 1 : 0);
+export const headerH = (n: TraceNode): number => HEADER_H + LINE_H * hopLineCount(n);
 
 /* 殘差門檻用 model 算好的 resEps：小於 counter 浮點雜訊的殘差不畫，也不佔版面。
    注意這是「相對這台自己流量」的判斷，粗細卻是全圖 maxVal 的比例——
@@ -67,8 +72,9 @@ export const resIn = (n: TraceNode): number =>
 export const resOut = (n: TraceNode): number =>
   n.kind === 'node' && n.otherOut! > (n.resEps || 0) ? n.otherOut! : 0;
 
-export const typeWord = (n: TraceNode): string => {
+export const typeWord = (n: TraceNode | TraceWrapper): string => {
   if (n.kind === 'anchor') return '追查起點';
+  if (n.kind === 'wrapper') return 'node';
   if (n.role === 'ns') return 'namespace';
   if (n.role === 'app') return 'application';
   if (n.role === 'owner') return 'owner';

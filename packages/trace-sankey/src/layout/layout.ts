@@ -2,10 +2,10 @@
    （舊版直接把 x／y／槽位寫在節點與邊上；改成另存 Map 之後 React 的 useMemo(() => layout(model))
    才是誠實的，onModel 交給使用端的 model 也不會被偷偷加欄位。） */
 import type { TraceEdge, TraceModelOk, TraceNode } from '../model/types.js';
-import type { EdgeGeom, Geometry, NodeGeom, Slot } from './geometry.js';
+import type { EdgeGeom, Geometry, NodeGeom, Slot, WrapperGeom } from './geometry.js';
 import {
   ANCHOR_W, BODY_MIN, BODY_PAD, COL_GAP, NODE_W, NS_COLORS, OWN_T,
-  PAD_BOTTOM, PAD_SIDE, PAD_TOP, ROW_GAP, ROW_H, THICK_MAX, THICK_MIN, VGAP
+  PAD_BOTTOM, PAD_SIDE, PAD_TOP, ROW_GAP, ROW_H, THICK_MAX, THICK_MIN, VGAP, WRAP_HEADER_H, WRAP_PAD
 } from './constants.js';
 import { clientW, headerH, leafH, resIn, resOut } from './text.js';
 
@@ -103,13 +103,27 @@ export const layout = (model: TraceModelOk): Geometry => {
   /* 欄位 x */
   const cols: TraceNode[][] = [];
   for (const n of nodes) (cols[n.col] = cols[n.col] || []).push(n);
+  /* layout:'node'：k8s node 外框住在 pod 欄（有葉 pod 的那一欄）。全部 pod 都被濾掉、只剩 root 的
+     空外框時，pod 欄不存在——另開一欄放它們，否則「root 一律畫」畫不出來。
+     外框照名字排（node 是照名字查的庫存項目，不是照流量）；座標另存 WrapperGeom，不寫回 model。 */
+  const wrappers: WrapperGeom[] = model.wrappers.slice()
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .map((w) => ({ wrapper: w, x: 0, y: 0, w: 0, h: 0 }));
+  let podCol = -1;
+  for (const n of nodes) if (n.kind === 'leaf' && n.role === 'pod' && podCol < 0) podCol = n.col;
+  if (podCol < 0 && wrappers.length) { podCol = cols.length; cols[podCol] = []; }
   let x = PAD_SIDE;
-  const colX: number[] = [];
+  const colX: number[] = [], colW: number[] = [];
   for (let c = 0; c < cols.length; c++) {
     const list = cols[c] || [];
-    const w = list.reduce((m, n) => Math.max(m, N(n.id).w), NODE_W);
-    colX[c] = x;
-    for (const n of list) N(n.id).x = x;
+    let w = list.reduce((m, n) => Math.max(m, N(n.id).w), NODE_W);
+    if (c === podCol && wrappers.length) {
+      /* 外框寬＝欄內最寬的卡＋兩側縮排；被包住的 pod 往右縮 WRAP_PAD，沒排班的 pod 貼欄左緣 */
+      const iw = list.reduce((m, n) => (n.k8sNode ? Math.max(m, N(n.id).w) : m), 0);
+      w = Math.max(w, iw + WRAP_PAD * 2, NODE_W);
+    }
+    colX[c] = x; colW[c] = w;
+    for (const n of list) N(n.id).x = n.k8sNode ? x + WRAP_PAD : x;
     x += w + COL_GAP;
   }
   const totalW = x - COL_GAP + PAD_SIDE;
@@ -169,7 +183,31 @@ export const layout = (model: TraceModelOk): Geometry => {
         ((a.subOrder || 0) - (b.subOrder || 0)) || (A.ord - B.ord);
     });
     let y = 0;
-    for (const n of col) { N(n.id).y = y; y += N(n.id).h + VGAP; }
+    if (ci === podCol && wrappers.length) {
+      /* layout:'node'：pod 欄先依 k8s node 分區——外框照 node 名字排，外框內的 pod 維持上面排好的順序
+         （ns 相鄰、上游重心），沒排班的 pod 排在所有外框之下。欄內陣列同步重排，之後的 cy 與欄標題
+         都以視覺順序為準。 */
+      const byW = new Map<string, TraceNode[]>(), loose: TraceNode[] = [];
+      for (const n of col) {
+        if (n.k8sNode) {
+          let list = byW.get(n.k8sNode);
+          if (!list) byW.set(n.k8sNode, (list = []));
+          list.push(n);
+        } else loose.push(n);
+      }
+      col.length = 0;
+      for (const wg of wrappers) {
+        const pods = byW.get(wg.wrapper.id) || [];
+        wg.x = colX[ci]; wg.w = colW[ci]; wg.y = y;
+        let yy = y + WRAP_HEADER_H;
+        for (const n of pods) { N(n.id).y = yy; yy += N(n.id).h + VGAP; col.push(n); }
+        wg.h = pods.length ? yy - VGAP + WRAP_PAD - y : WRAP_HEADER_H + WRAP_PAD;
+        y += wg.h + VGAP;
+      }
+      for (const n of loose) { N(n.id).y = y; y += N(n.id).h + VGAP; col.push(n); }
+    } else {
+      for (const n of col) { N(n.id).y = y; y += N(n.id).h + VGAP; }
+    }
     const blockH = Math.max(0, y - VGAP);
     const prefAvg = col.reduce((s, n) => s + K(n).pref, 0) / (col.length || 1);
     const shift = col.length && ci > 0 ? (prefAvg - blockH / 2) : 0;
@@ -178,13 +216,18 @@ export const layout = (model: TraceModelOk): Geometry => {
       g.y += shift;
       cyOf.set(n.id, g.y + g.h / 2);
     }
+    if (ci === podCol) for (const wg of wrappers) wg.y += shift;
   }
 
-  /* 正規化 y（空模型：沒有 investigation 的圖被門檻濾光時，minY/maxY 給 0 免得算出 NaN viewBox） */
-  let minY = nodes.length ? Infinity : 0, maxY = nodes.length ? -Infinity : 0;
+  /* 正規化 y（空模型：沒有 investigation 的圖被門檻濾光時，minY/maxY 給 0 免得算出 NaN viewBox）。
+     外框也要算進圖高，否則 fit 進不了畫面。 */
+  const any = nodes.length || wrappers.length;
+  let minY = any ? Infinity : 0, maxY = any ? -Infinity : 0;
   for (const n of nodes) { const g = N(n.id); minY = Math.min(minY, g.y); maxY = Math.max(maxY, g.y + g.h); }
+  for (const wg of wrappers) { minY = Math.min(minY, wg.y); maxY = Math.max(maxY, wg.y + wg.h); }
   const dy = PAD_TOP - minY;
   for (const n of nodes) { const g = N(n.id); g.y += dy; g.cy = g.y + g.h / 2; }
+  for (const wg of wrappers) wg.y += dy;
   let totalH = (maxY + dy) + PAD_BOTTOM;
 
   /* pod 依 ns 分組後，欄內順序可能偏離 hop 上 port 的宣告順序，帶子會互穿。
@@ -272,5 +315,5 @@ export const layout = (model: TraceModelOk): Geometry => {
   });
   if (backs.length) totalH = backY - 16 + PAD_BOTTOM;
 
-  return { cols, colX, width: totalW, height: Math.max(totalH, 220), nsColor, nodes: gn, edges: ge };
+  return { cols, colX, width: totalW, height: Math.max(totalH, 220), nsColor, nodes: gn, edges: ge, wrappers, podCol };
 };

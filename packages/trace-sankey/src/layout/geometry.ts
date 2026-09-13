@@ -1,6 +1,6 @@
 /* layout() 的輸出：model 本身不動，版面另外放在以 id 為鍵的 Map 裡。
    欄位名沿用舊版直接寫在節點／邊上的那套（x1／y1／t1、backT…），路徑產生器與卡片只改讀取來源。 */
-import type { TraceEdge, TraceNode } from '../model/types.js';
+import type { TraceEdge, TraceNode, TraceWrapper } from '../model/types.js';
 
 export type SlotRole = 'in' | 'out' | 'back-out' | 'lat-out' | 'lat-in' | 'back-in';
 
@@ -41,12 +41,25 @@ export interface EdgeGeom {
   backT?: number; backY?: number; backXD?: number; backXU?: number;
 }
 
+/** layout:'node' 的 k8s node 外框的版面：model.wrappers 本身不動，座標另存這裡 */
+export interface WrapperGeom {
+  wrapper: TraceWrapper;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface Geometry {
   width: number;
   height: number;
-  /** 每欄的節點（已依版面排序） */
+  /** 每欄的節點（已依版面排序；pod 欄在 layout:'node' 時依外框分區） */
   cols: TraceNode[][];
   colX: number[];
+  /** 外框（依 label 排序）；flat 或沒有外框時是空陣列 */
+  wrappers: WrapperGeom[];
+  /** 外框所在的 pod 欄；-1＝沒有外框 */
+  podCol: number;
   /** namespace → 顏色（依首次出現順序取自 NS_COLORS） */
   nsColor: Record<string, string>;
   nodes: Map<string, NodeGeom>;
