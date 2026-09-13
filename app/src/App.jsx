@@ -84,14 +84,14 @@ export default function App() {
     return () => clearTimeout(t);
   }, [minText]);
 
-  /* 專注模式：套件的 focus() 負責 body.chart-focus 與 refresh；還沒掛圖時自己 toggle body class
-     （app.css 用同一個 class 藏工具列與圖例）。版面變了要 refresh 重夾平移、更新百分比 */
+  /* 專注模式：有圖時交給 <TraceSankey focus>（套件負責 body.chart-focus 與 refresh）；
+     doc 還是 null、圖沒掛載時自己 toggle body class（app.css 用同一個 class 藏工具列與圖例）。
+     版面變了要 refresh 重夾平移、更新百分比 */
   useEffect(() => {
-    if (chartRef.current) chartRef.current.focus(focus);
-    else document.body.classList.toggle('chart-focus', focus);
+    if (!doc) document.body.classList.toggle('chart-focus', focus);
     const raf = requestAnimationFrame(() => chartRef.current?.refresh());
     return () => cancelAnimationFrame(raf);
-  }, [focus]);
+  }, [focus, doc]);
 
   /* 快捷鍵：+/- 縮放、0 符合視窗、1 原始大小、f 專注、Esc 離開；輸入框內不攔。
      SELECT 也要豁免，否則在「追查方向」選單上按 1／0 會被圖搶走。 */
@@ -234,6 +234,7 @@ export default function App() {
               minBps={min}
               layout={layout}
               pathHighlight
+              focus={focus}
               onModel={m => { setModel(m); setErrors(null); }}
               onError={e => { setErrors(e); setModel(null); }}
               onZoom={s => setZoomPct(s == null ? '—'

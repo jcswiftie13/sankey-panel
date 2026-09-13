@@ -1,17 +1,26 @@
 /* 範例追查 JSON（elements wire 格式）。純資料，不抓 counter、不掃網。
    三個簡寫只是省字，不是轉換器：G(10) = 10 Gbps、N(...) = 一個節點、E(...) = 一條 network-flow 邊。 */
-var G = function (n) { return Math.round(n * 1e9); };
+import type { WireGraph } from './model/types.js';
+
+export interface TraceSample {
+  key: string;
+  name: string;
+  desc: string;
+  json: WireGraph;
+}
+
+var G = function (n: number) { return Math.round(n * 1e9); };
 /* N(id, type, name?, extra?)：extra 直接合併進 data（labels／other_*_bps） */
-function N(id, type, name, extra) {
-  var d = { id: id, type: type };
+function N(id: string, type: string, name?: string | null, extra?: Record<string, any>) {
+  var d: any = { id: id, type: type };
   if (name) d.name = name;
-  if (extra) Object.keys(extra).forEach(function (k) { d[k] = extra[k]; });
+  if (extra) Object.keys(extra).forEach(function (k: any) { d[k] = extra[k]; });
   return { data: d };
 }
 /* E(id, source, source_iface, target, target_iface, bps)：iface 給空字串就不寫進 labels（k8s 內部沒有 switch iface） */
-function E(id, src, sif, dst, dif, bps) {
-  var d = { id: id, type: 'network-flow', source: src, target: dst };
-  var labels = {};
+function E(id: string, src: string, sif: string, dst: string, dif: string, bps: number) {
+  var d: any = { id: id, type: 'network-flow', source: src, target: dst };
+  var labels: any = {};
   if (sif) labels.source_iface = sif;
   if (dif) labels.target_iface = dif;
   if (sif || dif) d.labels = labels;
@@ -19,7 +28,7 @@ function E(id, src, sif, dst, dif, bps) {
   return { data: d };
 }
 
-var SAMPLES = [
+var SAMPLES: TraceSample[] = [
   {
     key: 'classic',
     name: '經典不守恆',
@@ -236,32 +245,32 @@ var SAMPLES = [
         iface: 'et-0/0/0', delta_bps: G(24), direction: 'in',
         note: 'core 進來 +24 Gbps，跨 DC 流量經 dci 繞回同層 bdr'
       } })];
-      [1, 2, 3].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, T)); });
-      [1, 2].forEach(function (i) { nodes.push(N('dci-' + i, 'switch', 'DCI ' + i, T)); });
-      [4, 5, 6].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, T)); });
-      [1, 2, 3].forEach(function (i) { nodes.push(N('spn-' + i, 'switch', 'SPN ' + i)); });
-      [1, 2, 3, 4].forEach(function (i) { nodes.push(N('tor-' + i, 'switch', 'ToR ' + i)); });
-      [1, 2, 3, 4].forEach(function (i) { nodes.push(N('srv-a-0' + i, 'host')); });
-      var edges = [], seq = 0;
-      var add = function (src, sif, dst, dif, bps) { edges.push(E('e' + (seq++), src, sif, dst, dif, bps)); };
-      [1, 2, 3, 4, 5, 6].forEach(function (i) { add('core-1', 'et-0/0/' + i, 'bdr-' + i, 'et-1/0/1', G(4)); });
+      [1, 2, 3].forEach(function (i: any) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, T)); });
+      [1, 2].forEach(function (i: any) { nodes.push(N('dci-' + i, 'switch', 'DCI ' + i, T)); });
+      [4, 5, 6].forEach(function (i: any) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, T)); });
+      [1, 2, 3].forEach(function (i: any) { nodes.push(N('spn-' + i, 'switch', 'SPN ' + i)); });
+      [1, 2, 3, 4].forEach(function (i: any) { nodes.push(N('tor-' + i, 'switch', 'ToR ' + i)); });
+      [1, 2, 3, 4].forEach(function (i: any) { nodes.push(N('srv-a-0' + i, 'host')); });
+      var edges: any[] = [], seq = 0;
+      var add = function (src: any, sif: any, dst: any, dif: any, bps: any) { edges.push(E('e' + (seq++), src, sif, dst, dif, bps)); };
+      [1, 2, 3, 4, 5, 6].forEach(function (i: any) { add('core-1', 'et-0/0/' + i, 'bdr-' + i, 'et-1/0/1', G(4)); });
       /* bdr-1..3：1G 到 dci-1、1G 到 dci-2（同層互連 → 弧帶）、2G 到自己那台 spn */
-      [1, 2, 3].forEach(function (i) {
+      [1, 2, 3].forEach(function (i: any) {
         add('bdr-' + i, 'et-1/1/1', 'dci-1', 'ae0', G(1));
         add('bdr-' + i, 'et-1/1/2', 'dci-2', 'ae0', G(1));
         add('bdr-' + i, 'et-1/2/1', 'spn-' + i, 'et-2/0/' + i, G(2));
       });
       /* dci 再回到同層的 bdr-4..6 */
-      [1, 2].forEach(function (j) {
-        [4, 5, 6].forEach(function (i, k) { add('dci-' + j, 'et-9/0/' + (k + 1), 'bdr-' + i, 'et-1/0/' + (j + 1), G(1)); });
+      [1, 2].forEach(function (j: any) {
+        [4, 5, 6].forEach(function (i: any, k: any) { add('dci-' + j, 'et-9/0/' + (k + 1), 'bdr-' + i, 'et-1/0/' + (j + 1), G(1)); });
       });
-      [4, 5, 6].forEach(function (i) {
-        [1, 2, 3].forEach(function (s) { add('bdr-' + i, 'et-1/2/' + s, 'spn-' + s, 'et-2/0/' + i, G(2)); });
+      [4, 5, 6].forEach(function (i: any) {
+        [1, 2, 3].forEach(function (s: any) { add('bdr-' + i, 'et-1/2/' + s, 'spn-' + s, 'et-2/0/' + i, G(2)); });
       });
-      [1, 2, 3].forEach(function (s) {
-        [1, 2, 3, 4].forEach(function (t) { add('spn-' + s, 'et-2/1/' + t, 'tor-' + t, 'et-3/0/' + s, G(2)); });
+      [1, 2, 3].forEach(function (s: any) {
+        [1, 2, 3, 4].forEach(function (t: any) { add('spn-' + s, 'et-2/1/' + t, 'tor-' + t, 'et-3/0/' + s, G(2)); });
       });
-      [1, 2, 3, 4].forEach(function (t) { add('tor-' + t, 'xe-3/0/10', 'srv-a-0' + t, 'eno1', G(6)); });
+      [1, 2, 3, 4].forEach(function (t: any) { add('tor-' + t, 'xe-3/0/10', 'srv-a-0' + t, 'eno1', G(6)); });
       return {
         kind: 'destination',
         elements: { nodes: nodes, edges: edges }
@@ -277,30 +286,30 @@ var SAMPLES = [
       iface: 'et-0/0/0', delta_bps: G(24), direction: 'in',
       note: 'core 進來 +24 Gbps，部分流量經 dci 繞回 bdr 再下去'
     } })];
-    [1, 2, 3, 4, 5, 6].forEach(function (i) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, { labels: { tier: 'bdr' } })); });
-    [1, 2, 3].forEach(function (j) { nodes.push(N('dci-' + j, 'switch', 'DCI ' + j, { labels: { tier: 'dci-spn' } })); });
-    [1, 2, 3].forEach(function (s) { nodes.push(N('spn-' + s, 'switch', 'SPN ' + s, { labels: { tier: 'dci-spn' } })); });
-    [1, 2, 3, 4].forEach(function (k) { nodes.push(N('tor-' + k, 'switch', 'ToR ' + k, { labels: { tier: 'tor' } })); });
-    [1, 2, 3, 4].forEach(function (k) { nodes.push(N('srv-' + k, 'host')); });
-    var edges = [], seq = 0;
-    var add = function (src, sif, dst, dif, bps) { edges.push(E('e' + (seq++), src, sif, dst, dif, bps)); };
-    [1, 2, 3, 4, 5, 6].forEach(function (i) { add('core-1', 'et-0/0/' + i, 'bdr-' + i, 'et-1/0/1', G(4)); });
-    var pair = function (i) { return Math.ceil(i / 2); };        /* bdr-1,2→dci-1/spn-1 … */
-    [1, 2, 3, 4, 5, 6].forEach(function (i) {
+    [1, 2, 3, 4, 5, 6].forEach(function (i: any) { nodes.push(N('bdr-' + i, 'switch', 'BDR ' + i, { labels: { tier: 'bdr' } })); });
+    [1, 2, 3].forEach(function (j: any) { nodes.push(N('dci-' + j, 'switch', 'DCI ' + j, { labels: { tier: 'dci-spn' } })); });
+    [1, 2, 3].forEach(function (s: any) { nodes.push(N('spn-' + s, 'switch', 'SPN ' + s, { labels: { tier: 'dci-spn' } })); });
+    [1, 2, 3, 4].forEach(function (k: any) { nodes.push(N('tor-' + k, 'switch', 'ToR ' + k, { labels: { tier: 'tor' } })); });
+    [1, 2, 3, 4].forEach(function (k: any) { nodes.push(N('srv-' + k, 'host')); });
+    var edges: any[] = [], seq = 0;
+    var add = function (src: any, sif: any, dst: any, dif: any, bps: any) { edges.push(E('e' + (seq++), src, sif, dst, dif, bps)); };
+    [1, 2, 3, 4, 5, 6].forEach(function (i: any) { add('core-1', 'et-0/0/' + i, 'bdr-' + i, 'et-1/0/1', G(4)); });
+    var pair = function (i: any) { return Math.ceil(i / 2); };        /* bdr-1,2→dci-1/spn-1 … */
+    [1, 2, 3, 4, 5, 6].forEach(function (i: any) {
       add('bdr-' + i, 'et-2/0/1', 'dci-' + pair(i), 'ae0', G(1));
       add('bdr-' + i, 'et-2/0/2', 'spn-' + pair(i), 'et-0/0/' + i, G(4));
     });
     /* dci 回打錯開（dci-1→bdr-3,4；dci-2→bdr-5,6；dci-3→bdr-1,2）：環繞多台而非成對回彈 */
-    [1, 2, 3].forEach(function (j) {
+    [1, 2, 3].forEach(function (j: any) {
       var t1 = (j * 2 + 1) > 6 ? (j * 2 + 1) - 6 : (j * 2 + 1);
       var t2 = (j * 2 + 2) > 6 ? (j * 2 + 2) - 6 : (j * 2 + 2);
       add('dci-' + j, 'et-9/0/1', 'bdr-' + t1, 'et-1/1/1', G(1));
       add('dci-' + j, 'et-9/0/2', 'bdr-' + t2, 'et-1/1/1', G(1));
     });
-    [[1, [[1, 4], [2, 4]]], [2, [[2, 2], [3, 6]]], [3, [[1, 2], [4, 6]]]].forEach(function (s) {
-      s[1].forEach(function (o) { add('spn-' + s[0], 'et-3/0/' + o[0], 'tor-' + o[0], 'et-0/0/' + s[0], G(o[1])); });
+    ([[1, [[1, 4], [2, 4]]], [2, [[2, 2], [3, 6]]], [3, [[1, 2], [4, 6]]]] as [number, number[][]][]).forEach(function (s: any) {
+      s[1].forEach(function (o: any) { add('spn-' + s[0], 'et-3/0/' + o[0], 'tor-' + o[0], 'et-0/0/' + s[0], G(o[1])); });
     });
-    [1, 2, 3, 4].forEach(function (k) { add('tor-' + k, 'xe-0/0/10', 'srv-' + k, 'eno1', G(6)); });
+    [1, 2, 3, 4].forEach(function (k: any) { add('tor-' + k, 'xe-0/0/10', 'srv-' + k, 'eno1', G(6)); });
     return {
       key: 'dci-uturn',
       name: '跨層回頭（bdr→dci→bdr）',
@@ -811,8 +820,8 @@ var SAMPLES = [
   }
 ];
 
-var byKey = {};
-SAMPLES.forEach(function (s) { byKey[s.key] = s; });
+var byKey: Record<string, TraceSample> = {};
+SAMPLES.forEach(function (s: any) { byKey[s.key] = s; });
 
 var defaultKey = 'classic';
 

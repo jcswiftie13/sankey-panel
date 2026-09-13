@@ -39,12 +39,20 @@ nginx **與後端之間**可以有一把 service token（環境變數 `TRACE_API
 
 npm workspaces monorepo-lite，兩個部分（外加一個**刻意不在 workspaces 裡**的 `electron/`，見下）：
 
-- **`packages/trace-sankey/`——核心套件**。零依賴、純 ESM、**無 build step**（package.json 的
-  exports 直接指 `src/`）。`build()`/`render()` 是純函式（`render(model)` 回傳 SVG 字串、
-  無任何 DOM 量測），Node 也能跑（SSR 安全）；`mount()`/`createZoom()`/`createTooltip()`
-  需要瀏覽器。**沒有 d3、沒有任何第三方**；SVG 是字串陣列 `out.push('<path .../>')` 拼起來。
-  程式風格沿用手寫 ES5（`var`、`function`，唯 import/export 是 ESM），改碼請維持。
-  react 是 optional peerDependency，只有 `trace-sankey/react` 子路徑會載到。
+- **`packages/trace-sankey/`——核心套件**。TypeScript、純 ESM，**用 tsc 編到 `dist/`**
+  （`npm run build -w trace-sankey`；exports 的 `default` 指 `dist/`、`development` 條件指 `src/*.ts`
+  ——Vite dev 會挑後者所以改套件存檔即熱更新，Node／`vite build`／外部使用者永遠拿 `dist/`）。
+  三層：`model/`（`build()`，純演算法）→ `layout/`（`layout(model)` 回 Geometry，純函式、不改 model）→
+  `svg/`（React 元件，純渲染、無狀態）。這三層零 DOM、Node 也能跑（SSR 安全）；`render(model)` 是
+  `renderToStaticMarkup(<TraceSvg headless/>)`，在子路徑 `trace-sankey/static`。瀏覽器層是
+  `<TraceSankey>`（`TraceSankey.tsx` + `hooks/` + `tooltip/`）與 imperative 的 `zoom.ts`。
+  **套件裡沒有任何 `innerHTML`**：SVG 由 React 直接渲染、tooltip 是 portal 元件，Trusted Types 開著也能畫。
+  **沒有 d3、沒有其他第三方**；`react`／`react-dom >=18` 是必要 peerDependencies（`react-dom/client`
+  只有 `/react` 子路徑會載到、`react-dom/server` 只有 `/static`）。strict TypeScript、`const`／箭頭函式；
+  型別由 tsc 從原始碼產生（`dist/*.d.ts`），介面本體在 `src/model/types.ts`。
+  **套件要能單獨發布給別人 import**：目錄自足（自己的 tsconfig 與 build script）、`files` 只含
+  `dist`／`styles`／`README.md`、不 import `app/` 任何東西、不假設 body class；`npm pack` 後在外部
+  Vite 專案裝得起來、同一頁掛兩張要各自正常（漸層 id 用 `useId` 加前綴）。
 - **`app/`——Vite + React 使用端**。查詢表單 + 圖 + 顯示門檻，加圖例與縮放工具列。
   **圖的接線**在 `App.jsx`；資料來源在 `useTraceDoc.js`、API 呼叫在 `api.js`、
   表單在 `TraceQueryBar.jsx`。`npm install`（repo 根目錄）後 `make dev`
@@ -69,8 +77,9 @@ npm workspaces monorepo-lite，兩個部分（外加一個**刻意不在 workspa
   拖放導航，否則整頁跳去 `file://…json`。**但 host 端不是我們能控制的**，所以 App.jsx
   自己也無條件 `preventDefault()`（開檔／拖放功能已移除，那個 effect 只剩這道防線，見 §4）。
   README 的「被 Electron 鑲嵌時」整章列了 host 的哪些設定會影響我們、以及 nginx／網頁
-  該怎麼因應（CSP 的 `style-src` 必須有 `'unsafe-inline'`、Trusted Types 會打死 `mount.js`
-  的 `innerHTML`、iframe 才會被 `X-Frame-Options` 擋、API 化之後一律走同源 `proxy_pass`……）。
+  該怎麼因應（套件對 CSP 的 `style-src 'self'` 與 Trusted Types 都相容——React 用 CSSOM 設樣式、
+  沒有 innerHTML；`'unsafe-inline'` 只有使用端自己的 inline style 需要；iframe 才會被
+  `X-Frame-Options` 擋、API 化之後一律走同源 `proxy_pass`……）。
 - **`electron/`——Electron 測試殼**，同時是 host 端的參考實作。`main.js` 一支（CJS，
   刻意不跟 repo 的 ESM），環境變數 `VIEW_API`／`GUARD`／`SESSION`／`CSP`／`EMBED` 可以
   重現各種 host 設錯的情況，對應 README 那章的每一節。`make electron` 啟動。
@@ -90,18 +99,57 @@ Makefile：`make dev`（=`serve`）/ `build`（vite build）/ `up`／`up-dev`／
 
 ```
 packages/trace-sankey/
-  package.json            exports："."（主入口）、"./react"、"./samples"、"./style.css"
-  src/model.js            wire JSON 驗證 → 分類節點 → 加總同鍵的邊（含門檻／通道）→ 排欄/破環 → 殘差
-  src/render.js           版面計算 + SVG 字串組裝 + 各種卡片 + hop 摘要表（summary；app 目前沒用）
-  src/zoom.js             createZoom() 工廠：縮放平移（只改 <g class="zoom-layer"> 的 transform）
-  src/tooltip.js          createTooltip()：tooltip 元素掛 body、對 .band 與卡片 <g>[data-tip] 綁 hover
-  src/highlight.js        createHighlight()：路徑高亮（pathHighlight 選項），只加減 class
-  src/mount.js            mount(el, doc, opts)：build → render → zoom → tooltip（→ highlight／click）接成一個實例
-  src/react.js            <TraceSankey> 薄殼（純 JS createElement，不用 JSX → 套件不需 build）
-  src/samples.js          10 個內建範例（純資料；N()/E() 是字面值簡寫；storage 是參考面板的 fixture）
-  src/index.js            主入口 re-export
+  package.json            exports："."（主入口）、"./react"、"./static"、"./samples"、"./style.css"
+  src/model/              build() 的七步各一檔，共用一個 BuildCtx（types.ts）；順序在 build.ts 檔頭
+    types.ts              wire 契約、TraceNode／TraceEdge／TraceWrapper／TraceModel、StorageRoots、BuildCtx／AggEdge／RawIndex
+    util.ts               num/str/isObj/isStringMap、SEP（NUL，寫成跳脫序列 \u0000）、sum
+    format.ts             fmtBps/fmtDelta/fmtBytes/fmtRate/fmtAmount/gbps
+    classify.ts           HOP_TYPES…TYPE_LABEL、classOf、statusOf/worstStatus、weightOf/extraOf/usageOf/infoOf/clientsOf
+    investigation.ts      resolveInvestigation()：節點形式與 deprecated 頂層形式的起點正規化、checkInvFields
+    roots.ts              normRoots／isRequestedRoot（參考面板的 root 保留規則）
+    validate.ts           validate()、direction()
+    index-raw.ts          步驟 0 indexRaw：id 索引、ancestorOf、appOf、nsOfPod
+    scan.ts               1a scanEdges（含 k8sPods）、1b scanNodes（含 mkHop、keepNoFlow、k8sRaw／rootLeafPods）
+    edges.ts              2 buildEdges（★ 門檻／通道）＋ mkEdge；葉／ns／app／owner 卡 lazy 建；root 的 no-flow pod
+    anchor.ts             3 addAnchor
+    prune.ts              4 掛邊編 id、4b ★ 移除孤立節點
+    columns.ts            5a–5g assignColumns
+    residuals.ts          6 computeResiduals
+    wrappers.ts           6b buildWrappers：layout:'node' 的 k8s node 外框（不是圖節點）
+    normalize.ts          7 normalizeColumns（root 的 no-flow pod 改到 pod 欄）＋ assemble（回傳物件的鍵序）
+    build.ts              串起來
+  src/layout/             版面（純函式，不改 model）
+    constants.ts          NODE_W…THICK_MAX、LINE_H／CARD_BASE、WRAP_PAD／WRAP_HEADER_H、NS_COLORS、CLIENT_COLS、DEVICE_TYPES、STATUS_COLOR
+    geometry.ts           Slot／NodeGeom／EdgeGeom／WrapperGeom／Geometry 型別
+    layout.ts             layout(model): Geometry——欄位 x／y、槽位、邊端點、弧帶凸出、回流 lane、pod 欄依外框分區
+    text.ts               esc、clip、clientCols/clientW/clientRows、cardH／leafH、hopLineCount／headerH、resIn/resOut、usageText、typeWord
+    paths.ts              ribbon／ownLine／lateralRibbon／backwardRibbon（吃 EdgeGeom）
+    tips.ts               bandMeta（帶的 data-tip）、bandTitle、nodeTip（卡與外框的 data-tip）、channelsOf／wrapperEdges／sumCh、
+                          clientsMeta、colCaption／wrapperColCaption
+  src/svg/                React 元件（純渲染、無狀態、SSR 安全）
+    TraceSvg.tsx          <svg> 根：Defs（zoom-layer 外）→ g.zoom-layer → 欄標題 → Band → BandLabel → WrapperBox → Card → Residual
+    Defs.tsx              漸層（gband-w／-h 只在有 write 帶時輸出）
+    Band.tsx              Band（data-e、band-zero；含 lat-arrow 兄弟、headless 才有 <title>）、BandLabel
+    cards.tsx             NodeBox／LeafCard／PodCard／GroupCard／OwnerCard／AnchorCard／WrapperBox／Card 分派／Residual（卡的 <g> 帶 data-n）
+  src/summary.ts          hop 摘要表（HTML 字串；app 目前沒用）
+  src/tables.ts           flowTables(model, geo?)：參考面板的三張表（結構化資料＋HTML）
+  src/locatable.ts        哪些卡可定位：cards.tsx 的 .clickable 與 useNodeClick 共用同一份規則
+  src/zoom.ts             createZoom() 工廠：縮放平移（imperative，只改 <g class="zoom-layer"> 的 transform）
+  src/TraceSankey.tsx     <TraceSankey>：useStableDoc → useTraceModel → layout → <TraceSvg>；useZoom；<TraceTooltip>；
+                          useHighlight／useNodeClick／useFocus
+  src/hooks/              useLatest、useStableDoc／useStableJson（同內容新物件沿用舊參考）、useTraceModel（build 的 useMemo）、
+                          useZoom（attach／detach／dispose 接進 useLayoutEffect；doc 參考變才 reset）、
+                          useHighlight（路徑高亮，容器委派、只加減 class）、useNodeClick（click 委派）、useFocus（body.chart-focus）
+  src/tooltip/            TraceTooltip.tsx（portal 到 body、.chart 上三個原生 listener 委派）、tips.tsx（BandTip／NodeTipView）
+  src/react.ts            'trace-sankey/react' 入口：TraceSankey、TraceSvg、hooks、型別
+  src/samples.ts          10 個內建範例（純資料；N()/E() 是字面值簡寫；storage 是參考面板的 fixture）
+  src/static.ts           'trace-sankey/static'：render(model) = renderToStaticMarkup(<TraceSvg headless/>)；
+                          re-export summary／flowTables／esc。拉進 react-dom/server，所以刻意不在主入口
+  README.md               套件自己的 README（安裝、props、ref、DOM 契約、CSS 變數）；隨 npm pack 出貨
+  src/index.ts            主入口 re-export（含 flowTables、locatable、layout、型別）
+  tsconfig.json           NodeNext、strict、jsx react-jsx；相對匯入一律寫 ./x.js（指向 .ts／.tsx）
   styles/trace-sankey.css 圖表與 tooltip 樣式；CSS 變數 scope 在 .trace-sankey，不進 :root
-  types/index.d.ts        手寫型別（JS 原始碼不轉 TS）
+  dist/                   tsc 輸出（gitignore／dockerignore）
 app/                      Vite + React 使用端
   src/App.jsx             圖、顯示門檻、圖例、縮放、快捷鍵的接線
   src/DevSampleBar.jsx    dev 專用的本機資料來源列（內建範例下拉＋選檔）；只被 App 的
@@ -112,10 +160,11 @@ app/                      Vite + React 使用端
   src/app.css             頁面版面
 electron/                 Electron 測試殼：main.js（CJS）＋ fallback.html ＋ embed.html。
                           不在 workspaces、不進 docker build context；自己 npm install
-samples/*.json            同一批範例的檔案版（拖放測試與 golden 用；與 src/samples.js 重複維護，見 §11）
+samples/*.json            同一批範例的檔案版（golden 用；與 src/samples.ts 重複維護，見 §10.1）
                           storage.json 原封不動取自參考 repo public/demo/storage-graph.json @ 9e568c7（Apache-2.0）
 stress/                   縮放平移壓力測試資料 + gen.py（輸出 wire 格式）。make check 也會 build 它們
-tools/golden.mjs          對拍工具：dump 所有範例的 render()/summary() 輸出，重構前後 diff -r；check 子命令
+tools/golden.mjs          對拍工具：dump 所有範例的 build()/render()/summary()/flowTables() 輸出，cmp 對拍（svg 語意等價、
+                          其餘逐 byte；--ignore 略過幾類檔）；check 子命令（含 deep-freeze、頂層／節點起點往返）
 docs/migration-wire-format.md  舊 investigation+hops 格式 → elements 格式的手動遷移指南
 docs/superpowers/specs/   設計文件（本次改格式的定案與盤點基準）
 Dockerfile                三個 stage：build（node）→ content（busybox+dist，3MB）→ standalone（nginx 全包）
@@ -137,35 +186,43 @@ README.md                 使用說明 + 輸入 JSON 契約 + 驗證錯誤對照
 
 ```
 doc（app：useTraceDoc 打 GET /api/trace 取回，validate 過才進來）
-  → <TraceSankey doc minBps channels layout roots pathHighlight onNodeClick>（react.js）
-    → mount(el, doc, {minBps, channels, layout, roots, pathHighlight, onNodeClick, onModel, onError, onZoom})
-      → build(doc, {minBps, channels, layout, roots})   失敗 → onError(errors)，app 畫錯誤 UI；成功 ↓
-      → onModel(model)           app 拿去拼圖例、隱藏統計 pill
-      → render(model)            SVG 字串 → chart.innerHTML（key 沒變且 svg 還在就跳過）
-      → tooltip.bind(chart)      每條 .band 與每張卡片 <g>[data-tip] 綁 tooltip
-      → highlight.bind(el)       pathHighlight 才綁：卡片 hover 亮整條路徑（highlight.js）
-      → bindClicks()             onNodeClick 才綁：可定位的卡加 .clickable 與 click
-      → zoom.attach(el)          綁縮放平移
+  → <TraceSankey doc minBps channels layout roots pathHighlight onNodeClick focus onModel onError onZoom>（TraceSankey.tsx）
+    → useStableDoc(doc)／useStableJson(roots)   內容相同的新物件沿用舊參考（identity 變才 JSON.stringify 比一次）
+    → useTraceModel(doc, {minBps, channels, layout, roots})   = useMemo(build)；失敗 → effect 裡 onError(errors)，app 畫錯誤 UI
+    → useMemo(() => layout(model))        純函式，版面在 Geometry Map 裡（含外框 WrapperGeom）、model 不被改
+    → <div.trace-sankey.chart-wrap><div.chart><TraceSvg model geo idPrefix clickable/></div><TraceTooltip/></div>
+    → useZoom：useLayoutEffect 裡 zoom.attach(wrap, …, reset)；model 不 ok 就 detach
+    → useHighlight(wrap, model, pathHighlight)   容器上 mouseover／mouseout 委派；只加減 .hl-on／.lit
+    → useNodeClick(wrap, model, onNodeClick)     容器上 click 委派；locatable() 的卡才回呼
+    → useFocus(focus, zoom.refresh)              body.chart-focus
+    → useEffect：onModel(model)           commit 之後才叫，app 拿去拼圖例、隱藏統計 pill
 ```
 
 **參考面板的選項全部是套件選項**（這是設計目標，不是 app 的 UI）：`channels`（mode）、`layout`
-（Flat／Node）、`roots`、`pathHighlight`、`onNodeClick`（Locate）、`inst.focus()`（專注）、
-`flowTables()`（三張表）。app 只接了 `layout` 切換鈕、`pathHighlight` 與專注；主題不做。
+（Flat／Node）、`roots`、`pathHighlight`、`onNodeClick`（Locate）、`focus`（專注）、
+`flowTables()`（三張表）。app 只接了 `layout` 切換鈕、`pathHighlight` 與 `focus`；主題不做。
 
-mount `update()` 的重要順序約束（都是 app.js 時代踩過的坑，搬進套件後仍然成立）：
+幾個約束（多半是 mount.js 時代踩過的坑，換成 hooks 後仍然成立）：
 
-- 重畫判斷 key = `JSON.stringify(doc) + '\n' + minBps + '\n' + channels + '\n' + layout + '\n' + JSON.stringify(roots)`，
-  沒變**且 `chart.querySelector('svg')` 還在**才沿用既有 SVG（保縮放）。**會改 model 的選項一定要在鍵裡**，
-  不然改了不會重畫；svg 存在檢查對應「錯誤後復原」的路徑。`pathHighlight`／`onNodeClick` 在掛載時決定、不進鍵。
-- build 失敗：清空 chart、`zoom.detach()`、`lastKey = null`、呼叫 `onError`。mount **不畫**
-  錯誤 UI——文案是使用端的責任。
-- 容器要**先有高度再 mount／update**（zoom 的 fit 用容器實際大小算）；尺寸變了呼叫
-  `refresh()`。app 用 flex column 讓圖吃滿剩餘高度，所以不再需要舊版量 DOM 的 `sizeChart()`。
-- `destroy()` 必須冪等：React StrictMode 開發模式會故意 mount→unmount→mount 一輪。
-- **專注模式**現在是 `inst.focus(on)`（toggle `body.chart-focus` ＋ `zoom.refresh()`）；套件 CSS 只管容器去框，
-  app 藏 topbar／legend 的規則留在 `app.css`。`destroy()` 會把 class 移掉。
-- **react.js 的 `onNodeClick` 在掛載時有給才傳進 mount**（跟 `pathHighlight` 一樣）：永遠傳一個轉呼叫殼會讓
-  所有可定位的卡都變 `cursor:pointer` 但點了沒事。
+- **會改 model 的選項（門檻、通道、`layout`、`roots`）一定要在 `useTraceModel` 的 deps 裡**，不然改了不會重畫。
+  `pathHighlight`／`onNodeClick`／`focus` 不進 model，各自是一個 effect；沒有 setter，全部 props 驅動。
+- **`onNodeClick` 沒給就不把卡標成 `.clickable`**（`<TraceSvg clickable={!!onNodeClick}>`）：永遠標會讓
+  所有可定位的卡都變 `cursor:pointer` 但點了沒事。`.clickable` 由 React 當 className 輸出，headless 不給。
+- **路徑高亮的 `.lit`／`.hl-on` 是 imperative class**：React 只在 `className` prop 變時重寫 class 屬性，
+  model 換了但 key 相同的元素會被沿用，`useHighlight` 的 cleanup 一定要 `clear()`、索引每次 model 變都重建。
+- **縮放保留規則**：同一份 doc 底下改門檻／通道，React 重畫時 `<g class="zoom-layer">` 的 DOM 節點不換，
+  `zoom.attach()` 認得同一個 layer 就沿用 k/tx/ty（舊版 key 一變就 innerHTML 重畫、縮放歸零——這是刻意的
+  行為變更）；`useStableDoc` 回傳的參考變了才 `reset=true` → `initial()`（fit 但不放大超過 1:1）。
+  `.zoom-layer` 的 `transform` **絕不當 React prop**：React 只 diff 它知道的 props，imperative 設的值才不會被洗掉。
+- build 失敗：`.chart` 不渲染 svg → `zoom.detach()`、tooltip hide、`onError`。元件**不畫**錯誤 UI——文案是使用端的責任。
+  復原時新 svg → attach 找不到舊 layer → `initial()`。
+- 容器要**先有高度**（zoom 的 fit 用容器實際大小算）；尺寸變了呼叫 ref 的 `refresh()`。
+  attach 走 `useLayoutEffect`：要等 `<svg>` 進 DOM 才量得到 `getScreenCTM()`，但要在繪製前，否則第一幀閃一下。
+- `onModel`／`onError`／`onZoom` 存在 `useLatest` ref：callback identity 變了不重跑 effect、不重新 attach。
+- React StrictMode 開發模式會故意 mount→unmount→mount 一輪：`useZoom` 的 dispose 清 ref、下次懶建新實例；
+  tooltip 是 portal，body 上只會有一個；`useFocus` 的 toggle 冪等、cleanup 移除 class。
+- **專注模式**是 prop `focus`（toggle `body.chart-focus` ＋ `zoom.refresh()`）；套件 CSS 只管容器去框，
+  app 藏 topbar／legend 的規則留在 `app.css`。doc 還是 null、圖沒掛載時 app 自己 toggle body class。
 
 app 端約束（`App.jsx`）：門檻重畫 debounce 200ms、提示文字不 debounce；`cleanMin()` 把負數／
 小數／亂打的字一律當 0。**資料來源整個關在 `useTraceDoc.js`**（`run(params)` →
@@ -247,7 +304,7 @@ JSX 分支是死的，多牽一條引用就會安靜地把 30KB 範例烤進去�
 }
 ```
 
-型別三類（`model.js` 的 `HOP_TYPES`／`GROUP_TYPES`／`classOf`）：hop（`switch, node, pod, netapp-node,
+型別三類（`model/classify.ts` 的 `HOP_TYPES`／`GROUP_TYPES`／`classOf`）：hop（`switch, node, pod, netapp-node,
 netapp-aggr, netapp-svm, pvc`）→ 盒子；群組（`namespace, application, cluster, storage-cluster, controller`）
 → 不畫、只在 `parent` 鏈上；其他任何 type → 灰色葉卡（葉不能再有往下走的 flow 邊，驗證錯誤）。
 **葉 pod** ＝ `type:"pod"` 且沒有往下走的邊 → pod 卡＋推導邊到 application／namespace；有往下走的邊＝proxy pod。
@@ -258,7 +315,7 @@ netapp-aggr, netapp-svm, pvc`）→ 盒子；群組（`namespace, application, c
 否則 read／write 各自存在就各一條 `unit:'bytesPerSec'`。**absent ≠ 0**（0 照畫，帶 `band-zero` 虛線半透明、
 不印帶上數字）；負數丟欄＋警告。同 `(source, target, source_iface, target_iface, channel)` 相加。
 
-**起點的解析層**：`resolveInvestigation(doc)` 把節點形式與 deprecated 的頂層形式都正規化成
+**起點的解析層**：`resolveInvestigation(doc)`（`model/investigation.ts`）把節點形式與 deprecated 的頂層形式都正規化成
 `{node_id, iface, delta_bps, direction, note}`，`validate()`／`direction()`／步驟 3 都吃它，render 的錨卡
 不知道契約改過。golden `check` 會把每份範例程式化搬回頂層形式再比 render 輸出（不留舊形式範例），
 另加 deep-freeze：`build()` 只能讀不能寫 doc（與參考 spec「derivation MUST NOT mutate」同一要求）。
@@ -268,7 +325,7 @@ netapp-aggr, netapp-svm, pvc`）→ 盒子；群組（`namespace, application, c
 `tor`=top-of-rack、`core`/`agg`/`edge`=核心/匯聚/接入層、`fw`=防火牆。iface 命名照 Juniper 慣例
 （`et-*`=100/40G、`xe-*`=10G、`ae0`=LAG）與 Linux（`bond0`、`eno1`）。
 
-## 6. model.js：`build(doc, opts)` 演算法
+## 6. model/：`build(doc, opts)` 演算法
 
 匯出：`build` / `validate` / `direction` / `fmtBps` / `fmtDelta` / `fmtBytes` / `fmtRate` / `fmtAmount` / `gbps` /
 `HOP_TYPES` / `GROUP_TYPES` / `FLOW_TYPES` / `TYPE_LABEL`。
@@ -281,7 +338,8 @@ netapp-aggr, netapp-svm, pvc`）→ 盒子；群組（`namespace, application, c
 給了（含空物件）＝參考規則**（`isRequestedRoot()` 照抄參考 `deriveSankey`：只保留 root 或完全沒被任何邊碰到的；
 root 的葉 pod 沒有邊也補成 no-flow 卡並排到 pod 欄）。root 只用來保留、絕不用來過濾。
 
-build 分七步（門檻／通道散在步驟 2、4b、6 三處，用 ★ 標）：
+build 分七步（門檻／通道散在步驟 2、4b、6 三處，用 ★ 標；每步一個檔，見 §3 的 `src/model/`）。
+**物件字面值的鍵序與後續賦值順序就是 `model.json` 的鍵序**（golden 逐 byte 比），拆檔或改型別時別重排：
 
 0. `indexRaw(doc)`（id 索引 + `ancestorOf(id, type)`，**帶 visited set**——parent 鏈可能成環／懸空）；
    `nsOfPod`：application 祖先的 namespace 祖先 → pod 自己的 namespace 祖先 → `labels.namespace`。
@@ -322,17 +380,19 @@ build 分七步（門檻／通道散在步驟 2、4b、6 三處，用 ★ 標）
    「沒有往下的邊就補其他輸出」是 k8s 範例 `node-w-13`（node 當葉）的既有行為。
    節點 `unit` 跟著身上的邊。**所有葉** `bps = sum(edges)`；app 卡算 `podCount` 與 `status = worstStatus(成員 pod)`，
    ns 卡再穿過 app 算一次。
-   **6b. wrappers**（`layout:'node'`）：每個 `k8sRaw` 的成員＝它上面**最後留在圖上**的葉 pod；沒成員又不是 root
-   就不畫、是 root 就 `noFlow:true` 的空外框；`status = worstStatus([node 自己, ...成員])`；成員 pod 設 `k8sNode`。
-   **外框不是圖節點**：不進 `nodes`／`ids`、沒有邊、不排欄、不算殘差。
+   **6b. wrappers**（`layout:'node'`，`model/wrappers.ts`）：每個 `k8sRaw` 的成員＝它上面**最後留在圖上**的葉 pod；
+   沒成員又不是 root 就不畫、是 root 就 `noFlow:true` 的空外框；`status = worstStatus([node 自己, ...成員])`；
+   成員 pod 設 `k8sNode`。**外框不是圖節點**：不進 `nodes`／`order`、沒有邊、不排欄、不算殘差。
 7. **正規化欄位**（空模型 `minCol = 0`）；root 的 no-flow 葉 pod 改到 pod 欄（不然最長路徑排到第 0 欄、進不了外框）。
 
-回傳 `{ok, dir, investigation|null, channels, minBps, layout, wrappers, roots|null, apiVersion|null, clusters|null,
-filtered, filteredNodes, nodes, nodeMap, edges, anchorEdge|null, root|null, warnings, maxCol}`。
+回傳 `{ok, dir, investigation|null, channels, layout, wrappers, roots|null, apiVersion|null, clusters|null,
+minBps, filtered, filteredNodes, nodes, nodeMap, edges, anchorEdge|null, root|null, warnings, maxCol}`。
 
-## 7. render.js：版面與繪製
+## 7. layout/ 與 svg/：版面與繪製
 
-匯出：`render` / `summary` / `esc`。核心是 `layout(model)`：
+`layout(model): Geometry`（`layout/layout.ts`，純函式）算版面；`svg/TraceSvg.tsx` 吃 `(model, geo)` 畫。
+節點與邊的版面在 `geo.nodes.get(id)`／`geo.edges.get(id)`（`NodeGeom`／`EdgeGeom`，欄位名沿用舊的 `x1/y1/t1…`）；
+k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.wrappers`**）、所在欄是 `geo.podCol`。
 
 - **全圖共用一把比例尺**：`maxVal = max(所有邊, 所有殘差)`，`thick(v) = max(THICK_MIN=3, v * THICK_MAX/maxVal)`，
   `THICK_MAX = 86`。殘差跟帶同一把尺，比例才讀得出來。read 與 write 帶也共用（跟參考一致）。
@@ -346,14 +406,14 @@ filtered, filteredNodes, nodes, nodeMap, edges, anchorEdge|null, root|null, warn
 - **三種路徑產生器**：`ribbon`、`lateralRibbon`、`backwardRibbon`。
 
 `render(model)` 的繪製順序＝z-order：defs 漸層（**留在 zoom-layer 外面**；`gband-w`／`gband-w-h` 只在圖上
-真有 write 帶時才輸出，switch 資料的 SVG 逐 byte 不變）→ `<g class="zoom-layer">` → 欄位標題 → **帶（先畫）**
-→ 帶上數字（`fmtRate(e.bps, e.unit)`）→ 盒子／卡片 → **殘差色塊（最後畫）**。
+真有 write 帶時才輸出，switch 資料的 SVG 逐 byte 不變）→ `<g class="zoom-layer">` → 欄位標題（x 用 `geo.colX`）→ **帶（先畫）**
+→ 帶上數字（`fmtRate(e.bps, e.unit)`；零值帶與歸屬線不印）→ k8s node 外框 → 盒子／卡片 → **殘差色塊（最後畫）**。
 
-- 帶：`class="band"`（write 通道加 `band-w`、回流加 `band-back`／`band-loop`、同欄加 `band-lat`），fill 依通道
-  （`gband` 給 read 與無通道帶、`gband-w` 給 write），`data-tip` JSON（`from/to/fi/ti/bps/anchor` ＋
-  只在有值時出現的 `backward/ns/unit/channel/tier/attr/extra`——**用 `undefined` 讓 stringify 丟掉**，舊資料的
-  data-tip 才不變）與原生 `<title>`（headless 備援，`tooltip.bind()` 會剝掉）。lateral 帶另輸出 `.lat-arrow`
-  （write 加 `arrow-w`），**必須是 band 的兄弟節點**。回流帶維持玫瑰、不分通道。
+- 帶：`class="band"`（write 通道加 `band-w`、回流加 `band-back`／`band-loop`、同欄加 `band-lat`、值為 0 加 `band-zero`），
+  fill 依通道（`gband` 給 read 與無通道帶、`gband-w` 給 write），`data-e`（edges 索引），`data-tip` JSON
+  （`from/to/fi/ti/bps/anchor` ＋ 只在有值時出現的 `backward/owns/ns/clients/unit/channel/tier/attr/extra/derived`——
+  **用 `undefined` 讓 stringify 丟掉**，舊資料的 data-tip 才不變）與原生 `<title>`（headless 才輸出）。
+  lateral 帶另輸出 `.lat-arrow`（write 加 `arrow-w`），**必須是 band 的兄弟節點**。回流帶維持玫瑰、不分通道。
 - `leafCard` 有 `clients` 時走另一條分支，畫成 `hostname` / `ip` / `owner` 三欄表格：
   `clientCols(n)` 決定畫哪幾欄（**某欄所有 client 都沒值就整欄不畫**），`clientW(n)` 算卡寬
   （欄寬總和＋`CLIENT_GAP 10`＋左右 `CLIENT_PAD 12`，下限 `LEAF_W`），
@@ -371,82 +431,111 @@ filtered, filteredNodes, nodes, nodeMap, edges, anchorEdge|null, root|null, warn
 - 帶的 `data-tip` 多一個 `clients` 鍵（`clientsMeta()`：取封包下游那端節點的
   `hostname || ip` 陣列），給「兩台以上時卡片標題不是 client 身分」補身分；
   照既有慣例只在有值時出現，所以沒有 clients 的圖 `data-tip` 逐 byte 不變。
-  **`tooltip.js` 的帶是明確列鍵的**，加新鍵要同步在那裡加一列。
+  **`tooltip/tips.tsx` 的 `BandTip` 是明確列鍵的**，加新鍵要同步在那裡加一列。
 - **歸屬線**（`e.owns`）：`ownLine()` 是 `ribbon()` 的中線版本，畫成 `fill:none` 的灰虛線
   （`band band-own`，比照 `band-loop` 的描邊帶），**不印帶上數字**、tooltip 也不印速率——
   `bps` 是 0，那不是「零流量」而是「沒有量」。線寬 `OWN_T` 同時是 hover 判定寬度，別再調細。
-  槽位厚度走 `e.__t`（`owns` 用 `OWN_T`、其餘 `thick(e.bps)`），不是直接 `thick(e.bps)`。
+  槽位厚度走 `EdgeGeom.t`（`owns` 用 `OWN_T`、其餘 `thick(e.bps)`），不是直接 `thick(e.bps)`。
 - **槽位重排**（`reorderSlots`）：pod／ns／app 那組之外，`ownerLinked` 的葉與 owner 卡也要依對端 y 重排——
   port 葉的出邊順序是 `clients` 的出現順序、owner 卡的入邊順序是建邊順序，都跟 y 無關，
   一張 port 掛五個 owner 時歸屬線會整束交叉（實測過）。
-- 卡片：`nodeBox`（hop）／`leafCard`／`podCard`／`groupCard`（ns／app 共用，`nsCard`/`appCard` 是薄殼）／
-  `ownerCard`／`anchorCard`。`ownerCard` 寬度是 `NODE_W`（owner 是自由字串，`LEAF_W` 截太兇；
-  欄寬下限本來就是 `NODE_W`，不會把後面的欄推開）、高 84；**量與台數分兩行**，
-  `meteredPorts < portCount` 標「（部分 port）」、`bps` 為 0 印「量停在 port」，**絕不印 0**。
-  **每張卡的 `<g>` 都帶 `data-tip`**（`nodeTip()` 產生 `{node:1, title, rows:[[k,v],…]}`，render 已格式化好；
-  順序照參考面板：型別／名稱、id、ns、ontap_cluster、流量、usage、status、health、model、perf(raw)、alerts、no-flow）。
-  `nodeBox` 外框色優先序 **status（critical `#fb7185`／warning `#f59e0b`／normal `#4ade80`；綠刻意避開 ns 色盤的
-  `#34d399`）> isRoot 青 > 設備天藍 > 預設**，
-  `DEVICE_TYPES`（node/pod/netapp 三型別）虛線。**每張卡同一套版式**：第 1 行型別標（`.leaf-stop`，hop 印 `role` 原字）、
-  第 2 行名字、之後一行一個屬性（`LINE_H 13`）；**卡面不印 id**，tooltip 最後一列才有。hop 盒 `headerH(n) = HEADER_H(40) + 13 × 屬性行數`
-  （ns／ontap_cluster／usage 各一行）；葉／群組卡高度 `cardH(屬性行數)`；k8s node 外框標題區 `WRAP_HEADER_H 52`（型別／名字／pod 數）。
-  tooltip 的流量行每一種卡都是 `in／out` × 通道四行（`nodeTip` 共用 `flowRow`），卡種差異只在附加列。
-- `colCaption`：錨欄要 `kinds.anchor && col.length===1`（no-flow 卡會落在第 0 欄）；整欄同一非 switch role →
-  `第 N 跳 · TYPE_LABEL[role]`；整欄 app → `第 N 跳 · application`。
-
-- **k8s node 外框**（`layout:'node'`，`wrapperBox`）：`layout()` 在 pod 欄（有葉 pod 的欄；全被濾光只剩 root 空外框時
+- 卡片（`svg/cards.tsx`）：`NodeBox`（hop）／`LeafCard`／`PodCard`／`GroupCard`（ns／app 共用）／`OwnerCard`／`AnchorCard`／
+  `WrapperBox`。`OwnerCard` 寬度是 `NODE_W`（owner 是自由字串，`LEAF_W` 截太兇；欄寬下限本來就是 `NODE_W`，
+  不會把後面的欄推開）；**量與台數分兩行**，`meteredPorts < portCount` 標「（部分 port）」、`bps` 為 0 印
+  「量停在 port」，**絕不印 0**。
+  **每張卡的 `<g>` 都帶 `data-n`（id）與 `data-tip`**（`nodeTip()` 產生 `{node:1, title, rows:[[k,v],…]}`，已格式化好；
+  順序照參考面板：型別／名稱、ns、ontap_cluster、流量、usage、status、health、model、perf(raw)、alerts、no-flow、id）。
+  `NodeBox` 外框色優先序 **status（critical `#fb7185`／warning `#f59e0b`／normal `#4ade80`；綠刻意避開 ns 色盤的
+  `#34d399`）> isRoot 青 > 設備天藍 > 預設**，`DEVICE_TYPES`（node/pod/netapp 三型別）虛線。
+  **每張卡同一套版式**：第 1 行型別標（`.leaf-stop`，hop 印 `role` 原字、葉印 `type||'host'`）、第 2 行名字、
+  之後一行一個屬性（`LINE_H 13`）；**卡面不印 id**，tooltip 最後一列才有。hop 盒 `headerH(n) = HEADER_H(40) + 13 × 屬性行數`；
+  葉／群組卡高度 `cardH(屬性行數)`；k8s node 外框標題區 `WRAP_HEADER_H 52`（型別／名字／pod 數）。
+  tooltip 的流量行每一種卡都是 `in／out` × 通道四行（`nodeTip` 共用 `flowRow`），卡種差異只在附加列；
+  wrapper 的邊是成員 pod 邊的聯集、`unit` 算成區域變數（`wrapperEdges`），不寫回 model。
+- **k8s node 外框**（`layout:'node'`，`WrapperBox`）：`layout()` 在 pod 欄（有葉 pod 的欄；全被濾光只剩 root 空外框時
   另開一欄）先依外框分區——外框照 `label.localeCompare` 排、框內 pod 維持既有比較器順序、沒排班的 pod 在所有外框
-  之下，`col` 陣列同步重排；被包的 pod `x += WRAP_PAD`，欄寬取 `max(最寬 pod + 2*WRAP_PAD, NODE_W)`；外框的
-  y／高度跟著 `shift` 與 `dy` 一起動、算進圖高。畫在帶之上、卡片之下：本體 rect `pointer-events="none"`，
+  之下，`cols[podCol]` 同步重排；被包的 pod `x += WRAP_PAD`，欄寬取 `max(最寬 pod + 2*WRAP_PAD, NODE_W)`；外框的
+  y／高度跟著 `shift` 與 `dy` 一起動、算進圖高。畫在帶之上、卡片之下：本體 rect `pointerEvents="none"`，
   只有標題列的 `<g data-n data-tip>`（透明 rect＋標題＋副標）收 hover／click。tooltip 的量是成員 pod 邊的加總。
-- **`flowTables(model)`**：參考的三張表；`summary()` 不動。namespace 小計只算葉 pod 的入邊（pod 的出邊全是推導邊）。
+- `colCaption`：錨欄要 `kinds.anchor && col.length===1`（no-flow 卡會落在第 0 欄）；整欄同一非 switch role →
+  `第 N 跳 · TYPE_LABEL[role]`；被外框分區的 pod 欄 → `第 N 跳 · node / pod`；整欄 app → `第 N 跳 · application`。
+  只有空外框的 pod 欄沒有節點可問，`wrapperColCaption(ci)` 自己印。
+- **`flowTables(model, geo = layout(model))`**（`src/tables.ts`）：參考的三張表；`summary()` 不動。節點列照欄、再欄內 y
+  排（main 的字串版靠 layout 寫回節點的 y，這裡靠 Geometry），沒給 geo 就自己算一次。namespace 小計只算葉 pod 的入邊。
 
 **套件的 public 契約**（README 也要記）：`<g class="zoom-layer">` 是 zoom 的 hook；`.band` 與卡片 `<g>` 上的
 `data-tip` JSON 是 tooltip 的資料通道；**`.band` 的 `data-e`（edges 索引）與卡片／外框 `<g>` 的 `data-n`（id）**
-是 highlight.js 與 `onNodeClick` 把 DOM 對回 model 的通道（靠 DOM 順序會在輸出順序一動就壞）；`band-zero`；
-`channels`／`layout`／`roots` 選項。改這些等於改對外 API。
+是 `useHighlight`／`useNodeClick` 把 DOM 對回 model 的通道（靠 DOM 順序會在輸出順序一動就壞）；`band-zero`；
+`.hl-on`／`.lit`／`.clickable`；`channels`／`layout`／`roots` 選項。改這些等於改對外 API。
 
-## 8. zoom / mount / react / CSS 關鍵決策（改壞會回退歷史 bug）
+## 8. zoom / tooltip / TraceSankey / CSS 關鍵決策（改壞會回退歷史 bug）
 
-- **hover 高亮純靠 CSS**（`.band:hover` 換 fill；`.band-w:hover` 換 `gband-w-h`；`band-loop` 因 `fill:none`
-  改加深 stroke）。**JS 只管 tooltip**。不要改回 JS 換色——mouseleave 沒觸發（觸控、游標衝出視窗、拖曳吃事件）
-  帶子就永久卡在高亮色（commit `4a752b9` 修過）。
-- **路徑高亮（`highlight.js`）同一原則**：JS 只加減 class（容器 `.hl-on`、路徑上的 `.lit`），變淡全在 CSS；
-  卡片 mouseleave、容器 `pointerleave`、zoom 的 `onPanStart` 都會 `clear()`。路徑＝從卡片沿 `inEdges` 往上游、
-  `outEdges` 往下游走到底（穿過推導邊與歸屬線），外框取成員 pod 聯集。DOM 對回 model 靠 `data-e`／`data-n`。
-- zoom **只改 `<g class="zoom-layer">` 的 transform**；listener 只綁一次在容器，每次 `attach()` 只抽換內部狀態 `st`。
-  同一 layer 重 attach 沿用縮放；換了圖才 `initial()`＝fit 但**絕不放大超過 1:1**。
-  放大上限用「螢幕實際倍率」不是相對 fit。`ctm()` 有兩個 null 防護。
-  `createZoom()` 一個實例管一個容器，`dispose()` 必須把 wrap 上五個 pointer/wheel listener 與 window resize 全解掉。
-- **tooltip 元素掛在 `document.body`**（`position:fixed`）；`bind()` 綁 `.band, g[data-tip]`，帶子讀
-  `bandHtml`、卡片讀 `nodeHtml`；`mount.destroy()` 要把它移掉。
-- **專注模式刻意不用 Fullscreen API**（tooltip 在容器外會消失），用 `body.chart-focus` class 純 CSS 實作。
+- **hover 高亮純靠 CSS**（`.band:hover{fill:var(--gband-h,url(#gband-h))}`；`.band-w:hover` 換 `--gband-w-h`；
+  `band-loop` 因 `fill:none` 改加深 stroke）。**JS 只管 tooltip**。不要改回 JS 換色——mouseleave 沒觸發
+  （觸控、游標衝出視窗、拖曳吃事件）帶子就永久卡在高亮色（commit `4a752b9` 修過）。
+- **漸層 id 有前綴**：`<TraceSankey>` 用 `useId()`（只留 `[A-Za-z0-9_-]`）給 `<TraceSvg idPrefix>`，`Defs` 的 id 與
+  帶子的 `fill=url(#…)` 都帶它，hover 用的三個漸層以 CSS 變數掛在 `<svg style>` 上——同一頁掛兩張圖才不會
+  互搶（漸層 id 是文件層級的）。headless 字串渲染前綴是空字串、不掛變數，golden 輸出與舊版同名。
+- zoom **維持 imperative、只改 `<g class="zoom-layer">` 的 transform**（5.4 萬個元素每格滾輪跑 reconciliation
+  不可接受）；listener 只綁一次在容器，每次 `attach()` 只抽換內部狀態 `st`。同一 layer 重 attach 沿用縮放；
+  `reset=true`（doc 參考變）才 `initial()`＝fit 但**絕不放大超過 1:1**。放大上限用「螢幕實際倍率」不是相對 fit。
+  `ctm()` 有兩個 null 防護。`createZoom()` 一個實例管一個容器，`dispose()` 必須把 wrap 上五個 pointer/wheel
+  listener 與 window resize 全解掉。`is-panning` 仍由 zoom 用 `classList` 加在 wrap 上：React 只在 `className`
+  prop 變時重寫該屬性，拖曳中不衝突。
+- **tooltip 是 portal 到 `document.body` 的元件**（`position:fixed`；容器 `overflow:hidden` 會裁掉）。事件是
+  `.chart` 上**三個原生 listener 委派**（`mouseover`／`mousemove`／`mouseout` ＋ `closest('.band, g[data-tip]')`），
+  不是每個元素各綁 React handler（49k 個元素會是 15 萬個 handler）。滑鼠座標不進 state，`mousemove` 直接改
+  ref 上的 style。內容是 `<BandTip>`／`<NodeTipView>`，**沒有 innerHTML**。帶子的原生 `<title>` 只在
+  headless 才輸出，瀏覽器路徑不再需要事後剝掉；殘差色塊的 `<title>` 兩種模式都留（它沒有 data-tip）。
+- **路徑高亮（`hooks/useHighlight.ts`）同一原則**：JS 只加減 class（容器 `.hl-on`、路徑上的 `.lit`），變淡全在 CSS；
+  卡片 mouseout、容器 `pointerleave`、zoom 的 `onPanStart` 都會 `clear()`。路徑＝從卡片沿 `inEdges` 往上游、
+  `outEdges` 往下游走到底（穿過推導邊與歸屬線），外框取成員 pod 聯集、空外框不亮。事件是容器上的委派
+  （`closest('g[data-n]')`），索引（`data-e` → 帶、`data-n` → 卡）每次 model 變重建一次，hover 時不掃 DOM。
+- **點擊回呼（`hooks/useNodeClick.ts`）**：click 委派，`locatable()`（`src/locatable.ts`：外框、hop 除 `netapp-svm`、葉 pod）
+  才回呼；拖曳中忽略、`stopPropagation`。`.clickable` 由 `cards.tsx` 依同一份 `locatable` 當 className 輸出。
+- **專注模式刻意不用 Fullscreen API**（tooltip 在容器外會消失），用 `body.chart-focus` class 純 CSS 實作
+  （`hooks/useFocus.ts`，prop `focus`）。
 - **顏色是三份定義沒有連動**：`styles/trace-sankey.css` 的 CSS 變數（`--cyan #22d3ee`、`--amber #f59e0b`、
-  `--rose #fb7185`、`--gray #94a3b8`、`--orange #c2410c`）、render.js 字串裡的硬編碼十六進位（漸層 defs、
-  `STATUS_COLOR`、write 帶 `#c2410c → #7c2d12`）、`app/src/app.css` 的頁面色票（圖例 `.lg-write`／`.lg-status`）。
+  `--rose #fb7185`、`--gray #94a3b8`、`--orange #c2410c`）、`svg/Defs.tsx`／`svg/Band.tsx`／`layout/constants.ts`
+  裡的硬編碼十六進位（漸層、`STATUS_COLOR`、write 帶 `#c2410c → #7c2d12`）、`app/src/app.css` 的頁面色票
+  （圖例 `.lg-write`／`.lg-status`）。
   改配色要三處一起改。語意：青＝已追查／read、燃橘＝write、琥珀＝其他輸入／warning 框、玫瑰＝其他輸出／回流／critical 框。
 - `.trace-sankey .chart svg{display:block;width:100%;height:100%}` 是 fit 計算的隱性前提；
   `.chart svg text{pointer-events:none}`——帶上數字不能擋 hover。別動。
-- react.js：callback props 存 ref；`useImperativeHandle` 回傳的是轉呼叫殼；`channels` prop 跟 `minBps` 一樣進 update 的 deps。
+- `TraceSankey.tsx`：callback props 存 `useLatest` ref；ref handle 只有 `refresh`／`model`／`zoom.*`（`update`／`setMinBps`／
+  `setChannels`／`setLayout`／`setRoots`／`focus()`／`mount()` 都沒有，props 驅動）；`<TraceSvg>` 用 `memo`，滑鼠移動不會 re-render 它。
+- **CSP**：套件在 `style-src 'self'`（沒有 `'unsafe-inline'`）與 `require-trusted-types-for 'script'` 下都正常
+  （實測 puppeteer + production build）——React 用 CSSOM 設 style、沒有 innerHTML。使用端自己的 inline style 才需要 `'unsafe-inline'`。
 - 快捷鍵（app 端）：`+`/`-` 縮放、`0` fit、`1` 1:1、`f` 專注、`Esc` 離開；在輸入框內不攔。
 
 ## 9. 開發慣例與驗證
 
 - Commit message 慣例：先寫「為什麼舊做法是錯的」再寫改法（繁體中文）。
-- 重構的驗證黃金標準：**既有 samples 的輸出 byte-identical**。工具是 `tools/golden.mjs`：
-  改前 `node tools/golden.mjs dump /tmp/a`、改後 dump `/tmp/b`、`diff -r`——它會把所有範例
-  （內建 + samples/ + stress/）的 `render()`/`summary()` 輸出各跑 minBps 0 與 5e8 兩組，有通道的範例另跑
-  `channels:'read'` 一組。`make check`（= `golden.mjs check`）當迴歸哨兵：每份範例每個變體都要 build ok。
-  互動行為用瀏覽器實測（StrictMode 下 body 只留一個 tooltip、同值 update 不洗縮放）。
+- 重構的驗證黃金標準是 `tools/golden.mjs`，**兩層嚴格度**：
+  改前 `node tools/golden.mjs dump /tmp/a`、改後 dump `/tmp/b`、`node tools/golden.mjs cmp /tmp/a /tmp/b`。
+  它會把所有範例（內建 + samples/ + stress/）的 `build()`（`.model.json`，序列化時 `nodeMap` 丟掉、
+  邊／節點參照換成 id）、`render()`（`.svg`）、`summary()`（`.summary.html`）、`flowTables()`（`.tables.html`）、
+  `warnings.json` 各跑 minBps 0 與 5e8 兩組，有通道的範例另跑 `channels:'read'` 一組，有 pod-node 邊的另跑
+  `layout:'node'` 一組。`cmp … --ignore=a,b` 略過檔名含那些子字串的檔（拿沒有 model.json 的舊 dump 當基準時用）。
+  **`.model.json`／summary／tables／warnings 逐 byte 相同**（model 拆檔、語法現代化都不准動到任何鍵序或警告文字）；
+  **`.svg` 走語意等價**（`cmp` 會先正規化：屬性排序、自閉合統一、實體解碼、白名單數值屬性四捨五入到 3 位、
+  `data-tip` 以 parse 後 JSON 比、`style`／`class` 排序；**文字內容一個字都不放過**）。
+  `norm <dir> <out>` 可以把正規化版本寫出來自己 `diff -r`；`selftest` 是正規化器自己的案例。
+  `make check`（= `golden.mjs check`）當迴歸哨兵：每份範例每個變體都要 build ok、render 不炸、
+  **期間不准有任何 `console.error`**（React 的 key 重複／非法 prop 只會印不會 throw）、build 不得寫 doc（deep-freeze）、
+  節點形式與頂層形式的起點 render 逐 byte 相同且頂層有 deprecated 警告。
+  基準目錄放 `/tmp/golden-*`，不 commit（全部約 16MB）。
+  互動行為用瀏覽器實測（StrictMode 下 body 只留一個 tooltip、同值 update 不洗縮放、hover 高亮離開後沒有殘留 `.lit`、
+  Layout: Node 在 storage 範例畫出外框、`f`／`Esc` 進出專注）。
 - 「守恆」的定義：同一台左右兩側**色塊厚度總和**相等（read 帶與 write 帶一起加總）。但每列有最小高度 `ROW_H 24`
   與間距 `ROW_GAP 9`，**兩疊的視覺總高度不會剛好一樣——這是預期行為，不是 bug**（最常被誤報的點）。
 
 ## 10. 已知怪癖與陷阱（動手前必讀；均為現況陳述，除非被要求不要修）
 
-1. **`samples/*.json` 與 `packages/trace-sankey/src/samples.js` 是重複維護的同一批資料**：
-   samples.js 是套件的 `trace-sankey/samples` 匯出（app 改吃 API 後已不用它），golden／make check
+1. **`samples/*.json` 與 `packages/trace-sankey/src/samples.ts` 是重複維護的同一批資料**：
+   samples.ts 是套件的 `trace-sankey/samples` 匯出（app 只在 dev 的 `DevSampleBar` 用它），golden／make check
    兩邊都讀。改一邊忘了另一邊不會有任何警告。
-   `samples/storage.json` 另外還要跟參考 repo 的 fixture 對得上（來源與 commit 標在 samples.js 註解）。
+   `samples/storage.json` 另外還要跟參考 repo 的 fixture 對得上（來源與 commit 標在 samples.ts 註解）。
 2. 顯式給了 `other_in_bps` 和 `other_out_bps` 但湊不出平衡式時，圖照顯式值畫、該台不守恆，只警告不擋。
    門檻／通道濾掉的量會**先加進這兩個顯式值再比對**，所以開門檻不會憑空生出這則警告。
 3. `type` 是**自由字串**：認得的 hop／群組型別以外一律當葉卡，**不警告**。舊格式 `role` 的註記
@@ -465,8 +554,8 @@ filtered, filteredNodes, nodes, nodeMap, edges, anchorEdge|null, root|null, warn
 10. `summary()`（hop 摘要表）照常匯出並被 golden 對拍，但目前 app 沒有使用——刻意保留的 API，不是死碼。
 11. **參考 fixture 裡沒有 no-flow 節點**（參考只對指定 root 產生）；要測 no-flow 卡得手做一個只列在 `nodes`、
     沒有任何 flow 邊的 hop。
-12. 卡片 `<g>` 的 `data-tip` 是本次新加的：**golden 對拍時要用 `perl -pe 's/<g data-tip="[^"]*">/<g>/g'`
-    正規化掉才比得出真正的版面差異**（帶子的 `data-tip` 不要正規化，它必須逐 byte 相同）。
+12. 卡片 `<g>` 與帶子的 `data-tip`：golden 的 `cmp` 把它們以 parse 後的 JSON 比（鍵序無關、值要全同），
+    不再需要 perl 正規化。
 13. client 很多的 port 卡會很高（每台 14px）也會很寬（三欄齊全 364px），目前都**沒有上限**。
     真的遇到幾十台再加一個 `CLIENT_MAX` 常數截，**不要順手改成「一個 client 一張卡」**——
     後端量得到的只有整個 port 的 Δ bps，N 張卡各帶全額會讓 `tracedOut` 變 `N×V`、

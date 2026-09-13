@@ -4,7 +4,7 @@ IMAGE  ?= trace-sankey
 PORT   ?= 8080
 
 .DEFAULT_GOAL := help
-.PHONY: help dev serve build docker-build content-build up up-dev down electron check golden clean
+.PHONY: help dev serve build pkg-build docker-build content-build up up-dev down electron check golden clean
 
 help:  ## 列出所有 target
 	@echo "追查 Sankey — 可用指令："
@@ -21,7 +21,7 @@ dev:  ## 起 React app 的 dev server（第一次要先 npm install）
 
 serve: dev  ## dev 的別名（沿用舊指令習慣）
 
-build:  ## 建置前端靜態檔到 app/dist
+build: pkg-build  ## 建置前端靜態檔到 app/dist（先編套件）
 	@npm run build --workspace app
 
 docker-build:  ## 只建自足映像（nginx + 靜態檔全包），不啟動
@@ -47,12 +47,15 @@ electron:  ## 起 Electron 測試殼載 nginx 的畫面（先 make up；開關�
 	  echo "先跑：cd electron && npm install"; exit 1; }
 	@cd electron && env -u ELECTRON_RUN_AS_NODE SANKEY_URL=http://localhost:$(PORT) npm start
 
-check:  ## 所有範例（內建 + samples/ + stress/）都 build 一次，任何一份失敗就非零退出
+pkg-build:  ## 編譯 trace-sankey 套件（tsc → packages/trace-sankey/dist）；golden／check／build 都先做這步
+	@npm run build --workspace trace-sankey
+
+check: pkg-build  ## 所有範例（內建 + samples/ + stress/）都 build 一次，任何一份失敗就非零退出
 	@node tools/golden.mjs check
 
-golden:  ## dump 目前 render/summary 輸出（重構前後 diff -r 對拍用；DIR=輸出目錄）
+golden: pkg-build  ## dump 目前 build/render/summary 輸出（重構前後對拍用；DIR=輸出目錄；比對用 node tools/golden.mjs cmp A B）
 	@node tools/golden.mjs dump $(or $(DIR),/tmp/golden)
 
 clean:  ## 刪掉產生的輸出
-	@rm -rf app/dist
+	@rm -rf app/dist packages/trace-sankey/dist
 	@echo "清乾淨了。"

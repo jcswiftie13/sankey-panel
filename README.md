@@ -19,13 +19,13 @@
 
 ## 快速開始
 
-兩個部分：`packages/trace-sankey`（畫圖的 npm 套件，零依賴純 ESM）與 `app/`
+兩個部分：`packages/trace-sankey`（畫圖的 npm 套件，React + TypeScript，可單獨發布）與 `app/`
 （Vite + React 使用端：查詢表單 + 圖 + 顯示門檻）。
 
 ```bash
 git clone <repo> && cd sankey-panel
 
-npm install                   # 第一次；裝 app 的 react/vite（套件本身零依賴）
+npm install                   # 第一次；裝 react/vite/typescript（套件的 peer 是 react 與 react-dom）
 make dev                      # 起 dev server（= npm run dev --workspace app）
 make check                    # 所有範例（內建 + samples/ + stress/）build 一遍
 make up                       # 產品用：起 nginx + 內容 volume（見「用 nginx 部署」）
@@ -49,7 +49,7 @@ VITE_DEV_API=http://10.0.0.5:8000 make dev
 
 `make dev` 的上方會多一列標著 `dev` 的控制項：一個內建範例下拉（`trace-sankey/samples`
 那十一份），與一顆「選檔…」（讀本機任何 `.json`，`samples/` 與 `stress/` 都載得到）。
-改 `render.js`／CSS 想掃過所有範例、或想看 `stress/05-huge.json` 那種規模時不必起後端。
+改 `layout/`／`svg/`／CSS 想掃過所有範例、或想看 `stress/05-huge.json` 那種規模時不必起後端。
 兩條路都走 `useTraceDoc` 裡跟 API 回應同一個 `validate()`，所以手改的 JSON 打錯字會出
 一樣的錯誤橫幅，而且**不會清掉你正在看的圖**。
 
@@ -213,29 +213,30 @@ contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
 ### 當套件用
 
-```js
-// React：
+```jsx
+// React（唯一的瀏覽器入口；peer：react、react-dom >= 18）：
 import { TraceSankey } from 'trace-sankey/react';
 import 'trace-sankey/style.css';
-<TraceSankey doc={wireJson} minBps={0} channels="both" layout="flat" pathHighlight
-  onNodeClick={(id, node) => locate(id)} className="my-chart" />
-// 容器高度由你的 CSS 決定（元件不設高度）
+<TraceSankey ref={ref} doc={wireJson} minBps={0} channels="both" layout="flat" roots={null}
+  pathHighlight onNodeClick={(id, node) => locate(id)} focus={false} className="my-chart"
+  onModel={m => …} onError={errs => …} onZoom={pct => …} />
+// 容器高度由你的 CSS 決定（元件不設高度）；ref：{ refresh(), model, zoom: { fit, actual, zoomBy, refresh, isPanning } }
+// 會改圖的選項（minBps／channels／layout／roots）都是 props：改了縮放保留；換一份內容不同的 doc 才重新 fit
+// （內容相同的新物件視同沒換）。沒有 setter：props 驅動
 
-// 不用 React（vanilla）：
-import { mount } from 'trace-sankey';
-const inst = mount(document.getElementById('chart'), wireJson, {
-  minBps: 0, channels: 'both', layout: 'flat', roots: null, pathHighlight: true,
-  onNodeClick: (id, node) => locate(id)
-});
-inst.setMinBps(5e8); inst.setChannels('read'); inst.setLayout('node'); inst.setRoots({ aggr: ['aggr1'] });
-inst.focus(true); inst.zoom.fit(); inst.destroy();
+// 不用 React 框架的頁面：一樣用 createRoot 掛，五行
+import { createRoot } from 'react-dom/client';
+createRoot(document.getElementById('chart')).render(<TraceSankey doc={wireJson} />);
 
-// 只要 SVG 字串（Node 也能跑，沒有 DOM 依賴）：
-import { build, render, summary, flowTables } from 'trace-sankey';
+// 只要 SVG 字串（Node 也能跑，沒有 DOM 依賴；這條子路徑才會載到 react-dom/server）：
+import { build, flowTables } from 'trace-sankey';
+import { render } from 'trace-sankey/static';
 const model = build(wireJson, { minBps: 0, channels: 'both', layout: 'node' });
 if (model.ok) fs.writeFileSync('out.svg', render(model));
 if (model.ok) fs.writeFileSync('tables.html', flowTables(model).html);   // 參考面板的三張表
 ```
+
+套件的完整說明（props、ref、DOM 契約、CSS 變數、多實例）在 `packages/trace-sankey/README.md`。
 
 選項對照參考面板（kube-state-graph-frontend 的 Storage Flow Sankey）——**參考能改變呈現的選項，
 這裡都是套件的選項**，app 只接了其中幾個：
@@ -245,21 +246,22 @@ if (model.ok) fs.writeFileSync('tables.html', flowTables(model).html);   // 參�
 | mode Read／Write／Both | `channels` | storage 資料每條邊有 read／write 兩條帶，只看其中一種時另一種的量**併進其他輸入／其他輸出**（與顯示門檻同一套機制，每台仍守恆）。`delta_bps` 的邊沒有通道、不受影響 |
 | Layout Flat／Node | `layout: 'flat' \| 'node'` | `'node'` 把只被 `pod-node` 邊碰到的 k8s node 畫成 pod 欄裡包住它 pod 的外框（照 node 名字排、沒排班的 pod 在所有外框之下、status 取 node 與成員 pod 最差）。外框不是圖節點：沒有邊、不排欄、不算殘差。app 工具列有切換鈕 |
 | roots（root 選擇） | `roots: { ontap_cluster, node, aggr, svm, pod }` | 只用來**保留** no-flow 節點：沒給＝所有 no-flow hop 都保留（超集）；給了（含空物件）＝照參考只保留是 root 或完全沒被任何邊碰到的；被選成 root 卻沒有邊的 pod／k8s node 也補成 no-flow 卡／空外框。`node` 同時比對 NetApp controller 與 k8s node，`pod` 寫 `<namespace>/<pod>`，pvc 不是 root kind |
-| hover 全路徑高亮 | `pathHighlight: true` | 滑到卡片亮整條上下游路徑（穿過推導邊與歸屬線）、其餘變淡；k8s node 外框取成員 pod 的聯集。狀態只在 class、樣式全在 CSS，游標衝出視窗也不會卡住 |
-| Locate（點卡片） | `onNodeClick(id, node)` | 只有可定位的卡會綁（hop 除了 `netapp-svm`、葉 pod、k8s node 外框）；namespace／application／owner／錨卡／host 葉不綁，與參考的 locatable 規則相同 |
-| 專注模式 | `inst.focus(on)`／`isFocused()` | 純 CSS（`body.chart-focus`），刻意不用 Fullscreen API（tooltip 掛在 body 會消失）。套件只負責容器去框；你自己的工具列要藏，對 `body.chart-focus` 加規則 |
+| hover 全路徑高亮 | `pathHighlight` | 滑到卡片亮整條上下游路徑（穿過推導邊與歸屬線）、其餘變淡；k8s node 外框取成員 pod 的聯集。狀態只在 class、樣式全在 CSS，游標衝出視窗也不會卡住 |
+| Locate（點卡片） | `onNodeClick(id, node)` | 只有可定位的卡會回呼並標成 `.clickable`（hop 除了 `netapp-svm`、葉 pod、k8s node 外框）；namespace／application／owner／錨卡／host 葉不會，與參考的 locatable 規則相同 |
+| 專注模式 | `focus` | 純 CSS（`body.chart-focus`），刻意不用 Fullscreen API（tooltip 掛在 body 會消失）。套件只負責容器去框；你自己的工具列要藏，對 `body.chart-focus` 加規則 |
 | Flow summary 三張表 | `flowTables(model)` | Node flow summary（tier／node／in／out（有通道時分 read／write）／usage／status／health／notes）、Application subtotal、Namespace subtotal；回傳 `{nodes, applications, namespaces, html}`。`summary(model)` 是我們自己的 hop 平衡表，兩者並存 |
 | 主題 dark／light | — | 不做（深色） |
 
 對外契約（自己接互動時可依賴）：
 
-- render 產出的 `<g class="zoom-layer">` 是縮放的掛點。
+- `<g class="zoom-layer">` 是縮放的掛點（它的 `transform` 由套件 imperative 設定，不是 React prop）。
 - 每條 `.band` 有 `data-e`（它是 `model.edges` 的第幾條）、每張卡片與 k8s node 外框的 `<g>` 有
   `data-n`（節點 id）：路徑高亮與點擊回呼靠這兩個屬性把 DOM 對回 model，自己接互動也可以用。
 - 每條 `.band` 上的 `data-tip` 屬性是一份 JSON（`from/to/fi/ti/bps` ＋ 有值才出現的
   `unit/channel/tier/attr/extra/derived`），每張卡片的 `<g>` 也有一份（`{node:1, title, rows:[[k,v],…]}`，
   render 已經把數字格式化好）；tooltip 的資料都從這來，不掛套件 tooltip 的人可以自己讀。
 - 值為 0 的帶（有量測、量是 0）帶 `band-zero`（虛線＋半透明），跟「沒有量測、根本不建邊」分得開。
+- 路徑高亮是容器 `.hl-on`＋路徑上的 `.lit`；有 `onNodeClick` 時可定位的卡帶 `.clickable`。
 
 SVG 的文字顏色與字級在 `trace-sankey/style.css`，不載入會沒有正確外觀。
 
@@ -392,11 +394,12 @@ if ($host = "127.0.0.1") { return 301 http://localhost:$server_port$request_uri;
 有些 host 會用 `session.webRequest.onHeadersReceived` 硬加一份 CSP。
 這份網頁的**實際需求**是：
 
-- **`style-src` 必須含 `'unsafe-inline'`**：`render.js` 產出的 SVG 文字用
-  `style="fill:…"` 屬性上色（ns 顏色、金額標籤的描邊），`tooltip.js` 也直接寫
-  `.style.left/.top` 定位。少了它 → 文字顏色跑掉、tooltip 黏在畫面左上角。
-- **不能開 Trusted Types**：`mount.js` 是 `chart.innerHTML = render(m)`。
-  一旦 CSP 有 `require-trusted-types-for 'script'`，這行直接 throw、**整張圖不見**。
+- **套件本身不需要 `style-src 'unsafe-inline'`**：SVG 由 React 渲染，樣式走 CSSOM
+  （`element.style.x = …`）不是 `style="…"` 屬性字串，CSP 不擋；tooltip 定位同理。
+  實測 `style-src 'self'` 下圖與 tooltip 都正常。**但 `app/index.html` 或你自己的頁面若有
+  inline style，那些會被擋**——所以下面的建議 CSP 仍帶 `'unsafe-inline'`。
+- **Trusted Types 可以開**：套件裡沒有任何 `innerHTML`（SVG 是 React 元件、tooltip 是 portal），
+  `require-trusted-types-for 'script'` 下整張圖照畫、tooltip 照出（實測 puppeteer + production build）。
 
 **nginx 端該做的：自己先送一份 CSP。** Chromium 對多份 CSP 是「每一份都要通過」（取交集），
 所以你送的不會蓋掉 host 那份，但能對「host 沒送」的情況直接生效，也等於把需求寫成契約：
@@ -406,15 +409,13 @@ if ($host = "127.0.0.1") { return 301 http://localhost:$server_port$request_uri;
 add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'" always;
 ```
 
-若 host 真的開了 Trusted Types，唯一的解是**改套件不要用 `innerHTML`**
-（改成 `DOMParser` 逐節點 append，或註冊一個 trusted policy）——那是套件層的改動，目前沒做。
-
-> 重現：`CSP=strict npm start`、`CSP=trusted-types npm start`。
+> 重現：`CSP=strict npm start`（圖應正常）、`CSP=trusted-types npm start`（圖應正常）。
+> 這兩個模式現在都是「應該看不到差異」的迴歸測試；看到圖不見就是套件又用了 innerHTML 或 style 字串。
 
 ### 6. 視窗尺寸由 host 決定（已經處理好，不用重做）
 
 host 會用 `setBounds()` 指定 view 的像素大小，也可能一開始給 0×0。
-`zoom.js` 已經綁了 `window.resize → refresh`，`setBounds` 會讓頁面收到 `resize`；
+`zoom.ts` 已經綁了 `window.resize → refresh`，`setBounds` 會讓頁面收到 `resize`；
 `ctm()` 對 `display:none` 與寬高 0 也有防護。列在這裡是為了讓人知道**這項已經處理過**。
 
 ### 7. 打 API 取資料（已實作）
@@ -1103,17 +1104,24 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
 
 ```
 Makefile                     跑起來與驗證的入口（make help）
-packages/trace-sankey/       npm 套件（零依賴、純 ESM、無 build step）
-  src/model.js               驗證、分類節點、加總同鍵的邊、顯示門檻／通道過濾、算殘差
-  src/render.js              SVG Sankey、等比殘差色塊、各種卡片、k8s node 外框、欄標題、hop 摘要（summary）、三張表（flowTables）
-  src/zoom.js                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
-  src/tooltip.js             createTooltip()：帶子與卡片 hover 的 tooltip
-  src/highlight.js           createHighlight()：路徑高亮（pathHighlight 選項）
-  src/mount.js               mount(el, doc, opts)：一行接好整條管線
-  src/react.js               <TraceSankey> React 元件（trace-sankey/react）
-  src/samples.js             十個內建範例（trace-sankey/samples）；storage 是參考面板的 demo fixture
+packages/trace-sankey/       npm 套件（TypeScript、純 ESM；tsc 編到 dist/）
+  README.md                  套件自己的說明（安裝、props、ref、DOM 契約）；隨 npm pack 出貨
+  src/model/                 build()：驗證、起點解析、分類節點、加總同鍵的邊、顯示門檻／通道過濾、排欄、
+                             算殘差、k8s node 外框（wrappers）、roots（七步各一檔）
+  src/layout/                layout(model)：版面（純函式，回 Geometry，含外框）、path 產生器、tooltip 資料、欄標題
+  src/svg/                   React 元件：TraceSvg 根、帶（data-e）、各種卡片（data-n）、k8s node 外框、殘差色塊
+  src/zoom.ts                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
+  src/tooltip/               TraceTooltip（portal + 事件委派）與 tooltip 內容元件
+  src/hooks/                 useStableDoc／useStableJson／useTraceModel／useZoom／useLatest／
+                             useHighlight（路徑高亮）／useNodeClick（點擊回呼）／useFocus（專注）
+  src/locatable.ts           哪些卡可定位（onNodeClick 與 .clickable 共用的規則）
+  src/TraceSankey.tsx        <TraceSankey>：整條管線接成一個元件
+  src/react.ts               'trace-sankey/react' 入口
+  src/static.ts              render()/summary()/flowTables() 字串渲染入口（trace-sankey/static；Node 也能跑）
+  src/summary.ts             hop 摘要表（HTML 字串）
+  src/tables.ts              flowTables()：參考面板的三張表（結構化資料＋HTML）
+  src/samples.ts             十個內建範例（trace-sankey/samples）；storage 是參考面板的 demo fixture
   styles/trace-sankey.css    圖與 tooltip 的樣式（trace-sankey/style.css）
-  types/index.d.ts           TypeScript 型別
 app/                         Vite + React 使用端
   src/api.js                 追查 API 的唯一出入口（組 query、fetch、翻譯錯誤）
   src/useTraceDoc.js         資料來源 hook：查詢、abort、契約驗證
@@ -1128,7 +1136,7 @@ samples/*.json               範例 JSON（與 samples.js 同一批；make check
                              storage.json 原封不動取自 akira-core/kube-state-graph-frontend
                              public/demo/storage-graph.json @ 9e568c7（Apache-2.0）
 stress/                      縮放平移的壓力測試資料與產生器（make check 也會 build 它們）
-tools/golden.mjs             重構對拍：dump 所有範例輸出，前後 diff -r；check 子命令＝make check
+tools/golden.mjs             重構對拍：dump 所有範例輸出，cmp 對拍（svg 語意等價、其餘逐 byte）；check 子命令＝make check
 docs/migration-wire-format.md  舊 investigation+hops 格式 → elements 格式的手動遷移指南
 Dockerfile                   多階段；--target content = 只有 dist 的小映像（主要），
                              不帶 target = nginx 全包的自足映像（次要）

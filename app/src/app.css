@@ -77,8 +77,8 @@ body{
 .chart-area{position:relative;flex:1;min-height:0}
 .chart-host{height:100%}
 
-/* 縮放控制列：TraceSankey 容器的兄弟，蓋在圖右下角；
-   刻意放在容器外——容器內的東西每次重畫都會被 innerHTML 洗掉 */
+/* 縮放控制列：TraceSankey 容器的兄弟，蓋在圖右下角。
+   放在容器外是因為容器由套件管（它的 className 與子節點都是套件的），app 的 UI 不塞進去 */
 .zoom-ctl{position:absolute;right:10px;bottom:10px;z-index:4;
   display:flex;gap:6px;align-items:center;padding:5px 6px;
   background:rgba(11,16,23,.86);border:1px solid var(--line);border-radius:99px}
