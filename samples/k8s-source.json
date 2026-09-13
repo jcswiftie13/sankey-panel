@@ -1,19 +1,18 @@
 {
   "kind": "source",
-  "investigation": {
-    "node_id": "sw-tor-k8s",
-    "iface": "et-0/0/48",
-    "delta_bps": 18000000000,
-    "direction": "out",
-    "note": "ToR uplink 出量 +18G，追是哪些 pod 打出來的"
-  },
   "elements": {
     "nodes": [
       {
         "data": {
           "id": "sw-tor-k8s",
           "type": "switch",
-          "name": "ToR k8s"
+          "name": "ToR k8s",
+          "investigation": {
+            "iface": "et-0/0/48",
+            "delta_bps": 18000000000,
+            "direction": "out",
+            "note": "ToR uplink 出量 +18G，追是哪些 pod 打出來的"
+          }
         }
       },
       {

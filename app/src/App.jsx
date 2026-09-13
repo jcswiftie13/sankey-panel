@@ -41,6 +41,7 @@ export default function App() {
   const [errors, setErrors] = useState(null);
   const [zoomPct, setZoomPct] = useState('—');
   const [focus, setFocus] = useState(false);
+  const [layout, setLayout] = useState('flat');   /* 'flat'／'node'：k8s node 外框（參考面板 Layout: Node） */
   const [DevBar, setDevBar] = useState(null);   /* dev 專用的本機資料來源列，正式 build 永遠是 null */
   const chartRef = useRef(null);
 
@@ -83,9 +84,11 @@ export default function App() {
     return () => clearTimeout(t);
   }, [minText]);
 
-  /* 專注模式：純 CSS（body class）。版面變了要 refresh 重夾平移、更新百分比 */
+  /* 專注模式：套件的 focus() 負責 body.chart-focus 與 refresh；還沒掛圖時自己 toggle body class
+     （app.css 用同一個 class 藏工具列與圖例）。版面變了要 refresh 重夾平移、更新百分比 */
   useEffect(() => {
-    document.body.classList.toggle('chart-focus', focus);
+    if (chartRef.current) chartRef.current.focus(focus);
+    else document.body.classList.toggle('chart-focus', focus);
     const raf = requestAnimationFrame(() => chartRef.current?.refresh());
     return () => cancelAnimationFrame(raf);
   }, [focus]);
@@ -215,7 +218,7 @@ export default function App() {
             <span><i className="lg-own" />歸屬（這個 port 上不只這一位的機器，量停在 port、不攤分）</span>
           )}
           {hasStatus && (
-            <span><i className="lg-status" />外框色＝status（<b className="c-warn">warning</b>／<b className="c-crit">critical</b>）</span>
+            <span><i className="lg-status" />外框色＝status（<b className="c-ok">normal</b>／<b className="c-warn">warning</b>／<b className="c-crit">critical</b>）</span>
           )}
         </div>
       )}
@@ -229,6 +232,8 @@ export default function App() {
               className="chart-host"
               doc={doc}
               minBps={min}
+              layout={layout}
+              pathHighlight
               onModel={m => { setModel(m); setErrors(null); }}
               onError={e => { setErrors(e); setModel(null); }}
               onZoom={s => setZoomPct(s == null ? '—'
@@ -246,6 +251,10 @@ export default function App() {
                 <button className="btn zbtn" title="放大（+）" onClick={() => z()?.zoomBy(zoomStep)}>＋</button>
                 <button className="btn" title="符合視窗（0）" onClick={() => z()?.fit()}>符合視窗</button>
                 <button className="btn" title="原始大小（1）" onClick={() => z()?.actual()}>1:1</button>
+                <button className="btn" title="k8s node 外框：pod 欄依所在的 node 分區（資料要有 pod-node 邊）"
+                  onClick={() => setLayout(l => (l === 'node' ? 'flat' : 'node'))}>
+                  {layout === 'node' ? 'Layout: Node' : 'Layout: Flat'}
+                </button>
                 <button className="btn" title="專注模式（f）" onClick={() => setFocus(f => !f)}>
                   {focus ? '離開專注' : '專注'}
                 </button>

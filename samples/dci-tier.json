@@ -1,19 +1,18 @@
 {
   "kind": "destination",
-  "investigation": {
-    "node_id": "core-1",
-    "iface": "et-0/0/0",
-    "delta_bps": 24000000000,
-    "direction": "in",
-    "note": "core 進來 +24 Gbps，跨 DC 流量經 dci 繞回同層 bdr"
-  },
   "elements": {
     "nodes": [
       {
         "data": {
           "id": "core-1",
           "type": "switch",
-          "name": "Core"
+          "name": "Core",
+          "investigation": {
+            "iface": "et-0/0/0",
+            "delta_bps": 24000000000,
+            "direction": "in",
+            "note": "core 進來 +24 Gbps，跨 DC 流量經 dci 繞回同層 bdr"
+          }
         }
       },
       {
