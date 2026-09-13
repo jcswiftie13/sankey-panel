@@ -59,10 +59,17 @@ export const computeResiduals = (ctx: BuildCtx): void => {
 
   /* 葉的值＝該方向所有邊加總（單邊葉結果不變；多條邊接同一張葉卡就是總量）。
      app 先算再算 ns：ns 的 pod 數要穿過 app 卡。群組卡的 status ＝ 成員 pod 最差值，
-     沒有任何成員有 status 就不給（維持中性框，不退成 normal）。 */
+     沒有任何成員有 status 就不給（維持中性框，不退成 normal）。
+     成員依節點去重：storage 資料的同一個 pod 接兩條（read／write）推導邊，不去重 pod 數會加倍。 */
   const memberPods = (n: TraceNode): TraceNode[] => {
     const list = dir === 'destination' ? n.inEdges : n.outEdges;
-    return list.map((e) => nodes[dir === 'destination' ? e.fromId : e.toId]);
+    const seen = new Set<string>(), out: TraceNode[] = [];
+    for (const e of list) {
+      const m = nodes[dir === 'destination' ? e.fromId : e.toId];
+      if (seen.has(m.id)) continue;
+      seen.add(m.id); out.push(m);
+    }
+    return out;
   };
   for (const id of ids) {
     const n = nodes[id];

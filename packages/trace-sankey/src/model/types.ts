@@ -170,8 +170,8 @@ export interface TraceNode {
   bps?: number;
   podCount?: number;
   ownerLinked?: boolean;
-  /** app 卡：全 app 共用的那條 app→ns 邊 */
-  nsEdge?: TraceEdge;
+  /** app 卡：全 app 共用的 app→ns 邊，每個通道一條（鍵 ''＝無通道、'read'、'write'） */
+  nsEdges?: Record<string, TraceEdge>;
   /* owner 卡 */
   owner?: string;
   clientCount?: number;
@@ -198,7 +198,8 @@ export interface TraceEdge {
   attribution: string | null;
   extra: Record<string, number> | null;
   namespace: string | null;
-  /** pod→app→ns 或葉→owner 的推導邊（同一筆量的重新分組，不是量測） */
+  /** pod→app→ns 或葉→owner 的推導邊（同一筆量的重新分組，不是量測）。
+      推導邊的 tier 是參考面板的欄對詞：pod-application／application-namespace／pod-namespace */
   derived?: boolean;
   /** 歸屬線：port 上掛著多個 owner，量停在 port，這條邊只表達歸屬，bps 恆 0 */
   owns?: boolean;

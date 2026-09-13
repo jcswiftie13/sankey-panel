@@ -53,34 +53,46 @@ export const buildEdges = (ctx: BuildCtx): void => {
     }
     return app;
   };
-  const derived = (a: TraceNode, b: TraceNode, unit: RateUnit, ns: string | null): TraceEdge => {
-    const e = mkEdge(a, b, '', '', { bps: 0, unit, channel: null });
+  /* 推導邊的 tier 用參考面板的欄對詞（pod-application／application-namespace／pod-namespace）：
+     tooltip 印它就知道這條不是後端的 storage-flow tier。 */
+  const derived = (a: TraceNode, b: TraceNode, unit: RateUnit, ns: string | null,
+    channel: Channel | null = null, tier: string | null = null): TraceEdge => {
+    const e = mkEdge(a, b, '', '', { bps: 0, unit, channel, tier });
     e.namespace = ns || null;
     e.derived = true;
     return e;
   };
-  /* 第一次遇到這個 pod 就把 pod→app→ns（或 pod→ns）整段建好、緊接在 hop→pod 邊之後
-     （邊序＝z-order）；之後同 pod 的每條入邊只累加。app→ns 邊全 app 共用一條。 */
-  const linkPod = (pod: TraceNode, bps: number, unit: RateUnit): void => {
-    let L = podLinks.get(pod.id);
+  /* 第一次遇到這個 pod（的這個通道）就把 pod→app→ns（或 pod→ns）整段建好、緊接在 hop→pod 邊之後
+     （邊序＝z-order）；之後同 pod 同通道的每條入邊只累加。app→ns 邊全 app 同通道共用一條。
+     通道要進鍵：storage 資料的 read／write 是兩條獨立的帶，推導邊併成一條就把兩個方向的量加成
+     一個沒人量過的數字、還塗成 read 色（參考面板每個方向各一條）。switch 資料 channel 恆 null，
+     鍵退化成原本的 pod.id，輸出不變。 */
+  const linkPod = (pod: TraceNode, bps: number, unit: RateUnit, channel: Channel | null): void => {
+    const ch = channel || '';
+    const key = pod.id + SEP + ch;
+    let L = podLinks.get(key);
     if (!L) {
-      L = []; podLinks.set(pod.id, L);
+      L = []; podLinks.set(key, L);
       const appD = raw.appOf(pod.id), nsName = pod.namespace ?? null;
       if (appD) {
         const app = appFor(str(appD.name) ? appD.name : appD.id, nsName);
-        const e1 = dir === 'destination' ? derived(pod, app, unit, nsName) : derived(app, pod, unit, nsName);
+        const e1 = dir === 'destination' ? derived(pod, app, unit, nsName, channel, 'pod-application')
+          : derived(app, pod, unit, nsName, channel, 'pod-application');
         edges.push(e1); L.push(e1);
         if (nsName) {
           const ns = nsFor(nsName);
-          if (!app.nsEdge) {
-            app.nsEdge = dir === 'destination' ? derived(app, ns, unit, nsName) : derived(ns, app, unit, nsName);
-            edges.push(app.nsEdge);
+          app.nsEdges = app.nsEdges || {};
+          if (!app.nsEdges[ch]) {
+            app.nsEdges[ch] = dir === 'destination' ? derived(app, ns, unit, nsName, channel, 'application-namespace')
+              : derived(ns, app, unit, nsName, channel, 'application-namespace');
+            edges.push(app.nsEdges[ch]);
           }
-          L.push(app.nsEdge);
+          L.push(app.nsEdges[ch]);
         }
       } else if (nsName) {
         const ns2 = nsFor(nsName);
-        const e2 = dir === 'destination' ? derived(pod, ns2, unit, nsName) : derived(ns2, pod, unit, nsName);
+        const e2 = dir === 'destination' ? derived(pod, ns2, unit, nsName, channel, 'pod-namespace')
+          : derived(ns2, pod, unit, nsName, channel, 'pod-namespace');
         edges.push(e2); L.push(e2);
       }
     }
@@ -214,7 +226,7 @@ export const buildEdges = (ctx: BuildCtx): void => {
     /* pod 葉再接一條到 app／ns 終點。追來源模式方向反接（ns → pod），畫布仍照封包方向、ns 落在最左。
        帶 clients 的葉同理再接到 owner 卡；pod 葉走 linkPod，owner 卡自己不是從這裡建的。 */
     const downLeaf = dir === 'destination' ? to : from;
-    if (downLeaf.kind === 'leaf' && downLeaf.role === 'pod') linkPod(downLeaf, a.bps, a.unit);
+    if (downLeaf.kind === 'leaf' && downLeaf.role === 'pod') linkPod(downLeaf, a.bps, a.unit, a.channel);
     if (downLeaf.kind === 'leaf' && downLeaf.role === 'leaf' && downLeaf.clients) {
       linkOwner(downLeaf, a.bps, a.unit);
     }

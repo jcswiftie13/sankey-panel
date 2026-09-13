@@ -55,14 +55,15 @@ function variants(api, doc) {
   return out;
 }
 
-/* build() 的輸出序列化：nodeMap 與 nodes 是同一批物件（丟掉）；inEdges／outEdges／nsEdge／
+/* build() 的輸出序列化：nodeMap 與 nodes 是同一批物件（丟掉）；inEdges／outEdges／nsEdges／
    root／anchorEdge 都指向 edges／nodes 裡已經有的物件（換成 id）。其餘鍵原樣、依插入序——
    這份就是「model 沒被動到」的證據，鍵序變了也算變。 */
 function modelJson(m) {
   return JSON.stringify(m, (k, v) => {
     if (k === 'nodeMap') return undefined;
     if (k === 'inEdges' || k === 'outEdges') return v.map((e) => e.id);
-    if (k === 'nsEdge' || k === 'root' || k === 'anchorEdge') return v ? v.id : v;
+    if (k === 'nsEdges') return Object.fromEntries(Object.entries(v).map(([ch, e]) => [ch, e.id]));
+    if (k === 'root' || k === 'anchorEdge') return v ? v.id : v;
     return v;
   }, 1) + '\n';
 }
