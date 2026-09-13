@@ -14,7 +14,10 @@
 
    用法：
      node tools/golden.mjs dump <outDir>         # dump 所有輸出（model.json 在 render 之前寫）
-     node tools/golden.mjs cmp <before> <after>  # svg 語意等價、其餘逐 byte；任何差異 exit 1
+     node tools/golden.mjs cmp <before> <after> [--ignore=a,b]
+                                                 # svg 語意等價、其餘逐 byte；任何差異 exit 1。
+                                                 # --ignore：檔名含這些子字串的檔兩邊都不比（例如拿
+                                                 # 沒有 model.json 的舊 dump 當基準時 --ignore=.model.json）
      node tools/golden.mjs norm <dir> <outDir>   # 把 <dir> 的 svg 寫成正規化版本，方便自己 diff -r
      node tools/golden.mjs selftest              # 正規化器自己的等價／不等價案例
      node tools/golden.mjs check                 # 所有範例 build 都要 ok、render 不炸、不印 console.error（make check） */
@@ -150,9 +153,11 @@ function norm(inDir, outDir) {
   console.log('normalized ' + n + ' files to ' + outDir);
 }
 
-/* svg 正規化後逐行比、其餘檔逐 byte；缺檔與多檔都算差異。每檔最多印前 3 行差異。 */
-function cmp(dirA, dirB) {
-  const A = new Set(readdirSync(dirA)), B = new Set(readdirSync(dirB));
+/* svg 正規化後逐行比、其餘檔逐 byte；缺檔與多檔都算差異。每檔最多印前 3 行差異。
+   ignore：檔名含任一子字串的檔兩邊都略過——移植中途只想對其中幾類輸出時用。 */
+function cmp(dirA, dirB, ignore = []) {
+  const keep = (f) => !ignore.some((s) => f.includes(s));
+  const A = new Set(readdirSync(dirA).filter(keep)), B = new Set(readdirSync(dirB).filter(keep));
   let bad = 0;
   for (const f of [...A].filter((f) => !B.has(f)).sort()) { bad++; console.error('只在 ' + dirA + '：' + f); }
   for (const f of [...B].filter((f) => !A.has(f)).sort()) { bad++; console.error('只在 ' + dirB + '：' + f); }
@@ -220,14 +225,16 @@ function check(api) {
 }
 
 async function main() {
-  const [cmd, a, b] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const ignore = args.filter((x) => x.startsWith('--ignore=')).flatMap((x) => x.slice(9).split(',')).filter(Boolean);
+  const [cmd, a, b] = args.filter((x) => !x.startsWith('--'));
   if (cmd === 'selftest') return selftest();
-  if (cmd === 'cmp' && a && b && existsSync(a) && existsSync(b)) return cmp(a, b);
+  if (cmd === 'cmp' && a && b && existsSync(a) && existsSync(b)) return cmp(a, b, ignore);
   if (cmd === 'norm' && a && b && existsSync(a)) return norm(a, b);
   const api = await loadEsm();
   if (cmd === 'dump' && a) return dump(api, a);
   if (cmd === 'check') return check(api);
-  console.error('usage: node tools/golden.mjs dump <outDir> | cmp <before> <after> | norm <dir> <outDir> | selftest | check');
+  console.error('usage: node tools/golden.mjs dump <outDir> | cmp <before> <after> [--ignore=a,b] | norm <dir> <outDir> | selftest | check');
   process.exit(2);
 }
 
