@@ -34,7 +34,8 @@ const MIN_BPS = [0, 5e8];
    同一份。所以要先 npm run build -w trace-sankey（make check／golden 會先做）。 */
 async function loadEsm() {
   const [core, stat, samples] = await Promise.all([import('trace-sankey'), import('trace-sankey/static'), import('trace-sankey/samples')]);
-  return { build: core.build, render: stat.render, summary: stat.summary, flowTables: core.flowTables, samples: samples.list };
+  return { build: core.build, layout: core.layout, render: stat.render, summary: stat.summary,
+    flowTables: core.flowTables, samples: samples.list };
 }
 
 function inputs(samples) {
@@ -83,11 +84,14 @@ async function dump(api, outDir) {
         writeFileSync(join(outDir, tag + '.errors.json'), JSON.stringify(model.errors, null, 2) + '\n');
         continue;
       }
-      /* 一定要在 render() 之前寫：字串版 render 的 layout() 會把版面欄位寫進 model */
+      /* 版面算一次、餵給兩個消費者。render 與 flowTables 各自呼叫 layout() 也會得到相同結果
+         （純函式），但那是同一份幾何算兩次，而且日後誰多帶一個版面選項就會變成
+         「圖與表出自不同版面」——geo 從外面傳進去，兩者不可能不同源。 */
+      const geo = api.layout(model);
       writeFileSync(join(outDir, tag + '.model.json'), modelJson(model));
-      writeFileSync(join(outDir, tag + '.svg'), api.render(model));
+      writeFileSync(join(outDir, tag + '.svg'), api.render(model, geo));
       writeFileSync(join(outDir, tag + '.summary.html'), api.summary(model));
-      writeFileSync(join(outDir, tag + '.tables.html'), api.flowTables(model).html);
+      writeFileSync(join(outDir, tag + '.tables.html'), api.flowTables(model, geo).html);
       writeFileSync(join(outDir, tag + '.warnings.json'), JSON.stringify(model.warnings, null, 2) + '\n');
       n += 5;
     }
@@ -250,7 +254,7 @@ function check(api) {
       const logged = [];
       console.error = (...a) => logged.push(a.map(String).join(' '));
       let svg = null;
-      try { svg = api.render(model); api.summary(model); api.flowTables(model); }
+      try { const geo = api.layout(model); svg = api.render(model, geo); api.summary(model); api.flowTables(model, geo); }
       catch (e) { fail++; origErr('FAIL ' + name + v.tag + ': render threw ' + e.message); }
       console.error = origErr;
       if (logged.length) { fail++; origErr('FAIL ' + name + v.tag + ': console.error 被呼叫 ' + logged.length + ' 次：' + logged[0].slice(0, 300)); }

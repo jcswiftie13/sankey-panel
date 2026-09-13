@@ -3,7 +3,10 @@
    使用端要擺哪一張自己挑。所有數字都從 model 拿（跟圖同一份），有通道的資料 in／out 分 read／write 欄。
    缺的值印「—」，絕不印 0／0 B／unknown（缺值不是零）。
    節點列照圖上的順序（欄、再欄內 y）排，所以要有版面：沒給 geo 就自己 layout() 一次——純函式，
-   同一個 model 算出來的順序一定相同。 */
+   同一個 model 算出來的順序一定相同。
+   **版面選項（order…）只掛在 layout()**：要換版面就自己 layout(model, opts) 再把 geo 傳進來。
+   這支刻意不收第二份選項參數——geo 已經是那個資訊的唯一載體，再收 opts 就會出現
+   「傳了 geo 又傳 opts、兩者不一致」的無效組合。render() 是同一個形狀。 */
 import type { Channel, RateUnit, Status, TraceEdge, TraceModelOk, TraceNode, TraceWrapper } from './model/types.js';
 import type { Geometry } from './layout/geometry.js';
 import { fmtAmount as A, fmtRate as R } from './model/format.js';
