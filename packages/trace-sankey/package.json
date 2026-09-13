@@ -40,7 +40,8 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "gen:css": "npm run build && node scripts/gen-css.mjs"
+    "gen:css": "npm run build && node scripts/gen-css.mjs",
+    "gen:samples": "node scripts/gen-samples.mjs"
   },
   "peerDependencies": {
     "react": ">=18",
