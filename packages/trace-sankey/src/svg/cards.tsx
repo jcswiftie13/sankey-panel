@@ -6,10 +6,19 @@
    每張卡同一套版式：第 1 行型別標（.leaf-stop）、第 2 行名字、之後一行一個屬性（LINE_H）；
    卡面不印 id（參考後端的 id 是路徑式長字串，卡面沒意義；tooltip 最後一列有）。
    型別標一律吃 .leaf-stop 的灰、不帶 inline 色（styles/trace-sankey.css）：它是後設資訊層，
-   身分走底色與外框（ns／app 的 nsc、錨卡的青框、設備的天藍框），狀態走外框色＋加粗，型別標兩者都不表達。
+   身分走底色與外框（錨卡的青框、設備的天藍框），狀態走外框色＋加粗，型別標兩者都不表達。
    曾經只有 ns／app 染 ns 色、錨卡染青，圖上看起來就是「只有這兩種卡的型別標有顏色」的無規則不一致；
    更硬的理由是型別標若跟著外框色染，同一台 switch 從 normal 變 warning 時那行字會一起變色，
-   讀者會把「型別標的顏色」讀成代表型別，實際代表的是狀態。 */
+   讀者會把「型別標的顏色」讀成代表型別，實際代表的是狀態。
+
+   **namespace 不配色**（曾經有 10 色的 ns 色盤：pod／葉卡左緣色條、ns 行字色、ns／app 卡的底色與外框）。
+   拿掉的理由：
+   - ns／app 卡的外框同時要表達 ns 與 status，寫成 `status || ns 色`。群組卡的 status 是成員 pod 的
+     最差值，storage 資料的 pod 幾乎都帶 status（連 normal 也算），外框就一律是 status 色、ns 色只剩
+     .10 的底色；switch 資料沒有 status，外框才是 ns 色。同一種卡在兩種資料下顏色代表不同的東西。
+   - 色盤扣掉語意色只擠得出 10 色，第 11 個 ns 起撞色，撞色的兩組反而會被讀成同一組。
+   - 分組本來就讀得出來：葉 pod 的流量匯進 ns 終點卡（帶子就是歸屬）、欄內同 ns 相鄰、卡面印 `ns/<ns>`。
+   所以外框色只剩一種語意＝status，沒有 status 的卡維持各自的中性框。 */
 import type { NodeGeom, Slot, WrapperGeom } from '../layout/geometry.js';
 import type { TraceModelOk, TraceNode, TraceWrapper } from '../model/types.js';
 import { COLORS as C } from '../layout/colors.js';
@@ -23,7 +32,7 @@ import { fmtAmount as A, fmtDelta as D, fmtRate as R } from '../model/format.js'
 import { locatable } from '../locatable.js';
 
 export interface CardProps {
-  n: TraceNode; g: NodeGeom; model: TraceModelOk; nsColor: Record<string, string>;
+  n: TraceNode; g: NodeGeom; model: TraceModelOk;
   /** 有 onNodeClick 時才為 true：可定位的卡加 .clickable（cursor:pointer） */
   clickable: boolean;
 }
@@ -39,18 +48,17 @@ const gAttrs = (n: TraceNode | TraceWrapper, model: TraceModelOk, clickable: boo
 /* 屬性行的渲染：清單來自 layout/text.ts（高度也取那份清單的長度），這裡只負責定位與上色。
    以前這裡一串 `if (cond) { push; ly += LINE_H }`、text.ts 另外數一次行數——兩份手抄，
    在卡面多加一行卻忘了改行數時內容會超出卡框，沒有型別錯誤也沒有例外。 */
-const SubLines = ({ lines, cls, x, top, step, nsc }: {
-  lines: CardLine[]; cls: string; x: number; top: number; step: number; nsc?: string | null;
+const SubLines = ({ lines, cls, x, top, step }: {
+  lines: CardLine[]; cls: string; x: number; top: number; step: number;
 }) => (
   <>
     {lines.map((l, i) => (
-      <text key={l.key} className={cls} style={l.ns && nsc ? { fill: nsc } : undefined}
-        x={x} y={top + step * i}>{l.text}</text>
+      <text key={l.key} className={cls} x={x} y={top + step * i}>{l.text}</text>
     ))}
   </>
 );
 
-export const NodeBox = ({ n, g, model, nsColor, clickable }: CardProps) => {
+export const NodeBox = ({ n, g, model, clickable }: CardProps) => {
   const isDevice = DEVICE_TYPES.indexOf(n.role) >= 0;   /* k8s node／pod、netapp 三型別：虛線框 */
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
   const hh = headerH(n);
@@ -66,8 +74,7 @@ export const NodeBox = ({ n, g, model, nsColor, clickable }: CardProps) => {
       {/* 型別標印 role 原字（switch／pod／netapp-aggr…） */}
       <text className="leaf-stop" x={g.x + 12} y={g.y + 15}>{n.role}</text>
       <text className="n-title" x={g.x + 12} y={g.y + 29}>{n.label}</text>
-      <SubLines lines={hopLines(n)} cls="n-sub" x={g.x + 12} top={g.y + 29 + LINE_H} step={LINE_H}
-        nsc={n.namespace ? (nsColor[n.namespace] || C.gray) : null} />
+      <SubLines lines={hopLines(n)} cls="n-sub" x={g.x + 12} top={g.y + 29 + LINE_H} step={LINE_H} />
       {/* 殘差的標籤畫在盒子外面；k8s port 可沒 iface */}
       {g.leftSlots.map((sl, i) => (sl.res || !sl.iface) ? null : (
         <text key={'l' + i} className="p-label" x={g.x + 10} y={sl.cy + 3.5}>{sl.iface}</text>
@@ -79,8 +86,7 @@ export const NodeBox = ({ n, g, model, nsColor, clickable }: CardProps) => {
   );
 };
 
-export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
-  const nsc = n.namespace ? (nsColor[n.namespace] || C.gray) : null;
+export const LeafCard = ({ n, g, model, clickable }: CardProps) => {
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
   const cols = clientCols(n);
   const unit = n.unit!;
@@ -96,7 +102,7 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
       ly += CLIENT_ROW_H;
     }
     if (n.namespace) {
-      body.push(<text key="ns" className="leaf-sub" style={{ fill: nsc! }} x={g.x + 12} y={ly}>{'ns/' + n.namespace}</text>);
+      body.push(<text key="ns" className="leaf-sub" x={g.x + 12} y={ly}>{'ns/' + n.namespace}</text>);
       ly += CLIENT_ROW_H;
     }
     /* 表頭用 wire 的欄位名（跟 tooltip 印 ontap_cluster／health 同一套慣例），
@@ -122,7 +128,7 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
   } else {
     body.push(<text key="name" className="leaf-main" x={g.x + 12} y={g.y + 31}>{n.label}</text>);
     body.push(<SubLines key="sub" lines={leafLines(n)} cls="leaf-sub" x={g.x + 12}
-      top={g.y + 31 + LINE_H} step={LINE_H} nsc={nsc} />);
+      top={g.y + 31 + LINE_H} step={LINE_H} />);
   }
   /* 右上角：終點／port／client 的語意（型別標在左上角後，這裡才是「這張卡在追查裡是什麼角色」）。
      接了 owner 卡的 port 已經不是終點了（比照 pod 卡） */
@@ -132,8 +138,6 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
       <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.leafBg}
         stroke={statusColor || C.gray} strokeOpacity={statusColor ? '1' : '.65'}
         strokeWidth={statusColor ? '1.8' : '1.1'} strokeDasharray="5 4" />
-      {/* 左緣 ns 色條：帶 ns 的非 pod 葉也照畫（與色盤取用條件一致）。上下內縮避開圓角，避免色條戳出弧線外。 */}
-      {nsc && <rect x={g.x + 1.5} y={g.y + 5} width="4" height={g.h - 10} rx="2" fill={nsc} fillOpacity=".85" />}
       {/* 統一版式：第 1 行是型別（輸入的 type 原字：host／router…） */}
       <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>{n.type || 'host'}</text>
       {body}
@@ -144,23 +148,20 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
   );
 };
 
-/* pod 中繼卡：外觀沿用天藍虛線＋ns 色條的 pod 家族，但 pod 已不是終點——
+/* pod 中繼卡：外觀沿用天藍虛線的 pod 家族，但 pod 已不是終點——
    另一側有邊接 app／ns 終點，「追查終止／未再往下追」字樣不再出現。
-   沒有 ns 的 pod（合法）就沒有色條與 ns 行，iface 行上移。 */
-export const PodCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
-  const nsc = n.namespace ? (nsColor[n.namespace] || C.gray) : null;
+   沒有 ns 的 pod（合法）就沒有 ns 行，iface 行上移。 */
+export const PodCard = ({ n, g, model, clickable }: CardProps) => {
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
   return (
     <g {...gAttrs(n, model, clickable)}>
       <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.leafBg}
         stroke={statusColor || C.sky} strokeOpacity={statusColor ? '1' : '.55'}
         strokeWidth={statusColor ? '1.8' : '1.1'} strokeDasharray="5 4" />
-      {/* 左緣 ns 色條：同 ns 的 pod 相鄰排列時色條連成一段，彙總一眼可讀 */}
-      {nsc && <rect x={g.x + 1.5} y={g.y + 5} width="4" height={g.h - 10} rx="2" fill={nsc} fillOpacity=".85" />}
       <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>pod</text>
       <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{n.label}</text>
       {/* ns 行與量行都走 leafLines（與 leafH 同一份清單）；no-flow 的 root pod 量那行印 no flow 不是 0 */}
-      <SubLines lines={leafLines(n)} cls="leaf-sub" x={g.x + 12} top={g.y + 31 + LINE_H} step={LINE_H} nsc={nsc} />
+      <SubLines lines={leafLines(n)} cls="leaf-sub" x={g.x + 12} top={g.y + 31 + LINE_H} step={LINE_H} />
     </g>
   );
 };
@@ -186,25 +187,24 @@ export const WrapperBox = ({ g, model, clickable }: { g: WrapperGeom; model: Tra
   );
 };
 
-/* 群組終點卡（namespace／application）：邏輯彙總、不是設備——用 ns 色實線描邊，
+/* 群組終點卡（namespace／application）：邏輯彙總、不是設備——實線描邊（比照 owner 卡的灰），
    虛線留給「設備／截斷」的既有語彙。bps 是所有成員邊的加總（model 算好）；
-   status 是成員 pod 的最差值，有就換成 status 色描邊。 */
-export const GroupCard = ({ n, g, model, nsColor, clickable, word }: CardProps & { word: 'namespace' | 'application' }) => {
-  const nsc = nsColor[n.namespace!] || C.gray;
+   status 是成員 pod 的最差值，有就換成 status 色描邊。不配 ns 色，理由見檔頭。 */
+export const GroupCard = ({ n, g, model, clickable, word }: CardProps & { word: 'namespace' | 'application' }) => {
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
   return (
     <g {...gAttrs(n, model, clickable)}>
-      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={nsc} fillOpacity=".10"
-        stroke={statusColor || nsc} strokeWidth={statusColor ? '1.8' : '1.4'} />
+      <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.gray} fillOpacity=".10"
+        stroke={statusColor || C.gray} strokeWidth={statusColor ? '1.8' : '1.4'} />
       <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>{word}</text>
       <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{n.label}</text>
-      <SubLines lines={groupLines(n)} cls="leaf-sub" x={g.x + 12} top={g.y + 31 + LINE_H} step={LINE_H} nsc={nsc} />
+      <SubLines lines={groupLines(n)} cls="leaf-sub" x={g.x + 12} top={g.y + 31 + LINE_H} step={LINE_H} />
     </g>
   );
 };
 
-/* owner 終點卡：client 的負責人。跟 ns／app 一樣是邏輯彙總（實線描邊，虛線留給設備／截斷），
-   但 owner 不是 namespace、沒有 ns 色，用葉卡那支灰——不新增顏色定義。
+/* owner 終點卡：client 的負責人。跟 ns／app 一樣是邏輯彙總（實線灰描邊，虛線留給設備／截斷），
+   用葉卡那支灰——不新增顏色定義。owner 沒有 status，外框永遠是灰。
    bps 只來自「整張卡只有這一個 owner」的 port；名下的 port 上還有別人的機器時 bps 是 0，
    那不是「沒有流量」而是「量停在 port」，所以第三行改印台數，不能印一個 0 出來。 */
 export const OwnerCard = ({ n, g, model, clickable }: CardProps) => (

@@ -16,10 +16,10 @@ export const WRAP_PAD = 10, WRAP_HEADER_H = 52;
 export const LINE_H = 13, CARD_BASE = 44;
 export const RES_LEN = 34, RES_GAP = 8;   /* 高度改用 thick()，不再有固定的 RES_H／RES_PAD */
 
-/* 色票（含 namespace 色盤與 STATUS_COLOR）全部住在 layout/colors.ts：
+/* 色票（含 STATUS_COLOR）全部住在 layout/colors.ts：
    同一批色值原本散在 CSS、SVG 屬性、這裡與 app.css 四處，已經漂移過。
    這裡 re-export 是為了不動既有 import 路徑（layout.ts／cards.tsx／tables.ts 都從這支拿）。 */
-export { NS_COLORS, STATUS_COLOR } from './colors.js';
+export { STATUS_COLOR } from './colors.js';
 
 
 /* 葉卡上的 client 表格：一列一台、全部列出，欄位對齊並印表頭。

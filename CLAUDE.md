@@ -119,7 +119,7 @@ packages/trace-sankey/
     normalize.ts          7 normalizeColumns（root 的 no-flow pod 改到 pod 欄）＋ assemble（回傳物件的鍵序）
     build.ts              串起來
   src/layout/             版面（純函式，不改 model）
-    constants.ts          NODE_W…THICK_MAX、LINE_H／CARD_BASE、WRAP_PAD／WRAP_HEADER_H、NS_COLORS、CLIENT_COLS、DEVICE_TYPES、STATUS_COLOR
+    constants.ts          NODE_W…THICK_MAX、LINE_H／CARD_BASE、WRAP_PAD／WRAP_HEADER_H、CLIENT_COLS、DEVICE_TYPES、STATUS_COLOR
     geometry.ts           Slot／NodeGeom／EdgeGeom／WrapperGeom／Geometry 型別
     layout.ts             layout(model): Geometry——欄位 x／y、槽位、邊端點、弧帶凸出、回流 lane、pod 欄依外框分區
     text.ts               esc、clip、clientCols/clientW/clientRows、cardH／leafH、hopLineCount／headerH、resIn/resOut、usageText、typeWord
@@ -132,7 +132,7 @@ packages/trace-sankey/
     Band.tsx              Band（data-e、band-zero；含 lat-arrow 兄弟、headless 才有 <title>）、BandLabel
     cards.tsx             NodeBox／LeafCard／PodCard／GroupCard／OwnerCard／AnchorCard／WrapperBox／Card 分派／Residual（卡的 <g> 帶 data-n）
   src/layout/options.ts   layout() 的選項型別：NodeOrder（'flow'／'barycenter'）、LayoutOptions、DEFAULT_ORDER
-  src/layout/colors.ts    **全套件唯一的色票**（COLORS／NS_COLORS／STATUS_COLOR）；CSS 變數由它產生
+  src/layout/colors.ts    **全套件唯一的色票**（COLORS／STATUS_COLOR）；CSS 變數由它產生
   src/aggregates.ts       namespaceAggs()／nsTotalText()：summary 與 flowTables 共用的 ns 小計（見 §10.14）
   scripts/gen-css.mjs     由 colors.ts 產生 styles/ 的色票區塊與 styles/tokens.css（npm run gen:css）
   src/summary.ts          hop 摘要表（HTML 字串；app 目前沒用）
@@ -472,7 +472,7 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
   型別 `CardLine`）：高度取 `.length`（`headerH`／`cardH`／`leafH`），`cards.tsx` 的 `<SubLines>` 迭代
   同一份清單來畫。以前兩件事各寫一次（text.ts 數行數、cards.tsx 一串 `if (cond) { push; ly += LINE_H }`），
   每組都碰巧抄對，但在卡面多加一行卻忘了改行數會讓內容超出高度、分隔線與下方卡片 y 全錯位，
-  **沒有型別錯誤也沒有例外**。`ns: true` 的那一行由 cards.tsx 查 `nsColor` 上色（text.ts 不碰顏色）。
+  **沒有型別錯誤也沒有例外**。
   有 `clients` 的葉卡是表格版式（行高 `CLIENT_ROW_H` 14，不是 `LINE_H`），行數走 `clientExtraRows()`。
   `tools/test/cards.test.mjs` 直接比對「畫了幾行」與「算了幾行」——「文字在框內」那條太鬆
   （`cardH` 的底部留白塞得下多畫的一行，實測過），所以兩條都留。
@@ -482,12 +482,15 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
   「量停在 port」，**絕不印 0**。
   **每張卡的 `<g>` 都帶 `data-n`（id）與 `data-tip`**（`nodeTip()` 產生 `{node:1, title, rows:[[k,v],…]}`，已格式化好；
   順序照參考面板：型別／名稱、ns、ontap_cluster、流量、usage、status、health、model、perf(raw)、alerts、no-flow、id）。
-  `NodeBox` 外框色優先序 **status（critical `#fb7185`／warning `#f59e0b`／normal `#4ade80`；綠刻意避開 ns 色盤的
-  `#34d399`）> isRoot 青 > 設備天藍 > 預設**，`DEVICE_TYPES`（node/pod/netapp 三型別）虛線。
+  `NodeBox` 外框色優先序 **status（critical `#fb7185`／warning `#f59e0b`／normal `#4ade80`）> isRoot 青 > 設備天藍 > 預設**，
+  `DEVICE_TYPES`（node/pod/netapp 三型別）虛線。
   **每張卡同一套版式**：第 1 行型別標（`.leaf-stop`，hop 印 `role` 原字、葉印 `type||'host'`）、第 2 行名字、
   之後一行一個屬性（`LINE_H 13`）；**卡面不印 id**，tooltip 最後一列才有。
   **型別標九處一律吃 `.leaf-stop` 的灰、不疊 inline 色**：它是後設資訊層，身分走底色與外框、狀態走外框色＋加粗，
   兩者都不表達（ns／app 曾染 ns 色、錨卡曾染青，只有那兩種卡有顏色反而讀不出規則）。理由寫在 `svg/cards.tsx` 檔頭。
+  **namespace 不配色**（色盤、pod／葉卡左緣色條、ns 行字色都已移除）：`GroupCard` 是灰色實線框（比照 `OwnerCard`），
+  有 status 換 status 色。以前是 `status || ns 色`，storage 資料的 pod 幾乎都帶 status，ns 卡外框就一律是 status 色、
+  switch 資料才是 ns 色——同一種卡兩種語意；色盤也只有 10 色。理由同樣在 `svg/cards.tsx` 檔頭，別加回來。
   hop 盒 `headerH(n) = HEADER_H(40) + 13 × 屬性行數`；
   葉／群組卡高度 `cardH(屬性行數)`；k8s node 外框標題區 `WRAP_HEADER_H 52`（型別／名字／pod 數）。
   tooltip 的流量行每一種卡都是 `in／out` × 通道四行（`nodeTip` 共用 `flowRow`），卡種差異只在附加列；
@@ -542,7 +545,7 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
   才回呼；拖曳中忽略、`stopPropagation`。`.clickable` 由 `cards.tsx` 依同一份 `locatable` 當 className 輸出。
 - **專注模式刻意不用 Fullscreen API**（tooltip 在容器外會消失），用 `body.chart-focus` class 純 CSS 實作
   （`hooks/useFocus.ts`，prop `focus`）。
-- **顏色只有一份來源：`src/layout/colors.ts`**（`COLORS`、`NS_COLORS`、`STATUS_COLOR` 都在裡面）。
+- **顏色只有一份來源：`src/layout/colors.ts`**（`COLORS`、`STATUS_COLOR` 都在裡面）。
   以前是四處手抄（CSS 變數、三個 svg 檔的屬性、`STATUS_COLOR`、`app/src/app.css`），而且已經漂移過
   兩處（`#7dd3fc` 三處互抄且沒有 CSS 變數對應；app 圖例的 write 漸層要手動對齊 `Defs.tsx` 的兩個 stop）。
   現在：`styles/trace-sankey.css` 的色票區塊（`gen:colors` 標記之間）與 `styles/tokens.css`
@@ -620,9 +623,8 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
 4. 多數決平手時依 `nodes` 陣列出現順序決勝；同鍵多條邊的 `attribution`／`extra` 採先到值——結果依賴輸入順序（但確定性）。
 5. **ns／app 分組與終點只作用於葉 pod**（`kind:'leaf' && role:'pod'`）：render 的欄內排序讓同 ns 相鄰、槽位跟著
    對端 y 重排；pod 流量自動匯進 app／ns 終點。proxy pod（有往下走的邊）的 ns 只是盒副標、不接終點。
-   pod 沒有 ns 是合法的（不接、沒色條、卡片矮一階）。ns 色盤 10 色依首次出現順序取用、第 11 個才循環
-   （前 5 色是原本的、不准動；6～7 是色輪上還空著的色相，8～10 是綠／黃／藍的暗變體。選色要一起看飽和度——
-   淺變體的 WCAG 對比度很漂亮但在深色底上一律讀成白／灰，試過並否決，理由在 `layout/constants.ts`）。
+   pod 沒有 ns 是合法的（不接、沒有 ns 行、卡片矮一階）。**ns 不配色**：分組靠欄內相鄰、`ns/<ns>` 行與
+   匯進 ns 終點卡的帶子讀；外框色只表達 status（理由見 `svg/cards.tsx` 檔頭，§7 也有）。
 6. `colCaption` 用 `col[0].col` 印「第 N 跳」，destination 模式下 anchor 佔 col 0，第一台顯示「第 1 跳」；
    沒有 investigation 的圖第一欄是「第 0 跳」——都是相對欄號、不是輸入裡的跳數。
 7. 規模上限：`stress/05-huge.json`（1365 台、5.4 萬個 SVG 元素）滾輪每格約 130ms；要撐這種量需要視野裁剪（未做）。

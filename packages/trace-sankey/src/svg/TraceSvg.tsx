@@ -56,7 +56,7 @@ export const TraceSvg = memo(function TraceSvg({ model, geo, headless = false, i
         {/* k8s node 外框（layout:'node'）：畫在帶之上、卡片之下，pod 卡壓在框裡 */}
         {geo.wrappers.map((wg) => <WrapperBox key={wg.wrapper.id} g={wg} model={model} clickable={clickable} />)}
         {/* 盒子 */}
-        {model.nodes.map((n) => <Card key={n.id} n={n} g={N(n.id)} model={model} nsColor={geo.nsColor} clickable={clickable} />)}
+        {model.nodes.map((n) => <Card key={n.id} n={n} g={N(n.id)} model={model} clickable={clickable} />)}
         {/* 殘差最後畫 */}
         {model.nodes.map((n) => n.kind !== 'node' ? null :
           N(n.id).leftSlots.concat(N(n.id).rightSlots).map((sl) => sl.res

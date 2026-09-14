@@ -35,7 +35,7 @@ export const COLORS = {
   roseD: '#9f1239',         /* 回流帶漸層的深色端 */
   roseH: '#fda4af',
   roseHD: '#be123c',
-  green: '#4ade80',         /* status normal 的外框色；刻意避開 ns 色盤的 #34d399 */
+  green: '#4ade80',         /* status normal 的外框色 */
   gray: '#94a3b8',
   orange: '#c2410c',        /* storage 資料的 write 通道帶（read 沿用青） */
   orangeD: '#7c2d12',
@@ -58,29 +58,10 @@ export const CSS_COLOR_KEYS = [
 /** camelCase → CSS 變數名（--cyan-d）。gen-css 與任何要印變數名的人共用同一份轉換 */
 export const cssVarName = (key: string): string => '--' + key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
 
-/* namespace 色盤：依「首次出現順序」配色、超過就循環。不用 hash——hash 撞色不可控，
-   相鄰兩組同色比跨檔案顏色不穩更傷可讀性；出現順序在同一份 JSON 裡是確定的，
-   與 tier 先到先贏同一套哲學。刻意避開語意色：青（追查）、琥珀（其他入）、
-   玫瑰（其他出）、灰（葉）、#7dd3fc 天藍（k8s node 框）。
-   **前 5 色不准動**（色值與順序）：既有圖的顏色與 golden 的 .svg 都靠它，改一個字元就是全圖換色。
-   後 5 色是把上限從 5 個 ns 拉到 10 個時補的，分兩種來源、順序也有意義：
-   6～7 是色輪上真正還空著的兩個色相（洋紅 292°、黃綠 84°，與既有色與語意色都差 25° 以上），
-   區分力最強所以排前面；8～10 才是綠／黃／藍的暗變體，靠亮度與原色拉開（差 0.27／0.41／0.14）。
-   **試過「同色淺變體」，實測失敗、不要再走回去**：淺紫 #d1c7f0 與淺粉 #eec8dc 的 WCAG 對比度
-   有 10.8～11.4 很漂亮，但飽和度掉到 0.53～0.58，在深色底上一律讀成白／淺灰——色相資訊沒了、
-   兩者彼此難分，還撞上「灰＝葉卡／歸屬線」。對比度量的是看不看得見，不是認不認得出是什麼顏色；
-   選色要一起看飽和度（全盤下限 0.64）。往暗也有底：走到小字門檻 4.5:1 就是亮度 0.225，
-   而紫／粉原色本來就落在 0.34 附近，硬做暗變體只剩 0.11 深淺差，所以紫／粉不做變體、改用新色相。
-   4.5:1 這個門檻是小字要求：ns 色不只畫色塊與外框，也是 hop／pod 卡上 10px 那行 `ns/<ns>` 的字色。
-   第 11 個 ns 回到第 1 色、仍然撞色——語意色已經佔掉青／琥珀／玫瑰／灰／燃橘／天藍六個色位，
-   10 組是剩下的色彩空間擠得出來的上限，再多只能靠文字（卡上有名字、pod 卡有 ns 行），刻意不再擴充。 */
-export const NS_COLORS = [
-  '#a78bfa', '#34d399', '#facc15', '#60a5fa', '#f472b6',
-  '#d946ef', '#84cc16', '#209469', '#9e7f03', '#1e80f8'
-];
+/* **沒有 namespace 色盤**（曾經有 10 色，已移除，理由在 svg/cards.tsx 檔頭）：外框色只表達 status，
+   別為了「分組好看」再加回來。 */
 
-/* 三色都上框（參考面板：有 status 就以 status 框，normal 也是一個判定）；沒有 status 維持中性框。
-   綠刻意避開 ns 色盤的 #34d399 */
+/* 三色都上框（參考面板：有 status 就以 status 框，normal 也是一個判定）；沒有 status 維持中性框。 */
 export const STATUS_COLOR: Record<string, string> = {
   critical: COLORS.rose, warning: COLORS.amber, normal: COLORS.green
 };
