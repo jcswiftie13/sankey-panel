@@ -146,7 +146,9 @@ packages/trace-sankey/
                           useHighlight（路徑高亮，容器委派、只加減 class）、useNodeClick（click 委派）、useFocus（body.chart-focus）
   src/tooltip/            TraceTooltip.tsx（portal 到 body、.chart 上三個原生 listener 委派）、tips.tsx（BandTip／NodeTipView）
   src/react.ts            'trace-sankey/react' 入口：TraceSankey、TraceSvg、hooks、型別
-  src/samples.ts          10 個內建範例（純資料；N()/E() 是字面值簡寫；storage 是參考面板的 fixture）
+  src/samples.ts          11 個內建範例（純資料；N()/E() 是字面值簡寫）
+  src/samples.storage.ts  **產生的**：由 samples/storage.json（上游 fixture，唯一來源）產生，見 §10.1
+  scripts/gen-samples.mjs 產生上面那支（npm run gen:samples）
   src/static.ts           'trace-sankey/static'：render(model) = renderToStaticMarkup(<TraceSvg headless/>)；
                           re-export summary／flowTables／esc。拉進 react-dom/server，所以刻意不在主入口
   README.md               套件自己的 README（安裝、props、ref、DOM 契約、CSS 變數）；隨 npm pack 出貨
@@ -164,7 +166,8 @@ app/                      Vite + React 使用端
   src/app.css             頁面版面
 electron/                 Electron 測試殼：main.js（CJS）＋ fallback.html ＋ embed.html。
                           不在 workspaces、不進 docker build context；自己 npm install
-samples/*.json            同一批範例的檔案版（golden 用；與 src/samples.ts 重複維護，見 §10.1）
+samples/*.json            同一批範例的檔案版（golden 用；storage.json 是 samples.storage.ts 的來源，
+                          其餘 10 筆與 src/samples.ts 兩份並存但有測試守著，見 §10.1）
                           storage.json 原封不動取自參考 repo public/demo/storage-graph.json @ 9e568c7（Apache-2.0）
 stress/                   縮放平移壓力測試資料 + gen.py（輸出 wire 格式）。make check 也會 build 它們
 tools/test/*.test.mjs     node --test：單一來源的不變量（golden 管「輸出沒變」，這裡管「同一個結論只有一份定義」）
@@ -465,6 +468,14 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
 - **槽位重排**（`reorderSlots`）：pod／ns／app 那組之外，`ownerLinked` 的葉與 owner 卡也要依對端 y 重排——
   port 葉的出邊順序是 `clients` 的出現順序、owner 卡的入邊順序是建邊順序，都跟 y 無關，
   一張 port 掛五個 owner 時歸屬線會整束交叉（實測過）。
+- **卡面的屬性行是一份清單**（`layout/text.ts` 的 `hopLines`／`leafLines`／`groupLines`／`ownerLines`，
+  型別 `CardLine`）：高度取 `.length`（`headerH`／`cardH`／`leafH`），`cards.tsx` 的 `<SubLines>` 迭代
+  同一份清單來畫。以前兩件事各寫一次（text.ts 數行數、cards.tsx 一串 `if (cond) { push; ly += LINE_H }`），
+  每組都碰巧抄對，但在卡面多加一行卻忘了改行數會讓內容超出高度、分隔線與下方卡片 y 全錯位，
+  **沒有型別錯誤也沒有例外**。`ns: true` 的那一行由 cards.tsx 查 `nsColor` 上色（text.ts 不碰顏色）。
+  有 `clients` 的葉卡是表格版式（行高 `CLIENT_ROW_H` 14，不是 `LINE_H`），行數走 `clientExtraRows()`。
+  `tools/test/cards.test.mjs` 直接比對「畫了幾行」與「算了幾行」——「文字在框內」那條太鬆
+  （`cardH` 的底部留白塞得下多畫的一行，實測過），所以兩條都留。
 - 卡片（`svg/cards.tsx`）：`NodeBox`（hop）／`LeafCard`／`PodCard`／`GroupCard`（ns／app 共用）／`OwnerCard`／`AnchorCard`／
   `WrapperBox`。`OwnerCard` 寬度是 `NODE_W`（owner 是自由字串，`LEAF_W` 截太兇；欄寬下限本來就是 `NODE_W`，
   不會把後面的欄推開）；**量與台數分兩行**，`meteredPorts < portCount` 標「（部分 port）」、`bps` 為 0 印
@@ -591,12 +602,17 @@ k8s node 外框的座標在 `geo.wrappers`（`WrapperGeom`，**不寫回 `model.
 
 ## 10. 已知怪癖與陷阱（動手前必讀；均為現況陳述，除非被要求不要修）
 
-1. **`samples/*.json` 與 `packages/trace-sankey/src/samples.ts` 是重複維護的同一批資料**（11 筆目前
-   `deepEqual` 完全一致，`tools/test/samples.test.mjs` 守著；`storage` 那筆在 samples.ts 裡曾經是
-   425 行手抄的 JSON，已改成讀 `samples/storage.json`——那份必須原封不動來自參考 repo，只能當來源）：
-   samples.ts 是套件的 `trace-sankey/samples` 匯出（app 只在 dev 的 `DevSampleBar` 用它），golden／make check
-   兩邊都讀。改一邊忘了另一邊不會有任何警告。
-   `samples/storage.json` 另外還要跟參考 repo 的 fixture 對得上（來源與 commit 標在 samples.ts 註解）。
+1. **`samples/*.json` 與 `packages/trace-sankey/src/samples.ts` 的關係分兩半**：
+   - `storage`：**`samples/storage.json` 是唯一來源**（原封不動取自參考 repo，只能當來源），
+     由 `scripts/gen-samples.mjs` 產生 `src/samples.storage.ts`。以前 samples.ts 裡手抄了一份
+     425 行的同樣資料、註解寫著「改一邊記得改另一邊」，已經移除。
+   - 其餘 10 筆：兩份並存（`samples.ts` 的 `N()`／`E()` 簡寫是可讀的作者形式，轉成產生的 JSON
+     反而看不懂），**刻意不做 codegen**，改用 `tools/test/samples.test.mjs` 斷言兩邊 `deepEqual`。
+   兩者都有測試守著，改一邊忘了另一邊會在 `make test` 就炸（以前完全沒有警告）。
+   `golden.mjs` 的 `inputs()` 仍然兩邊都讀（`sample-*` 走套件 dist 的匯出路徑、`samples-*` 走原始
+   JSON）——內容相同時等於順便驗證 codegen 與匯出路徑沒壞，別因為「看起來重複」就刪掉一邊。
+   samples.ts 是套件的 `trace-sankey/samples` 匯出（app 只在 dev 的 `DevSampleBar` 用它）。
+   `samples/storage.json` 還要跟參考 repo 的 fixture 對得上（來源與 commit 標在 samples.storage.ts 檔頭）。
 2. 顯式給了 `other_in_bps` 和 `other_out_bps` 但湊不出平衡式時，圖照顯式值畫、該台不守恆，只警告不擋。
    門檻／通道濾掉的量會**先加進這兩個顯式值再比對**，所以開門檻不會憑空生出這則警告。
 3. `type` 是**自由字串**：認得的 hop／群組型別以外一律當葉卡，**不警告**。舊格式 `role` 的註記

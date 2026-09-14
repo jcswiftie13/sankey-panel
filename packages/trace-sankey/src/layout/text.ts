@@ -1,6 +1,6 @@
 /* 版面與繪製共用的純函式：文字截斷、卡片尺寸、殘差門檻、排序鍵。全部不碰 DOM——render 必須是純函式、Node 也要能跑。 */
 import type { NodeUsage, TraceNode, TraceWrapper } from '../model/types.js';
-import { fmtBytes } from '../model/format.js';
+import { fmtAmount, fmtBytes, fmtRate } from '../model/format.js';
 import { sum } from '../model/util.js';
 import { CARD_BASE, CLIENT_COLS, CLIENT_GAP, CLIENT_PAD, HEADER_H, LEAF_W, LINE_H, NODE_W } from './constants.js';
 import type { ClientCol } from './constants.js';
@@ -45,25 +45,72 @@ export const clientRows = (n: TraceNode): string[][] => {
   return n.clients!.map((c) => cols.map((col) => (c[col.key] ? clip(c[col.key], col.budget) : '')));
 };
 
-/* 卡高（統一版式）：名字行之後有幾行屬性 */
-export const cardH = (lines: number): number => CARD_BASE + LINE_H * lines + 13;
-/* 帶 namespace 的葉多一行資訊（ns 標示），卡要高一階；沒 ns 的 pod 跟一般葉一樣高。
-   有 clients 時多的是：name 那行（只有真的給了 name 才有）、表頭一行、每台一行。 */
-export const leafH = (n: TraceNode): number => {
-  if (n.role === 'owner') return cardH(2);                 /* 量一行、台數／port 數一行 */
-  if (n.role === 'app') return cardH(n.namespace ? 3 : 2); /* ns、pod 數、合計 */
-  if (n.role === 'ns') return cardH(2);                    /* pod 數、合計 */
-  const cols = clientCols(n);
-  if (!cols.length) return cardH(n.namespace ? 2 : 1);     /* ns、iface · 量 */
-  return 70 + (n.namespace ? 14 : 0) + (n.named ? 14 : 0) + 14 + n.clients!.length * 14;
-};
-
-/* hop 盒的標題區：型別標＋名字固定 HEADER_H，屬性行（ns／ontap_cluster／usage）每行 LINE_H */
 export const hasUsage = (n: TraceNode | TraceWrapper): boolean =>
   !!(n.usage && n.usage.used_bytes != null && n.usage.capacity_bytes != null);
-export const hopLineCount = (n: TraceNode): number =>
-  (n.namespace ? 1 : 0) + (n.ontapCluster ? 1 : 0) + (hasUsage(n) ? 1 : 0);
-export const headerH = (n: TraceNode): number => HEADER_H + LINE_H * hopLineCount(n);
+
+/* ---------- 卡面的屬性行：一份清單，高度取長度、cards.tsx 迭代它來畫 ----------
+   以前這兩件事各寫一次（這裡算行數、cards.tsx 一串 `if (cond) { push; ly += LINE_H }`），
+   每一組都碰巧抄對，但那是兩份手抄。之後在卡面多加一行卻忘了改行數，卡的內容會超出算出的
+   高度、分隔線與下方卡片的 y 全錯位，而且**沒有型別錯誤也沒有執行期例外**。
+   `ns: true` 的那一行要染 namespace 色——顏色留給 cards.tsx 查 nsColor，這裡維持純文字。 */
+export interface CardLine { key: string; text: string; ns?: true }
+
+/* hop 盒標題區：型別標＋名字固定 HEADER_H，之後一行一個屬性 */
+export const hopLines = (n: TraceNode): CardLine[] => {
+  const out: CardLine[] = [];
+  if (n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace, ns: true });
+  if (n.ontapCluster) out.push({ key: 'oc', text: n.ontapCluster });
+  if (hasUsage(n)) out.push({ key: 'u', text: '使用 ' + usageText(n.usage) });
+  return out;
+};
+export const headerH = (n: TraceNode): number => HEADER_H + LINE_H * hopLines(n).length;
+
+/* 葉卡／pod 卡（沒有 clients 的版式）：ns?、iface · 量。
+   root 一律畫：被選成 root 卻沒有任何可畫的邊的 pod 是 no-flow 卡，量那行印 no flow 而不是 0。 */
+export const leafLines = (n: TraceNode): CardLine[] => {
+  const out: CardLine[] = [];
+  if (n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace, ns: true });
+  const ifc = n.iface || n.localIface || '';
+  out.push({ key: 'amt', text: n.noFlow ? 'no flow' : (ifc ? ifc + ' · ' : '') + fmtAmount(n.bps!, n.unit!) });
+  return out;
+};
+
+/* 群組終點卡（namespace／application）：application 卡面印所屬 ns
+   （參考面板：application · ns/prod · 2 pods）；namespace 卡的 ns 就是自己，不重複印。 */
+export const groupLines = (n: TraceNode): CardLine[] => {
+  const out: CardLine[] = [];
+  if (n.role === 'app' && n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace, ns: true });
+  out.push({ key: 'pods', text: n.podCount + ' 個 pod' });
+  out.push({ key: 'sum', text: '合計 ' + fmtRate(n.bps!, n.unit!) });
+  return out;
+};
+
+/* owner 終點卡：量與台數**分兩行**——擠成一行會讀成「這個量是這幾個 port 的總和」，
+   而名下只要有一個 port 掛著多個 owner，那個 port 的量就沒有算進來。
+   bps 為 0 不是「沒有流量」而是「量停在 port」，絕不印 0。 */
+export const ownerLines = (n: TraceNode): CardLine[] => [
+  { key: 'amt', text: n.bps! > 0
+    ? fmtRate(n.bps!, n.unit!) + (n.meteredPorts! < n.portCount! ? '（部分 port）' : '')
+    : '量停在 port' },
+  { key: 'cnt', text: n.clientCount + ' 台 client · ' + n.portCount + ' 個 port' }
+];
+
+/* 卡高（統一版式）：名字行之後有幾行屬性 */
+export const cardH = (lines: number): number => CARD_BASE + LINE_H * lines + 13;
+/* 有 clients 的葉卡是表格版式，行高 CLIENT_ROW_H（14，不是 LINE_H）：
+   name 行（只有真的給了 name 才有）、ns 行、表頭一行、每台一行；量那行算在 cardH(1) 的基底裡。
+   這個計數與 LeafCard 的 ly 遞增必須是同一份——tools/test/cards.test.mjs 用「文字必須落在卡框內」
+   把兩者綁住（結構怎麼寫都逃不掉）。 */
+export const CLIENT_ROW_H = 14;
+export const clientExtraRows = (n: TraceNode): number =>
+  (n.named ? 1 : 0) + (n.namespace ? 1 : 0) + 1 + n.clients!.length;
+export const leafH = (n: TraceNode): number => {
+  if (n.role === 'owner') return cardH(ownerLines(n).length);
+  if (n.role === 'app' || n.role === 'ns') return cardH(groupLines(n).length);
+  const cols = clientCols(n);
+  if (!cols.length) return cardH(leafLines(n).length);
+  return cardH(1) + CLIENT_ROW_H * clientExtraRows(n);
+};
 
 /* 殘差門檻用 model 算好的 resEps：小於 counter 浮點雜訊的殘差不畫，也不佔版面。
    注意這是「相對這台自己流量」的判斷，粗細卻是全圖 maxVal 的比例——

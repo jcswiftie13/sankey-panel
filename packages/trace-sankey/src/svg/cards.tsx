@@ -14,7 +14,10 @@ import type { NodeGeom, Slot, WrapperGeom } from '../layout/geometry.js';
 import type { TraceModelOk, TraceNode, TraceWrapper } from '../model/types.js';
 import { COLORS as C } from '../layout/colors.js';
 import { CLIENT_GAP, CLIENT_PAD, DEVICE_TYPES, LINE_H, RES_GAP, RES_LEN, STATUS_COLOR, WRAP_HEADER_H } from '../layout/constants.js';
-import { clientCols, clientRows, clip, hasUsage, headerH, usageText } from '../layout/text.js';
+import type { CardLine } from '../layout/text.js';
+import {
+  clientCols, clientRows, clip, CLIENT_ROW_H, groupLines, headerH, hopLines, leafLines, ownerLines
+} from '../layout/text.js';
 import { nodeTip } from '../layout/tips.js';
 import { fmtAmount as A, fmtDelta as D, fmtRate as R } from '../model/format.js';
 import { locatable } from '../locatable.js';
@@ -33,22 +36,24 @@ const gAttrs = (n: TraceNode | TraceWrapper, model: TraceModelOk, clickable: boo
   className: clickable && locatable(n) ? 'clickable' : undefined
 });
 
+/* 屬性行的渲染：清單來自 layout/text.ts（高度也取那份清單的長度），這裡只負責定位與上色。
+   以前這裡一串 `if (cond) { push; ly += LINE_H }`、text.ts 另外數一次行數——兩份手抄，
+   在卡面多加一行卻忘了改行數時內容會超出卡框，沒有型別錯誤也沒有例外。 */
+const SubLines = ({ lines, cls, x, top, step, nsc }: {
+  lines: CardLine[]; cls: string; x: number; top: number; step: number; nsc?: string | null;
+}) => (
+  <>
+    {lines.map((l, i) => (
+      <text key={l.key} className={cls} style={l.ns && nsc ? { fill: nsc } : undefined}
+        x={x} y={top + step * i}>{l.text}</text>
+    ))}
+  </>
+);
+
 export const NodeBox = ({ n, g, model, nsColor, clickable }: CardProps) => {
   const isDevice = DEVICE_TYPES.indexOf(n.role) >= 0;   /* k8s node／pod、netapp 三型別：虛線框 */
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
   const hh = headerH(n);
-  /* 屬性逐行：ns（ns 色）、ontap_cluster、usage */
-  const lines: React.ReactNode[] = [];
-  let ly = g.y + 29 + LINE_H;
-  if (n.namespace) {
-    lines.push(<text key="ns" className="n-sub" style={{ fill: nsColor[n.namespace] || C.gray }} x={g.x + 12} y={ly}>{'ns/' + n.namespace}</text>);
-    ly += LINE_H;
-  }
-  if (n.ontapCluster) {
-    lines.push(<text key="oc" className="n-sub" x={g.x + 12} y={ly}>{n.ontapCluster}</text>);
-    ly += LINE_H;
-  }
-  if (hasUsage(n)) lines.push(<text key="u" className="n-sub" x={g.x + 12} y={ly}>{'使用 ' + usageText(n.usage)}</text>);
   /* 外框色優先序：status（critical 玫瑰／warning 琥珀／normal 綠）> root 青框 > 設備天藍 > 預設；
      虛線只看設備型別——root 的 k8s node 兩個身分都看得見 */
   return (
@@ -61,7 +66,8 @@ export const NodeBox = ({ n, g, model, nsColor, clickable }: CardProps) => {
       {/* 型別標印 role 原字（switch／pod／netapp-aggr…） */}
       <text className="leaf-stop" x={g.x + 12} y={g.y + 15}>{n.role}</text>
       <text className="n-title" x={g.x + 12} y={g.y + 29}>{n.label}</text>
-      {lines}
+      <SubLines lines={hopLines(n)} cls="n-sub" x={g.x + 12} top={g.y + 29 + LINE_H} step={LINE_H}
+        nsc={n.namespace ? (nsColor[n.namespace] || C.gray) : null} />
       {/* 殘差的標籤畫在盒子外面；k8s port 可沒 iface */}
       {g.leftSlots.map((sl, i) => (sl.res || !sl.iface) ? null : (
         <text key={'l' + i} className="p-label" x={g.x + 10} y={sl.cy + 3.5}>{sl.iface}</text>
@@ -87,11 +93,11 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
     ly = g.y + 31;
     if (n.named) {
       body.push(<text key="name" className="leaf-main" x={g.x + 12} y={ly}>{n.label}</text>);
-      ly += 14;
+      ly += CLIENT_ROW_H;
     }
     if (n.namespace) {
       body.push(<text key="ns" className="leaf-sub" style={{ fill: nsc! }} x={g.x + 12} y={ly}>{'ns/' + n.namespace}</text>);
-      ly += 14;
+      ly += CLIENT_ROW_H;
     }
     /* 表頭用 wire 的欄位名（跟 tooltip 印 ontap_cluster／health 同一套慣例），
        樣式沿用 .leaf-stop（灰小字），分隔線沿用 NodeBox 那條內聯 stroke——不新增類別與顏色。 */
@@ -102,7 +108,7 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
       cx += col.w + CLIENT_GAP;
     }
     body.push(<line key="hl" x1={g.x + CLIENT_PAD} y1={hy + 4} x2={g.x + g.w - CLIENT_PAD} y2={hy + 4} stroke={C.line} />);
-    ly += 14;
+    ly += CLIENT_ROW_H;
     clientRows(n).forEach((cells, r) => {
       let rx = g.x + CLIENT_PAD;
       const ry = ly;
@@ -110,18 +116,13 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
         if (v) body.push(<text key={'c' + r + '-' + i} className="leaf-sub" x={rx} y={ry}>{v}</text>);
         rx += cols[i].w + CLIENT_GAP;
       });
-      ly += 14;
+      ly += CLIENT_ROW_H;
     });
     body.push(<text key="amt" className="leaf-sub" x={g.x + 12} y={ly}>{A(n.bps!, unit)}</text>);
   } else {
     body.push(<text key="name" className="leaf-main" x={g.x + 12} y={g.y + 31}>{n.label}</text>);
-    ly = g.y + 31 + LINE_H;
-    if (n.namespace) {
-      body.push(<text key="ns" className="leaf-sub" style={{ fill: nsc! }} x={g.x + 12} y={ly}>{'ns/' + n.namespace}</text>);
-      ly += LINE_H;
-    }
-    const ifc = n.iface || n.localIface || '';
-    body.push(<text key="amt" className="leaf-sub" x={g.x + 12} y={ly}>{(ifc ? ifc + ' · ' : '') + A(n.bps!, unit)}</text>);
+    body.push(<SubLines key="sub" lines={leafLines(n)} cls="leaf-sub" x={g.x + 12}
+      top={g.y + 31 + LINE_H} step={LINE_H} nsc={nsc} />);
   }
   /* 右上角：終點／port／client 的語意（型別標在左上角後，這裡才是「這張卡在追查裡是什麼角色」）。
      接了 owner 卡的 port 已經不是終點了（比照 pod 卡） */
@@ -149,8 +150,6 @@ export const LeafCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
 export const PodCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
   const nsc = n.namespace ? (nsColor[n.namespace] || C.gray) : null;
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
-  const ly = g.y + 31 + LINE_H + (nsc ? LINE_H : 0);
-  const ifc = n.iface || n.localIface || '';
   return (
     <g {...gAttrs(n, model, clickable)}>
       <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.leafBg}
@@ -160,9 +159,8 @@ export const PodCard = ({ n, g, model, nsColor, clickable }: CardProps) => {
       {nsc && <rect x={g.x + 1.5} y={g.y + 5} width="4" height={g.h - 10} rx="2" fill={nsc} fillOpacity=".85" />}
       <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>pod</text>
       <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{n.label}</text>
-      {nsc && <text className="leaf-sub" style={{ fill: nsc }} x={g.x + 12} y={g.y + 31 + LINE_H}>{'ns/' + n.namespace}</text>}
-      {/* root 一律畫：被選成 root 卻沒有任何可畫的邊的 pod 是 no-flow 卡，量那行印 no flow 而不是 0 */}
-      <text className="leaf-sub" x={g.x + 12} y={ly}>{n.noFlow ? 'no flow' : (ifc ? ifc + ' · ' : '') + A(n.bps!, n.unit!)}</text>
+      {/* ns 行與量行都走 leafLines（與 leafH 同一份清單）；no-flow 的 root pod 量那行印 no flow 不是 0 */}
+      <SubLines lines={leafLines(n)} cls="leaf-sub" x={g.x + 12} top={g.y + 31 + LINE_H} step={LINE_H} nsc={nsc} />
     </g>
   );
 };
@@ -194,23 +192,13 @@ export const WrapperBox = ({ g, model, clickable }: { g: WrapperGeom; model: Tra
 export const GroupCard = ({ n, g, model, nsColor, clickable, word }: CardProps & { word: 'namespace' | 'application' }) => {
   const nsc = nsColor[n.namespace!] || C.gray;
   const statusColor = n.status ? STATUS_COLOR[n.status] : null;
-  const lines: React.ReactNode[] = [];
-  let ly = g.y + 31 + LINE_H;
-  /* application 卡面印所屬 ns（參考面板：application · ns/prod · 2 pods）；namespace 卡的 ns 就是自己 */
-  if (word === 'application' && n.namespace) {
-    lines.push(<text key="ns" className="leaf-sub" style={{ fill: nsc }} x={g.x + 12} y={ly}>{'ns/' + n.namespace}</text>);
-    ly += LINE_H;
-  }
-  lines.push(<text key="pods" className="leaf-sub" x={g.x + 12} y={ly}>{n.podCount + ' 個 pod'}</text>);
-  ly += LINE_H;
-  lines.push(<text key="sum" className="leaf-sub" x={g.x + 12} y={ly}>{'合計 ' + R(n.bps!, n.unit!)}</text>);
   return (
     <g {...gAttrs(n, model, clickable)}>
       <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={nsc} fillOpacity=".10"
         stroke={statusColor || nsc} strokeWidth={statusColor ? '1.8' : '1.4'} />
       <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>{word}</text>
       <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{n.label}</text>
-      {lines}
+      <SubLines lines={groupLines(n)} cls="leaf-sub" x={g.x + 12} top={g.y + 31 + LINE_H} step={LINE_H} nsc={nsc} />
     </g>
   );
 };
@@ -224,12 +212,9 @@ export const OwnerCard = ({ n, g, model, clickable }: CardProps) => (
     <rect x={g.x} y={g.y} width={g.w} height={g.h} rx="8" fill={C.gray} fillOpacity=".10" stroke={C.gray} strokeWidth="1.4" />
     <text className="leaf-stop" x={g.x + 12} y={g.y + 17}>owner</text>
     <text className="leaf-main" x={g.x + 12} y={g.y + 31}>{clip(n.label, 34)}</text>
-    {/* 量與台數分兩行：擠成一行會讀成「這個量是這幾個 port 的總和」，
+    {/* 量與台數分兩行（ownerLines）：擠成一行會讀成「這個量是這幾個 port 的總和」，
         而名下只要有一個 port 掛著多個 owner，那個 port 的量就沒有算進來。 */}
-    <text className="leaf-sub" x={g.x + 12} y={g.y + 31 + LINE_H}>
-      {n.bps! > 0 ? R(n.bps!, n.unit!) + (n.meteredPorts! < n.portCount! ? '（部分 port）' : '') : '量停在 port'}
-    </text>
-    <text className="leaf-sub" x={g.x + 12} y={g.y + 31 + LINE_H * 2}>{n.clientCount + ' 台 client · ' + n.portCount + ' 個 port'}</text>
+    <SubLines lines={ownerLines(n)} cls="leaf-sub" x={g.x + 12} top={g.y + 31 + LINE_H} step={LINE_H} />
   </g>
 );
 
