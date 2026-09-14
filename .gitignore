@@ -4,3 +4,15 @@ node_modules/
 app/dist/
 packages/trace-sankey/dist/
 .env
+
+# Claude Code：agent 定義（.claude/agents/）是專案共用設定、刻意追蹤；
+# settings.local.json 是每台機器自己的權限清單，絕不進 git。
+# 這條一定要寫在 repo 自己的 .gitignore 裡：它原本只被使用者的全域
+# ~/.config/git/ignore 擋住，換一台機器 clone 就沒有那道保護，
+# 一次 `git add -A` 就會把本機設定推上去。
+.claude/settings.local.json
+
+# CodeGraph：索引資料（db／pid／socket／log）是每台機器自己的。
+# .codegraph/.gitignore 本身刻意追蹤——它就是負責忽略那些檔的那一份。
+.codegraph/*
+!.codegraph/.gitignore
