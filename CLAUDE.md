@@ -93,7 +93,7 @@ Python CLI（`tools/trace_sankey.py`，連同 Mermaid／plotly 輸出）**已移
 全專案文件、UI、JS 註解為**繁體中文**。深色主題。
 Makefile：`make dev`（=`serve`）/ `build`（vite build）/ `up`／`up-dev`／`down`／
 `content-build`／`docker-build`（部署，見 §11）/ `electron`（Electron 測試殼）/ `check`（build 遍所有範例）/
-`golden DIR=…`（對拍 dump）/ `clean`。
+`golden DIR=…`（對拍 dump）/ `test`（`node --test`：單一來源的不變量，見 §9）/ `clean`。
 
 ## 3. 目錄結構
 

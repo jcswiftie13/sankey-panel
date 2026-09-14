@@ -218,11 +218,11 @@ contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 import { TraceSankey } from 'trace-sankey/react';
 import 'trace-sankey/style.css';
 <TraceSankey ref={ref} doc={wireJson} minBps={0} channels="both" layout="flat" roots={null}
-  pathHighlight onNodeClick={(id, node) => locate(id)} focus={false} className="my-chart"
+  order="flow" pathHighlight onNodeClick={(id, node) => locate(id)} focus={false} className="my-chart"
   onModel={m => …} onError={errs => …} onZoom={pct => …} />
 // 容器高度由你的 CSS 決定（元件不設高度）；ref：{ refresh(), model, zoom: { fit, actual, zoomBy, refresh, isPanning } }
-// 會改圖的選項（minBps／channels／layout／roots）都是 props：改了縮放保留；換一份內容不同的 doc 才重新 fit
-// （內容相同的新物件視同沒換）。沒有 setter：props 驅動
+// 會改圖的選項（minBps／channels／layout／roots／order）都是 props：改了縮放保留；換一份內容不同的
+// doc 才重新 fit（內容相同的新物件視同沒換）。沒有 setter：props 驅動
 
 // 不用 React 框架的頁面：一樣用 createRoot 掛，五行
 import { createRoot } from 'react-dom/client';
@@ -234,6 +234,11 @@ import { render } from 'trace-sankey/static';
 const model = build(wireJson, { minBps: 0, channels: 'both', layout: 'node' });
 if (model.ok) fs.writeFileSync('out.svg', render(model));
 if (model.ok) fs.writeFileSync('tables.html', flowTables(model).html);   // 參考面板的三張表
+
+// 版面選項只掛 layout()：算一次 geo 傳給 render 與 flowTables，圖與表保證同源
+import { layout } from 'trace-sankey';
+const geo = layout(model, { order: 'barycenter' });
+fs.writeFileSync('out.svg', render(model, geo));
 ```
 
 套件的完整說明（props、ref、DOM 契約、CSS 變數、多實例）在 `packages/trace-sankey/README.md`。
@@ -250,6 +255,7 @@ if (model.ok) fs.writeFileSync('tables.html', flowTables(model).html);   // 參�
 | Locate（點卡片） | `onNodeClick(id, node)` | 只有可定位的卡會回呼並標成 `.clickable`（hop 除了 `netapp-svm`、葉 pod、k8s node 外框）；namespace／application／owner／錨卡／host 葉不會，與參考的 locatable 規則相同 |
 | 專注模式 | `focus` | 純 CSS（`body.chart-focus`），刻意不用 Fullscreen API（tooltip 掛在 body 會消失）。套件只負責容器去框；你自己的工具列要藏，對 `body.chart-focus` 加規則 |
 | Flow summary 三張表 | `flowTables(model)` | Node flow summary（tier／node／in／out（有通道時分 read／write）／usage／status／health／notes）、Application subtotal、Namespace subtotal；回傳 `{nodes, applications, namespaces, html}`。`summary(model)` 是我們自己的 hop 平衡表，兩者並存 |
+| 欄內排序（依流量遞減） | `order: 'flow' \| 'barycenter'` | **預設 `'flow'`，與參考一致**（流量大的在上；一個節點的流量＝`max(入邊總和, 出邊總和)`、不含殘差）。ns 群與 k8s node 外框仍分組（組之間也照流量），同欄互連鏈整條相鄰且生產者在上，流量相等時退化成上游重心。`'barycenter'` 切回純上游重心（帶子最不互穿）——參考沒有這個開關 |
 | 主題 dark／light | — | 不做（深色） |
 
 對外契約（自己接互動時可依賴）：
@@ -1127,7 +1133,9 @@ packages/trace-sankey/       npm 套件（TypeScript、純 ESM；tsc 編到 dist
   README.md                  套件自己的說明（安裝、props、ref、DOM 契約）；隨 npm pack 出貨
   src/model/                 build()：驗證、起點解析、分類節點、加總同鍵的邊、顯示門檻／通道過濾、排欄、
                              算殘差、k8s node 外框（wrappers）、roots（七步各一檔）
-  src/layout/                layout(model)：版面（純函式，回 Geometry，含外框）、path 產生器、tooltip 資料、欄標題
+  src/layout/                layout(model, opts)：版面（純函式，回 Geometry，含外框）、path 產生器、tooltip 資料、欄標題
+  src/layout/options.ts      版面選項（order：'flow' 流量排序／'barycenter' 上游重心）
+  src/layout/colors.ts       **全套件唯一的色票**；styles/ 的 CSS 變數由它產生（npm run gen:css）
   src/svg/                   React 元件：TraceSvg 根、帶（data-e）、各種卡片（data-n）、k8s node 外框、殘差色塊
   src/zoom.ts                createZoom()：縮放平移（滾輪定位游標、拖曳、雙指、符合視窗／1:1）
   src/tooltip/               TraceTooltip（portal + 事件委派）與 tooltip 內容元件
@@ -1139,8 +1147,12 @@ packages/trace-sankey/       npm 套件（TypeScript、純 ESM；tsc 編到 dist
   src/static.ts              render()/summary()/flowTables() 字串渲染入口（trace-sankey/static；Node 也能跑）
   src/summary.ts             hop 摘要表（HTML 字串）
   src/tables.ts              flowTables()：參考面板的三張表（結構化資料＋HTML）
-  src/samples.ts             十個內建範例（trace-sankey/samples）；storage 是參考面板的 demo fixture
+  src/aggregates.ts          namespaceAggs()：summary() 與 flowTables() 共用的 namespace 小計
+  src/samples.ts             十一個內建範例（trace-sankey/samples）
+  src/samples.storage.ts     產生的：來源是 samples/storage.json（參考面板的 demo fixture，原封不動）
+  scripts/                   codegen：gen-css.mjs（色票 → CSS）、gen-samples.mjs（JSON → samples.storage.ts）
   styles/trace-sankey.css    圖與 tooltip 的樣式（trace-sankey/style.css）
+  styles/tokens.css          選用：同一份色票掛在 :root，讓使用端的圖例／工具列跟圖同色
 app/                         Vite + React 使用端
   src/api.js                 追查 API 的唯一出入口（組 query、fetch、翻譯錯誤）
   src/useTraceDoc.js         資料來源 hook：查詢、abort、契約驗證
@@ -1156,6 +1168,9 @@ samples/*.json               範例 JSON（與 samples.js 同一批；make check
                              public/demo/storage-graph.json @ 9e568c7（Apache-2.0）
 stress/                      縮放平移的壓力測試資料與產生器（make check 也會 build 它們）
 tools/golden.mjs             重構對拍：dump 所有範例輸出，cmp 對拍（svg 語意等價、其餘逐 byte）；check 子命令＝make check
+tools/test/*.test.mjs        make test：單一來源的不變量（golden 管「輸出沒變」，這裡管「同一個結論只有一份定義」）
+deploy/templates/security-headers.conf
+                             安全標頭的單一來源（nginx 的 add_header 不繼承，被 template 四處各 include 一次）
 docs/migration-wire-format.md  舊 investigation+hops 格式 → elements 格式的手動遷移指南
 Dockerfile                   多階段；--target content = 只有 dist 的小映像（主要），
                              不帶 target = nginx 全包的自足映像（次要）
