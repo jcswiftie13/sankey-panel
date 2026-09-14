@@ -646,7 +646,7 @@ hop 型（見下）；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不�
 
 | 鍵 | 效果 |
 | --- | --- |
-| `namespace` | pod：ns 的**最後備援**（`parent` 鏈找不到 application／namespace 祖先時才用）。pvc 等其他 hop：副標印 `ns/<namespace>`（ns 色），tooltip 也有。非 pod 的葉卡：左緣掛 ns 色條 |
+| `namespace` | pod：ns 的**最後備援**（`parent` 鏈找不到 application／namespace 祖先時才用）。pvc 等其他 hop：副標印 `ns/<namespace>`，tooltip 也有。非 pod 的葉卡：印 `ns/<namespace>` 行 |
 | `tier` | 同 `tier` 的節點**鎖在同一欄**，彼此之間的邊畫成右側弧帶。字串內容自訂，只比對相同與否。見「同層互連（tier）」。`netapp-node`／`netapp-aggr`／`netapp-svm`／`pvc` 沒給時自動以 `type` 當 tier |
 | `ontap_cluster` | 副標多印一段 ` · <ontap_cluster>`，tooltip 多一列。給哪種 type 都會印，慣例是 netapp 三型別 |
 
@@ -665,7 +665,7 @@ hop 型（見下）；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不�
   不接 ns（流量已流向下游，再接會重複計量），它的 ns 只是盒副標。
 - **pod 的 namespace 解析順序**：`parent` 鏈上有 `application` 祖先 → 先接 application 卡（標題＝該群組的 `name`），
   再取那個 application 的 `namespace` 祖先；否則 pod 自己的 `namespace` 祖先；否則 `labels.namespace`；
-  都沒有 → pod 卡不接 ns（合法：沒有色條、卡矮一階、不報錯不警告）。同名 application 出現在兩個 ns 是兩張卡。
+  都沒有 → pod 卡不接 ns（合法：沒有 ns 行、卡矮一階、不報錯不警告）。同名 application 出現在兩個 ns 是兩張卡。
 - **推導邊的值**：pod → application 與 application → namespace 都是 pod 自己那條（或那幾條）入邊的加總——
   同一筆數字的重新分組，不是推估。全圖同 ns／同 app 合一個終點卡，終點卡上印合計與 pod 數。
 - **群組卡的 `status`** ＝ 成員 pod 的最差值（`normal < warning < critical`）；沒有任何成員有 status 就維持中性框。
@@ -808,18 +808,18 @@ hop 型（見下）；被丟掉的 k8s node（只被 `pod-node` 邊碰到）不�
 | 畫面元素 | 來源 |
 | --- | --- |
 | 每張卡的版式（統一） | 第 1 行型別標（hop 是 `type` 原字、葉是輸入的 `type`、pod／application／namespace／owner／node 固定字、錨卡「追查起點」）→ 第 2 行名字（`name`，缺就 `id`）→ 之後一行一個屬性。**卡面不印 id**（參考後端的 id 是路徑式長字串），tooltip 最後一列有 |
-| 盒子屬性行 | `ns/<namespace>`（ns 色；pod：推導的 ns，其他：`labels.namespace`）、`labels.ontap_cluster`、`usage`（兩欄齊全才有）——各自有才印，標題區高度跟著行數 |
+| 盒子屬性行 | `ns/<namespace>`（pod：推導的 ns，其他：`labels.namespace`）、`labels.ontap_cluster`、`usage`（兩欄齊全才有）——各自有才印，標題區高度跟著行數 |
 | 盒子外框 | `status` 色 > 追查起點青框 > 設備天藍虛線 > 預設灰 |
 | 槽位旁的小字 | 邊的 `labels.source_iface`（右緣）／`target_iface`（左緣） |
 | 帶寬與帶上數字 | `metrics.delta_bps` 或 `read/write_bytes_per_sec`（加總後） |
 | 帶的顏色 | 無通道／read 青、write 燃橘、回流玫瑰（不分通道） |
 | 殘差色塊 | `other_in_bps`／`other_out_bps`，或平衡式自動補 |
-| 葉卡 | `type` 不是 hop／群組的節點：標題 `name`／`id`、`labels.namespace` 色條、iface、數量合計；右上角 `未再往下追` |
-| 葉卡（帶 `clients`） | 標題只在有 `name` 時畫；`labels.namespace` 色條、`clients` 的 `hostname` / `ip` / `owner` 三欄表格（有表頭、每台一列、全部列出、空欄不畫）、數量合計（**不重複印 iface**）；右上角 `client`／`N 個 client` |
+| 葉卡 | `type` 不是 hop／群組的節點：標題 `name`／`id`、`ns/<labels.namespace>` 行、iface、數量合計；右上角 `未再往下追` |
+| 葉卡（帶 `clients`） | 標題只在有 `name` 時畫；`ns/<labels.namespace>` 行、`clients` 的 `hostname` / `ip` / `owner` 三欄表格（有表頭、每台一列、全部列出、空欄不畫）、數量合計（**不重複印 iface**）；右上角 `client`／`N 個 client` |
 | owner 卡 | 從葉卡的 `clients[].owner` 推導（查不到 owner 的不開卡）：標題＝owner 字串、已量到的合計（只算「整張卡只有這一個 owner」的 port，不足時標「（部分 port）」／全無時印「量停在 port」）、`N 台 client · M 個 port` |
 | 歸屬線 | port 上不只一位的機器（含查不到 owner 的）時，葉卡 → 各具名 owner 卡的灰虛線，**不帶量、不印數字** |
-| pod 卡 | `type:"pod"` 且沒有往下走的邊：ns 色條與 `ns/<ns>` 行（推導的 ns）、`iface · 量` 行 |
-| application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：名字＝群組的 `name`；屬性行 `ns/<ns>`（application 才有）、`N 個 pod`、`合計 <量>`；成員最差 `status` 框 |
+| pod 卡 | `type:"pod"` 且沒有往下走的邊：`ns/<ns>` 行（推導的 ns）、`iface · 量` 行 |
+| application／namespace 終點卡 | 從 pod 的 `parent` 鏈推導：名字＝群組的 `name`；屬性行 `ns/<ns>`（application 才有）、`N 個 pod`、`合計 <量>`；灰色實線框，成員有 `status` 時換成最差 `status` 的框色 |
 | 錨卡 | `investigation`：`iface`、方向、`delta_bps`、`note`（tooltip） |
 | 帶的 tooltip | from／to、出口／入口 iface（**那一端有值才印**：switch 的 port 才有 iface，storage 邊、推導邊、歸屬線沒有）、速率（含 channel；**歸屬線沒有這一列**）、ns、`client`（下游那端的葉有 `clients` 時；往 owner 卡的邊改列 port 那端）、`歸屬`（歸屬線）、tier、attribution、IOPS、延遲、QoS 上限、是否錨邊／回流 |
 | 卡片的 tooltip | 每一種卡同一套：型別／名稱、ns、ontap_cluster、**`in（read）／in（write）／out（read）／out（write）` 四行**（沒通道的資料是 `in`／`out` 兩行；in／out 一律是封包方向的入邊／出邊，namespace 終點的 out 是 0）、卡種附加列（hop：其他輸入／其他輸出；application／namespace／k8s node 外框：`來源：成員 pod 加總（推導值）`＋pod 數；owner：來源＋台數＋port 數，量停在 port 時 in 印「—」）、usage、status、health、model、perf(raw)、alerts、no-flow、`clients`（每筆一列、不截斷）、**id（最後一列，只在 id ≠ 名字時）** |
@@ -1069,8 +1069,8 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
   一個 owner 都查不到的 port 不接 owner 層。接了 owner 的 port 葉左上角改成 `port`。
   整欄 owner 的欄標題是「追查終止 · owner」。
 - k8s 接在同一條 Sankey 上：switch → node（天藍虛線盒）→ pod（天藍虛線中繼卡，標 name 與
-  `ns/<namespace>`）→ namespace（ns 色終點卡）。不是每個 switch iface 都接 node；node 可以
-  當葉（沒有往下的邊就整台由平衡式補成其他輸出）；pod 沒有 namespace 也合法（不接 ns、沒有色條）。
+  `ns/<namespace>`）→ namespace（終點卡）。不是每個 switch iface 都接 node；node 可以
+  當葉（沒有往下的邊就整台由平衡式補成其他輸出）；pod 沒有 namespace 也合法（不接 ns、沒有 ns 行）。
   node 用同一套截斷，沒跟的 pod 併成該 node 的其他輸出。
 - storage 鏈接在同一套畫法上：netapp-node／netapp-aggr／netapp-svm 是虛線設備盒、pvc 實線盒；
   副標多一段 ` · <type>`，有 `labels.ontap_cluster` 再多一段；`usage` 兩欄齊全就在副標下多一行
@@ -1090,8 +1090,10 @@ storage 最小例（`parent` 鏈、read／write 兩條帶、status、usage）；
   **全圖同 ns 合一個節點**（跨 node 的 pod 匯流），「這個 ns 總共多少」直接在圖上讀；
   追來源模式鏡像，ns 終點落在最左欄。有往下走的邊的中繼 pod（proxy pod）**不接** ns——
   它的流量已流向自己的下游，再接會重複計量破壞守恆，它的 ns 只是盒副標。
-  同 ns 的 pod 在欄內**相鄰排列**、左緣掛同色 ns 色條（色盤 10 色依首次出現順序取用、
-  第 11 個才循環）；pod 落在不同深度時各 ns 各自落欄，是預期行為。彙總數字在 `summary()`
+  同 ns 的 pod 在欄內**相鄰排列**、卡面印 `ns/<ns>`；**namespace 刻意不配色**——外框色只表達 `status`
+  （群組卡的外框曾經是「有 status 用 status 色、沒有才用 ns 色」，storage 資料的 pod 幾乎都帶 status，
+  同一種卡在兩種資料下顏色代表不同的東西；色盤也只擠得出 10 色），歸屬靠匯進 ns 終點卡的帶子讀。
+  pod 落在不同深度時各 ns 各自落欄，是預期行為。彙總數字在 `summary()`
   的「namespace 流量小計」表（目前 app 沒有顯示這張表）。
 - 整欄同一種非 switch 型別時欄標題帶型別名：「第 N 跳 · k8s node」「第 N 跳 · NetApp aggregate」
   「第 N 跳 · SVM」「第 N 跳 · PVC」；整欄都是 pod 卡標「第 N 跳 · pod」；整欄 application 標

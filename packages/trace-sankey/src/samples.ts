@@ -343,7 +343,7 @@ var SAMPLES: TraceSample[] = [
           N('sw-tor-1:xe-0/0/12', 'host', null, {
             clients: [{ ip: '10.42.7.31', hostname: 'lab-gpu-01', owner: '網管部 王小明' }]
           }),
-          /* 只有 IP：卡上一行、沒有 owner 行；帶 ns 色條驗證色條跟著卡長高 */
+          /* 只有 IP：卡上一行、沒有 owner 行；帶 ns 驗證 ns 行有算進卡高 */
           N('sw-tor-1:xe-0/0/13', 'host', null, {
             labels: { namespace: 'lab' },
             clients: [{ ip: '10.42.7.32' }]

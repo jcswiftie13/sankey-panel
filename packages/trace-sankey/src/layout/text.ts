@@ -51,14 +51,13 @@ export const hasUsage = (n: TraceNode | TraceWrapper): boolean =>
 /* ---------- 卡面的屬性行：一份清單，高度取長度、cards.tsx 迭代它來畫 ----------
    以前這兩件事各寫一次（這裡算行數、cards.tsx 一串 `if (cond) { push; ly += LINE_H }`），
    每一組都碰巧抄對，但那是兩份手抄。之後在卡面多加一行卻忘了改行數，卡的內容會超出算出的
-   高度、分隔線與下方卡片的 y 全錯位，而且**沒有型別錯誤也沒有執行期例外**。
-   `ns: true` 的那一行要染 namespace 色——顏色留給 cards.tsx 查 nsColor，這裡維持純文字。 */
-export interface CardLine { key: string; text: string; ns?: true }
+   高度、分隔線與下方卡片的 y 全錯位，而且**沒有型別錯誤也沒有執行期例外**。 */
+export interface CardLine { key: string; text: string }
 
 /* hop 盒標題區：型別標＋名字固定 HEADER_H，之後一行一個屬性 */
 export const hopLines = (n: TraceNode): CardLine[] => {
   const out: CardLine[] = [];
-  if (n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace, ns: true });
+  if (n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace });
   if (n.ontapCluster) out.push({ key: 'oc', text: n.ontapCluster });
   if (hasUsage(n)) out.push({ key: 'u', text: '使用 ' + usageText(n.usage) });
   return out;
@@ -69,7 +68,7 @@ export const headerH = (n: TraceNode): number => HEADER_H + LINE_H * hopLines(n)
    root 一律畫：被選成 root 卻沒有任何可畫的邊的 pod 是 no-flow 卡，量那行印 no flow 而不是 0。 */
 export const leafLines = (n: TraceNode): CardLine[] => {
   const out: CardLine[] = [];
-  if (n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace, ns: true });
+  if (n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace });
   const ifc = n.iface || n.localIface || '';
   out.push({ key: 'amt', text: n.noFlow ? 'no flow' : (ifc ? ifc + ' · ' : '') + fmtAmount(n.bps!, n.unit!) });
   return out;
@@ -79,7 +78,7 @@ export const leafLines = (n: TraceNode): CardLine[] => {
    （參考面板：application · ns/prod · 2 pods）；namespace 卡的 ns 就是自己，不重複印。 */
 export const groupLines = (n: TraceNode): CardLine[] => {
   const out: CardLine[] = [];
-  if (n.role === 'app' && n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace, ns: true });
+  if (n.role === 'app' && n.namespace) out.push({ key: 'ns', text: 'ns/' + n.namespace });
   out.push({ key: 'pods', text: n.podCount + ' 個 pod' });
   out.push({ key: 'sum', text: '合計 ' + fmtRate(n.bps!, n.unit!) });
   return out;

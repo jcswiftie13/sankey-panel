@@ -60,8 +60,6 @@ export interface Geometry {
   wrappers: WrapperGeom[];
   /** 外框所在的 pod 欄；-1＝沒有外框 */
   podCol: number;
-  /** namespace → 顏色（依首次出現順序取自 NS_COLORS） */
-  nsColor: Record<string, string>;
   nodes: Map<string, NodeGeom>;
   edges: Map<string, EdgeGeom>;
 }

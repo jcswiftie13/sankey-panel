@@ -7,7 +7,7 @@ import type { EdgeGeom, Geometry, NodeGeom, Slot, WrapperGeom } from './geometry
 import type { LayoutOptions, NodeOrder } from './options.js';
 import { DEFAULT_ORDER } from './options.js';
 import {
-  ANCHOR_W, BODY_MIN, BODY_PAD, COL_GAP, NODE_W, NS_COLORS, OWN_T,
+  ANCHOR_W, BODY_MIN, BODY_PAD, COL_GAP, NODE_W, OWN_T,
   PAD_BOTTOM, PAD_SIDE, PAD_TOP, ROW_GAP, ROW_H, THICK_MAX, THICK_MIN, VGAP, WRAP_HEADER_H, WRAP_PAD
 } from './constants.js';
 import { clientW, flowOf, headerH, leafH, resIn, resOut } from './text.js';
@@ -186,14 +186,6 @@ export const layout = (model: TraceModelOk, opts: LayoutOptions = {}): Geometry 
   const ge = new Map<string, EdgeGeom>();
   const N = (id: string): NodeGeom => gn.get(id)!;
   const E = (e: TraceEdge): EdgeGeom => ge.get(e.id)!;
-
-  /* namespace → 顏色：掃節點（葉與 hop 級 ns 都算）依首次出現順序取色 */
-  const nsColor: Record<string, string> = {};
-  for (const n of nodes) {
-    if (n.namespace && nsColor[n.namespace] == null) {
-      nsColor[n.namespace] = NS_COLORS[Object.keys(nsColor).length % NS_COLORS.length];
-    }
-  }
 
   /* 殘差跟青帶共用同一把比例尺，比例才讀得出來。殘差比所有邊都大時青帶會變細，
      那正是「沒追到的佔大多數」該有的觀感。 */
@@ -457,5 +449,5 @@ export const layout = (model: TraceModelOk, opts: LayoutOptions = {}): Geometry 
   });
   if (backs.length) totalH = backY - 16 + PAD_BOTTOM;
 
-  return { cols, colX, width: totalW, height: Math.max(totalH, 220), nsColor, nodes: gn, edges: ge, wrappers, podCol };
+  return { cols, colX, width: totalW, height: Math.max(totalH, 220), nodes: gn, edges: ge, wrappers, podCol };
 };

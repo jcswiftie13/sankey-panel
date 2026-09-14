@@ -19,8 +19,8 @@ const walk = (dir) => readdirSync(dir).flatMap((f) => {
 });
 
 /* 這條是整個收斂的核心不變量：色值只能有一個出處。
-   註解裡的色值也算（NS_COLORS 那段「試過淺變體、否決」的理由就帶著兩個 hex，
-   所以那整段連同註解一起住在 colors.ts）。 */
+   註解裡的色值也算：寫在別處的「這個色值為什麼不行」也是一份會漂移的抄本，
+   理由要帶色值就連同註解一起住在 colors.ts。 */
 test('套件 src 裡的十六進位色值只出現在 layout/colors.ts', () => {
   const offenders = [];
   for (const p of walk(SRC)) {

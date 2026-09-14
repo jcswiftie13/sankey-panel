@@ -141,13 +141,16 @@ export default function App() {
   const cleaned = cleanMin(minText);
   const hasBack = !!model && model.edges.some(e => e.backward);
   const hasLat = !!model && model.edges.some(e => e.lateral);
-  /* storage 資料才有 read／write 通道與 status 外框；switch 追查資料的圖例維持原樣。
+  /* read／write 通道與 status 外框的圖例都看圖上實際有沒有，不看資料是 storage 還是 switch。
      **逐通道問，不是問「有沒有任何通道」**：契約允許只給 read_bytes_per_sec，套件的
      channels 選項也可能只留一個通道——那時圖上根本沒有 write 帶，圖例卻照樣印 write 那一行，
      宣稱存在一種圖上沒有的通道。判定用套件的 channelsIn，跟 Defs 決定要不要輸出 write
      漸層的是同一份。 */
   const chs = model ? channelsIn(model.edges) : [];
-  const hasStatus = !!model && model.nodes.some(n => n.status);
+  /* k8s node 外框（layout:'node'）不在 nodes 裡、在 wrappers 裡：只有 node 帶 status、
+     底下的 pod 都沒有時，外框照樣畫成 status 色，只問 nodes 的話圖例就不出現。
+     flat 版面的 wrappers 是空陣列，不影響。 */
+  const hasStatus = !!model && (model.nodes.some(n => n.status) || model.wrappers.some(w => w.status));
   /* owner 層：灰虛線的歸屬線不解釋的話會被當成一條很小的流量 */
   const hasOwns = !!model && model.edges.some(e => e.owns);
   const z = () => chartRef.current && chartRef.current.zoom;
